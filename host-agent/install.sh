@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
+if [ ! -f "$SCRIPT_DIR/.env" ]; then
+    cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
+    echo "Created $SCRIPT_DIR/.env from .env.example - edit it if this box's paths differ."
+fi
+
 mkdir -p "$UNIT_DIR"
 cp "$SCRIPT_DIR/systemd/csm-agent.socket" "$UNIT_DIR/csm-agent.socket"
 cp "$SCRIPT_DIR/systemd/csm-agent@.service" "$UNIT_DIR/csm-agent@.service"

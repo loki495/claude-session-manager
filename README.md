@@ -90,14 +90,21 @@ claude-session-manager/
 │   ├── index.php           # Basic Auth, action handling, HTML/Tailwind UI
 │   └── lib/
 │       └── AgentClient.php  # talks to the host agent over a UNIX socket
-└── host-agent/             # installed natively on the HOST, not in Docker
-    ├── agent.php            # per-connection entry point (systemd socket activation)
-    ├── lib/
-    │   └── Sessions.php      # tmux calls + /proc scanning + all the real logic
-    ├── systemd/
-    │   ├── csm-agent.socket   # defines the UNIX socket (systemd --user)
-    │   └── csm-agent@.service # spawns agent.php per connection
-    └── install.sh            # installs + enables the systemd units
+├── host-agent/             # installed natively on the HOST, not in Docker
+│   ├── agent.php            # per-connection entry point (systemd socket activation)
+│   ├── .env.example         # copy to .env, host-specific paths, never commit .env
+│   ├── lib/
+│   │   └── Sessions.php      # tmux calls + /proc scanning + all the real logic
+│   ├── systemd/
+│   │   ├── csm-agent.socket   # defines the UNIX socket (systemd --user)
+│   │   └── csm-agent@.service # spawns agent.php per connection, loads .env
+│   └── install.sh            # installs + enables the systemd units, creates .env
+└── tests/                  # dependency-free test suite, see "Running tests" below
+    ├── run.sh               # entrypoint: bash tests/run.sh
+    ├── .env.testing         # points every host-specific path at isolated fixtures
+    ├── lib/                 # assert helpers + reusable socket/HTTP test harnesses
+    ├── fixtures/            # fake claude binary, fake www root, canned fake agent
+    └── test_*.php           # one file per area (protocol, session lifecycle, UI)
 ```
 
 There is no standalone `Dockerfile` for the container — its build steps
@@ -164,6 +171,31 @@ gets a fresh PHP process. You only need to re-run `install.sh` (or
 `systemctl --user daemon-reload`) if you change the `.socket`/`.service`
 unit files themselves.
 
+## Configuration (host agent)
+
+`host-agent/lib/Sessions.php` reads five host-specific values from the
+environment, each falling back to this box's real values if unset — a
+fresh checkout with no `.env` behaves exactly as before this mechanism
+existed:
+
+| Variable                    | Default                              | Meaning                                    |
+|------------------------------|---------------------------------------|---------------------------------------------|
+| `CLAUDE_BIN`                 | `/home/andres/.local/bin/claude`      | Real claude CLI (`argv[0]` must match this) |
+| `WWW_ROOT`                   | `/home/andres/www`                    | Root offered in the New Session dropdown    |
+| `TMUX_SOCKET`                | `/tmp/tmux-1000/default`              | tmux socket this agent drives (`-S`)        |
+| `SIDECAR_DIR`                | `/run/user/1000/csm-sessions`         | Per-session workdir/spawned_at metadata     |
+| `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                         | Inactivity threshold for "Kill inactive"    |
+
+`host-agent/install.sh` copies `host-agent/.env.example` to `host-agent/.env`
+if missing (edit it if any of these paths differ on this box), and
+`csm-agent@.service` loads it via `EnvironmentFile=-/home/andres/www/claude-session-manager/host-agent/.env`
+(the leading `-` means startup doesn't fail if `.env` is absent). Re-run
+`install.sh` (or `systemctl --user daemon-reload` + restart
+`csm-agent.socket`) after editing `.env` for changes to take effect.
+
+`tests/.env.testing` is the same mechanism pointed at isolated fixtures
+instead — see "Running tests" below.
+
 ## The agent socket caveat (read this)
 
 - The agent's socket lives at `$XDG_RUNTIME_DIR/csm-agent.sock` (normally
@@ -217,6 +249,51 @@ On a phone on the same LAN:
 3. Basic Auth credentials are cached per-browser-session by most mobile
    browsers, but you may be re-prompted after the browser fully restarts —
    this is expected and not a bug.
+
+## Running tests
+
+```
+bash tests/run.sh          # run every test file
+bash tests/run.sh --bail   # stop at the first failing test file
+```
+
+No Composer, no Pest — plain PHP scripts (`tests/test_*.php`) run directly
+by the `php` CLI, driven by a bash entrypoint. Nothing beyond `php`,
+`bash`, `curl`, and `tmux` (already required to run this app at all) is
+needed; a headless browser (`google-chrome-stable`, `google-chrome`,
+`chromium`, or `chromium-browser`) is used for a couple of extra checks in
+`test_ui_smoke.php` *if* one is already installed, and skipped cleanly
+otherwise.
+
+**Isolation, since this tool can create real tmux sessions and spawn real
+processes on this host:**
+
+- `tests/.env.testing` points `TMUX_SOCKET` at `/tmp/csm-test-tmux/socket`
+  — a completely separate tmux **server**, never the real one at
+  `/tmp/tmux-1000/default`. It cannot see or touch the real `cc-*`
+  sessions.
+- `CLAUDE_BIN` points at `tests/fixtures/fake_claude`, a symlink to
+  `/bin/cat` (not a script — a plain symlink, so `argv[0]` is preserved
+  exactly like the real launcher, which matters for
+  `find_claude_processes()`'s matching). The real, billable `claude` CLI
+  is never invoked by the test suite.
+- `tests/run.sh` traps normal exit, Ctrl-C, and `TERM` and always runs
+  cleanup: `tmux -S <test socket> kill-server` (kills the isolated server
+  and every process it started), a `pkill -f fake_claude` sweep, and
+  removal of the isolated sidecar/socket dirs — on success, on any test
+  failure, `--bail` or not, and on interrupt (the interrupt handler
+  cleans up *then* terminates the script, rather than resuming the loop).
+  It also refuses to run at all if `.env.testing` ever points at the real
+  socket/sidecar paths.
+- `test_ui_smoke.php` talks to a canned fake agent
+  (`tests/fixtures/canned_agent.php`) instead of the real one, so it never
+  touches tmux at all.
+
+`tests/test_agent_client_protocol.php` covers the socket wire protocol
+(`src/lib/AgentClient.php` against the real `host-agent/agent.php`),
+`tests/test_sessions_lifecycle.php` covers create/list/kill/cleanup against
+the isolated tmux fixture, and `tests/test_ui_smoke.php` covers the web UI
+end to end via curl (plus the optional headless-browser tier above).
 
 ## Security summary
 

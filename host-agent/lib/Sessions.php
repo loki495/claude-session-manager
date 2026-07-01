@@ -12,12 +12,45 @@ declare(strict_types=1);
  * claude process would be unreachable from the host.
  */
 
-const CLAUDE_BIN = '/home/andres/.local/bin/claude';
-const WWW_ROOT = '/home/andres/www';
-const TMUX_SOCKET = '/tmp/tmux-1000/default';
-const SIDECAR_DIR = '/run/user/1000/csm-sessions';
-const CLEANUP_THRESHOLD_SECONDS = 43200; // 12h
 const CLK_TCK = 100; // USER_HZ has been 100 on Linux/x86_64 since the 2.6 era
+
+/**
+ * Host-specific paths/thresholds, overridable via env (see
+ * host-agent/.env.example, loaded by systemd's EnvironmentFile= in
+ * production) so tests can point at an isolated tmux socket and a fixture
+ * claude binary instead of the real host session. Falls back to the real
+ * production values when unset.
+ */
+function csm_config(string $key, string $default): string
+{
+    $value = getenv($key);
+    return $value !== false && $value !== '' ? $value : $default;
+}
+
+function claude_bin(): string
+{
+    return csm_config('CLAUDE_BIN', '/home/andres/.local/bin/claude');
+}
+
+function www_root(): string
+{
+    return csm_config('WWW_ROOT', '/home/andres/www');
+}
+
+function tmux_socket(): string
+{
+    return csm_config('TMUX_SOCKET', '/tmp/tmux-1000/default');
+}
+
+function sidecar_dir(): string
+{
+    return csm_config('SIDECAR_DIR', '/run/user/1000/csm-sessions');
+}
+
+function cleanup_threshold_seconds(): int
+{
+    return (int)csm_config('CLEANUP_THRESHOLD_SECONDS', '43200'); // 12h
+}
 
 /**
  * @param string[] $args
@@ -25,7 +58,7 @@ const CLK_TCK = 100; // USER_HZ has been 100 on Linux/x86_64 since the 2.6 era
  */
 function tmux_run(array $args): array
 {
-    $cmd = array_merge(['tmux', '-S', TMUX_SOCKET], $args);
+    $cmd = array_merge(['tmux', '-S', tmux_socket()], $args);
 
     $descriptors = [
         0 => ['pipe', 'r'],
@@ -218,7 +251,7 @@ function find_claude_processes(): array
         // /home/andres/.local/bin/claude` retains that whole command line
         // as its own argv, which would otherwise false-positive-match the
         // tmux server itself as a bare claude process.
-        if (($argv[0] ?? null) !== CLAUDE_BIN) {
+        if (($argv[0] ?? null) !== claude_bin()) {
             continue;
         }
 
@@ -234,7 +267,7 @@ function find_claude_processes(): array
 
 function sidecar_path(string $sessionName): string
 {
-    return SIDECAR_DIR . '/' . $sessionName . '.json';
+    return sidecar_dir() . '/' . $sessionName . '.json';
 }
 
 /**
@@ -256,8 +289,8 @@ function read_sidecar(string $sessionName): ?array
 
 function write_sidecar(string $sessionName, array $data): void
 {
-    if (!is_dir(SIDECAR_DIR)) {
-        @mkdir(SIDECAR_DIR, 0700, true);
+    if (!is_dir(sidecar_dir())) {
+        @mkdir(sidecar_dir(), 0700, true);
     }
 
     @file_put_contents(sidecar_path($sessionName), json_encode($data));
@@ -276,7 +309,7 @@ function delete_sidecar(string $sessionName): void
  */
 function prune_orphaned_sidecars(array $liveSessionNames): void
 {
-    foreach (glob(SIDECAR_DIR . '/*.json') ?: [] as $path) {
+    foreach (glob(sidecar_dir() . '/*.json') ?: [] as $path) {
         $name = basename($path, '.json');
 
         if (!in_array($name, $liveSessionNames, true)) {
@@ -354,7 +387,7 @@ function create_cc_session(string $workdir): array
     $result = tmux_run([
         'new-session', '-d', '-s', $name,
         '-c', $workdir,
-        CLAUDE_BIN,
+        claude_bin(),
     ]);
 
     if ($result['exit'] !== 0) {
@@ -415,7 +448,7 @@ function cleanup_inactive_sessions(): array
     $failed = [];
 
     foreach (list_cc_tmux_sessions() as $session) {
-        if (($now - $session['activity']) <= CLEANUP_THRESHOLD_SECONDS) {
+        if (($now - $session['activity']) <= cleanup_threshold_seconds()) {
             continue;
         }
 
@@ -439,19 +472,21 @@ function list_www_dirs(): array
 {
     $dirs = [];
 
-    foreach (scandir(WWW_ROOT) ?: [] as $entry) {
+    $root = www_root();
+
+    foreach (scandir($root) ?: [] as $entry) {
         if ($entry === '.' || $entry === '..' || $entry[0] === '.') {
             continue;
         }
 
-        if (is_dir(WWW_ROOT . '/' . $entry)) {
+        if (is_dir($root . '/' . $entry)) {
             $dirs[] = $entry;
         }
     }
 
     sort($dirs, SORT_STRING | SORT_FLAG_CASE);
 
-    return ['ok' => true, 'dirs' => $dirs, 'root' => WWW_ROOT];
+    return ['ok' => true, 'dirs' => $dirs, 'root' => $root];
 }
 
 /**

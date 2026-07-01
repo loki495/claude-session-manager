@@ -1,0 +1,118 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * Exercises the real create/list/kill/cleanup logic in
+ * host-agent/lib/Sessions.php against an isolated tmux socket and the
+ * tests/fixtures/fake_claude symlink (never the real tmux server or the
+ * real claude binary - see tests/.env.testing). Calls dispatch_action()'s
+ * underlying functions in-process; no socket layer involved here, that's
+ * covered by test_agent_client_protocol.php.
+ */
+
+require __DIR__ . '/lib/assert.php';
+require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
+
+const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
+
+if (tmux_socket() === REAL_TMUX_SOCKET) {
+    fwrite(STDERR, "REFUSING TO RUN: TMUX_SOCKET resolves to the real host socket. Check tests/.env.testing.\n");
+    exit(1);
+}
+
+/** @var string[] $createdSessions names still possibly running, for the finally-block safety net */
+$createdSessions = [];
+
+/**
+ * @return array{ok:bool, name:?string, message:string}
+ */
+function create_and_track(string $workdir, array &$createdSessions): array
+{
+    $result = create_cc_session($workdir);
+    $name = null;
+
+    if (preg_match('/Created session (cc-\S+) in/', (string)($result['message'] ?? ''), $m) === 1) {
+        $name = $m[1];
+        $createdSessions[] = $name;
+    }
+
+    return ['ok' => (bool)($result['ok'] ?? false), 'name' => $name, 'message' => (string)($result['message'] ?? '')];
+}
+
+function find_session(string $name): ?array
+{
+    foreach (list_all_sessions()['sessions'] as $session) {
+        if ($session['name'] === $name) {
+            return $session;
+        }
+    }
+
+    return null;
+}
+
+try {
+    // --- create ---
+    $created = create_and_track(www_root() . '/project-a', $createdSessions);
+    assert_true($created['ok'], 'create: ok=true');
+    assert_true($created['name'] !== null, 'create: session name parsed from message');
+    $name = $created['name'];
+
+    // --- list sees it, sidecar + pid matching worked ---
+    $session = $name !== null ? find_session($name) : null;
+    assert_true($session !== null, 'list: created session appears');
+    assert_equal(www_root() . '/project-a', $session['workdir'] ?? null, 'list: workdir recorded via sidecar');
+    assert_true($session['spawned_by_csm'] ?? false, 'list: spawned_by_csm is true');
+    assert_true(($session['pid'] ?? null) !== null, 'list: pane process pid matched via argv[0]');
+
+    // --- reject kill of a name that isn't currently active ---
+    $result = kill_cc_session('cc-not-a-real-session');
+    assert_equal(false, $result['ok'] ?? null, 'kill: rejects a name not in the live whitelist');
+
+    // --- kill ---
+    if ($name !== null) {
+        $result = kill_cc_session($name);
+        assert_true($result['ok'] ?? false, 'kill: ok=true');
+        $createdSessions = array_values(array_diff($createdSessions, [$name]));
+
+        assert_true(find_session($name) === null, 'kill: session no longer listed');
+        assert_true(!file_exists(sidecar_dir() . "/{$name}.json"), 'kill: sidecar file removed');
+    }
+
+    // --- input validation: relative path rejected before touching tmux ---
+    $result = create_cc_session('relative/path');
+    assert_equal(false, $result['ok'] ?? null, 'create: rejects a relative workdir');
+
+    // --- claude binary fails to start: tmux registers the session, then the pane
+    // exits immediately since the command doesn't exist - create_cc_session()'s
+    // post-creation check must catch that and report failure ---
+    $originalClaudeBin = claude_bin();
+    putenv('CLAUDE_BIN=/definitely/does/not/exist/csm-test-claude-binary');
+    $bad = create_and_track(www_root() . '/project-a', $createdSessions);
+    putenv("CLAUDE_BIN={$originalClaudeBin}");
+    assert_true(!$bad['ok'], 'create: a claude binary that fails to start is reported as failure');
+
+    // --- cleanup respects the (short, test-only) inactivity threshold ---
+    $created = create_and_track(www_root() . '/project-b', $createdSessions);
+    assert_true($created['ok'], 'cleanup setup: session created');
+
+    sleep(cleanup_threshold_seconds() + 1);
+
+    $result = cleanup_inactive_sessions();
+    assert_true($result['ok'] ?? false, 'cleanup: ok=true');
+    assert_true(
+        $created['name'] !== null && in_array($created['name'], $result['killed'] ?? [], true),
+        'cleanup: killed the inactive session'
+    );
+    if ($created['name'] !== null) {
+        $createdSessions = array_values(array_diff($createdSessions, [$created['name']]));
+    }
+} finally {
+    // Defense in depth - tests/run.sh's `tmux kill-server` on the isolated
+    // socket is the real backstop regardless of what happens here, but
+    // clean up explicitly too in case this script is ever run standalone.
+    foreach ($createdSessions as $leftover) {
+        kill_cc_session($leftover);
+    }
+}
+
+test_exit();
