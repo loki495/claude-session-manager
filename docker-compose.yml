@@ -1,0 +1,51 @@
+name: claude-session-manager
+
+services:
+  app:
+    container_name: csm-app
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1001}
+      dockerfile_inline: |
+        FROM php:8.3-cli-alpine
+        RUN apk add --no-cache tmux
+        # Must match the UID/GID of the host user owning the tmux server
+        # (`id andres` on the host) so the container can use the
+        # bind-mounted tmux socket.
+        ARG APP_UID=1000
+        ARG APP_GID=1001
+        RUN addgroup -g "${APP_GID}" appgroup \
+            && adduser -D -H -u "${APP_UID}" -G appgroup appuser
+        WORKDIR /var/www/html
+        USER appuser
+        ENV HOME=/tmp
+        EXPOSE 80
+        CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/html"]
+    restart: unless-stopped
+    environment:
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER}
+      BASIC_AUTH_PASS: ${BASIC_AUTH_PASS}
+      TMUX_SOCKET: ${TMUX_SOCKET:-/tmp/tmux-1000/default}
+    volumes:
+      # Code is mounted, not copied into the image, so edits show up on the
+      # next request with no rebuild/restart needed.
+      - ./src:/var/www/html
+      # Bind-mount the host's tmux socket directory (not just the socket
+      # file) so the container can see it if tmux recreates it.
+      - ${TMUX_SOCKET_DIR:-/tmp/tmux-1000}:${TMUX_SOCKET_DIR:-/tmp/tmux-1000}:rw
+    ports:
+      # Bind explicitly to a LAN interface IP, never 0.0.0.0. See README.
+      - "${BIND_ADDR:-127.0.0.1}:${APP_PORT:-8091}:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.csm.rule=Host(`csm.dev.local.test`)"
+      - "traefik.http.routers.csm.entrypoints=web"
+      - "traefik.http.services.csm.loadbalancer.server.port=80"
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
