@@ -73,7 +73,8 @@ try {
     assert_equal(200, $result['status'], 'GET / with auth: 200');
     assert_contains('Claude Session Manager', $result['body'], 'GET /: page title present');
     assert_contains('1 active', $result['body'], 'GET /: session count from canned agent');
-    assert_contains('cc-20260101-1200', $result['body'], 'GET /: canned session name rendered');
+    assert_contains('Fix the login redirect bug', $result['body'], 'GET /: canned pane title shown as the primary label');
+    assert_contains('cc-20260101-1200', $result['body'], 'GET /: raw session name still shown (secondary, since a title is present)');
     assert_contains('demo-project', $result['body'], 'GET /: canned workdir rendered');
     assert_contains('detached', $result['body'], 'GET /: canned session shown as detached');
 

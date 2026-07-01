@@ -26,6 +26,7 @@ $response = match ($action) {
             'pid' => 12345,
             'workdir' => '/home/andres/www/demo-project',
             'spawned_by_csm' => true,
+            'title' => 'Fix the login redirect bug',
         ]],
         'bare' => [],
     ],

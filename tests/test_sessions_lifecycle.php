@@ -50,6 +50,14 @@ function find_session(string $name): ?array
     return null;
 }
 
+// --- clean_pane_title(): strips Claude Code's animated spinner glyph,
+// leaving the short task description it sets via terminal title escapes ---
+assert_equal('Fix login bug', clean_pane_title('⠂ Fix login bug'), 'clean_pane_title: strips a leading spinner glyph');
+assert_equal('Fix login bug', clean_pane_title('⠐ Fix login bug'), 'clean_pane_title: strips a different spinner frame');
+assert_equal('No spinner here', clean_pane_title('No spinner here'), 'clean_pane_title: leaves a plain title untouched');
+assert_equal(null, clean_pane_title(''), 'clean_pane_title: empty title -> null (caller falls back to session name)');
+assert_equal(null, clean_pane_title('   '), 'clean_pane_title: whitespace-only title -> null');
+
 try {
     // --- create ---
     $created = create_and_track(www_root() . '/project-a', $createdSessions);
@@ -63,6 +71,11 @@ try {
     assert_equal(www_root() . '/project-a', $session['workdir'] ?? null, 'list: workdir recorded via sidecar');
     assert_true($session['spawned_by_csm'] ?? false, 'list: spawned_by_csm is true');
     assert_true(($session['pid'] ?? null) !== null, 'list: pane process pid matched via argv[0]');
+    // fake_claude (a symlink to /bin/cat) never sets a terminal title like the
+    // real claude CLI does, so its content isn't asserted here - only that
+    // list_all_sessions() always includes the key. The stripping behavior
+    // itself is covered deterministically by the clean_pane_title() checks above.
+    assert_true(array_key_exists('title', $session ?? []), 'list: title key present');
 
     // --- reject kill of a name that isn't currently active ---
     $result = kill_cc_session('cc-not-a-real-session');

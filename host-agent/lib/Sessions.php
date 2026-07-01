@@ -123,17 +123,51 @@ function list_cc_tmux_sessions(): array
 }
 
 /**
- * @return int[] pane pids belonging to the given tmux session
+ * @return array{pids:int[], title:?string} pane pids and the first pane's
+ * title, belonging to the given tmux session
  */
-function tmux_session_pane_pids(string $session): array
+function tmux_session_panes(string $session): array
 {
-    $result = tmux_run(['list-panes', '-t', $session, '-s', '-F', '#{pane_pid}']);
+    $result = tmux_run(['list-panes', '-t', $session, '-s', '-F', '#{pane_pid}|#{pane_title}']);
 
     if ($result['exit'] !== 0) {
-        return [];
+        return ['pids' => [], 'title' => null];
     }
 
-    return array_map('intval', array_filter(explode("\n", trim($result['stdout']))));
+    $pids = [];
+    $title = null;
+
+    foreach (explode("\n", trim($result['stdout'])) as $line) {
+        if ($line === '') {
+            continue;
+        }
+
+        [$pid, $paneTitle] = array_pad(explode('|', $line, 2), 2, '');
+        $pids[] = (int)$pid;
+
+        if ($title === null) {
+            $title = clean_pane_title($paneTitle);
+        }
+    }
+
+    return ['pids' => $pids, 'title' => $title];
+}
+
+/**
+ * Claude Code sets the terminal title to a short description of the
+ * current task, prefixed with an animated braille spinner glyph while
+ * actively working (e.g. "⠂ Fix login bug") - tmux captures this as
+ * pane_title via the standard OSC title escape sequence, no special tmux
+ * config needed. Strips the spinner so only the description remains; an
+ * empty/spinner-only title (nothing set yet, or a non-Claude process)
+ * returns null so callers can fall back to the session name.
+ */
+function clean_pane_title(string $title): ?string
+{
+    $stripped = preg_replace('/^[\x{2800}-\x{28FF}]+\s*/u', '', $title);
+    $title = trim($stripped ?? $title);
+
+    return $title !== '' ? $title : null;
 }
 
 /**
@@ -333,11 +367,11 @@ function list_all_sessions(): array
     $sessions = [];
 
     foreach ($tmuxSessions as $session) {
-        $panePids = tmux_session_pane_pids($session['name']);
+        $panes = tmux_session_panes($session['name']);
         $matchedPid = null;
 
         foreach ($claudeProcs as $proc) {
-            foreach ($panePids as $panePid) {
+            foreach ($panes['pids'] as $panePid) {
                 if (is_descendant($proc['pid'], $panePid, $ppidMap)) {
                     $matchedPid = $proc['pid'];
                     $trackedPids[$proc['pid']] = true;
@@ -355,6 +389,7 @@ function list_all_sessions(): array
             'pid' => $matchedPid,
             'workdir' => $sidecar['workdir'] ?? null,
             'spawned_by_csm' => $sidecar !== null,
+            'title' => $panes['title'],
         ];
     }
 

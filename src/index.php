@@ -196,7 +196,10 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
       <?php foreach ($sessions as $s): ?>
         <li class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 flex items-center justify-between gap-3">
           <div class="min-w-0">
-            <div class="font-mono text-sm truncate"><?= htmlspecialchars($s['name'], ENT_QUOTES) ?></div>
+            <div class="text-sm truncate"><?= htmlspecialchars($s['title'] ?? $s['name'], ENT_QUOTES) ?></div>
+            <?php if ($s['title'] !== null): ?>
+              <div class="font-mono text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($s['name'], ENT_QUOTES) ?></div>
+            <?php endif; ?>
             <?php if (!empty($s['workdir'])): ?>
               <div class="text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($s['workdir'], ENT_QUOTES) ?></div>
             <?php endif; ?>
