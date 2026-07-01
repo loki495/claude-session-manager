@@ -1,0 +1,16 @@
+[Unit]
+Description=Claude Session Manager host agent (per-connection instance)
+
+[Service]
+ExecStart=/usr/bin/php /home/andres/www/claude-session-manager/host-agent/agent.php
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+# agent.php can cause tmux to fork+detach a brand new server (when none
+# was already running). That server is a genuine daemon with its own
+# session id, but it's still born inside this unit's cgroup. The default
+# KillMode=control-group would kill it the moment this per-connection
+# instance exits (which is immediately after every request). KillMode=process
+# only signals the directly-tracked agent.php process, letting anything
+# it forked off survive independently.
+KillMode=process

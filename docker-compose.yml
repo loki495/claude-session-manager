@@ -10,10 +10,8 @@ services:
         APP_GID: ${APP_GID:-1001}
       dockerfile_inline: |
         FROM php:8.3-cli-alpine
-        RUN apk add --no-cache tmux
-        # Must match the UID/GID of the host user owning the tmux server
-        # (`id andres` on the host) so the container can use the
-        # bind-mounted tmux socket.
+        # No tmux client needed here - the container never touches tmux or
+        # the host process table directly. See host-agent/ and README.md.
         ARG APP_UID=1000
         ARG APP_GID=1001
         RUN addgroup -g "${APP_GID}" appgroup \
@@ -27,14 +25,17 @@ services:
     environment:
       BASIC_AUTH_USER: ${BASIC_AUTH_USER}
       BASIC_AUTH_PASS: ${BASIC_AUTH_PASS}
-      TMUX_SOCKET: ${TMUX_SOCKET:-/tmp/tmux-1000/default}
+      CSM_AGENT_SOCKET: /run/csm-agent.sock
     volumes:
       # Code is mounted, not copied into the image, so edits show up on the
       # next request with no rebuild/restart needed.
       - ./src:/var/www/html
-      # Bind-mount the host's tmux socket directory (not just the socket
-      # file) so the container can see it if tmux recreates it.
-      - ${TMUX_SOCKET_DIR:-/tmp/tmux-1000}:${TMUX_SOCKET_DIR:-/tmp/tmux-1000}:rw
+      # The ONLY thing the container can reach on the host: a UNIX socket
+      # served by the host-native agent (see host-agent/). That agent must
+      # already be installed and running (host-agent/install.sh) BEFORE
+      # this container starts, or Docker will bind-mount an empty
+      # directory instead of the real socket file. See README.md.
+      - ${CSM_AGENT_SOCKET_HOST:-/run/user/1000/csm-agent.sock}:/run/csm-agent.sock
     ports:
       # Bind explicitly to a LAN interface IP, never 0.0.0.0. See README.
       - "${BIND_ADDR:-127.0.0.1}:${APP_PORT:-8091}:80"
