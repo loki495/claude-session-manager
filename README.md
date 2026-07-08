@@ -64,6 +64,12 @@ of scope to avoid adding a second, SIGTERM-based kill path alongside
   any whose `session_activity` is older than 12 hours. No per-session input
   involved.
 - No auto-refresh — a manual Refresh button re-fetches everything on demand.
+- **Usage quota footer**: a sticky footer shows session/weekly usage
+  percentages and reset countdowns from `claude-quota` — a separate script
+  (not part of this repo) that scrapes Claude Code's own `/usage` panel.
+  Loaded asynchronously after the rest of the page, and refreshed in the
+  background on the host agent, so a slow scrape never blocks a page load.
+  See "Usage quota footer" below.
 
 ## How commands are actually run
 
@@ -78,6 +84,40 @@ The container (`src/lib/AgentClient.php`) never runs a shell command at
 all — it only opens a UNIX socket and exchanges one JSON request/response
 pair with the agent.
 
+## Usage quota footer
+
+The sticky footer shows session/weekly usage percentages sourced from
+`claude-quota` — a separate script (not part of this repo, see
+`CLAUDE_QUOTA_BIN`) that scrapes Claude Code's own `/usage` panel via a
+detached `screen` session. That scrape is slow (10-40s, it drives a real
+TUI), so it's never run inline while a request is waiting:
+
+- `GET /quota.php` (polled by the footer's `fetch()`, ~60s apart) always
+  returns immediately with whatever's in `host-agent`'s cache
+  (`QUOTA_CACHE_FILE`), marked `cached`/`stale` as appropriate.
+- If the cache is missing or older than `QUOTA_CACHE_TTL_SECONDS`, the
+  agent fires a **fully detached** background process
+  (`host-agent/quota_refresh.php`) that runs the scrape and writes the
+  result to the cache itself, then returns the (possibly stale) cache
+  immediately rather than waiting on it. The footer shows "refreshing in
+  background…" while this is happening.
+- A marker file (`QUOTA_CACHE_FILE .refreshing`) prevents duplicate
+  scrapes — e.g. two browser tabs polling at once, or a page reload
+  landing mid-refresh. It's claimed with an atomic exclusive file create
+  (`fopen(..., 'x')`), not a plain "check then write", specifically so two
+  near-simultaneous requests can't both decide "nothing in flight" and
+  both spawn a scrape.
+- Each bucket's `resets` text (whatever Claude Code's own panel prints,
+  e.g. `"3pm (America/Los_Angeles)"` or `"Jul 10, 8pm (America/Los_Angeles)"`)
+  is parsed into an absolute `resets_at` unix timestamp
+  (`parse_resets_at()` in `Sessions.php`) before caching, so the frontend
+  can render a live countdown instead of a string that goes stale the
+  moment it's rendered.
+- If `CLAUDE_QUOTA_BIN` is unset, missing, or the scrape fails and there's
+  no prior cache to fall back to, the footer just shows "Quota
+  unavailable" — this is a nice-to-have, never a hard dependency for the
+  rest of the app.
+
 ## File structure
 
 ```
@@ -88,13 +128,16 @@ claude-session-manager/
 ├── README.md
 ├── src/                    # bind-mounted into the container at /var/www/html
 │   ├── index.php           # Basic Auth, action handling, HTML/Tailwind UI
+│   ├── quota.php           # GET-only JSON endpoint, polled by the footer's fetch()
 │   └── lib/
-│       └── AgentClient.php  # talks to the host agent over a UNIX socket
+│       ├── AgentClient.php  # talks to the host agent over a UNIX socket
+│       └── Auth.php         # Basic Auth + same-origin check, shared by every entry point
 ├── host-agent/             # installed natively on the HOST, not in Docker
 │   ├── agent.php            # per-connection entry point (systemd socket activation)
+│   ├── quota_refresh.php    # standalone entry point for a background quota scrape
 │   ├── .env.example         # copy to .env, host-specific paths, never commit .env
 │   ├── lib/
-│   │   └── Sessions.php      # tmux calls + /proc scanning + all the real logic
+│   │   └── Sessions.php      # tmux calls + /proc scanning + quota caching + all the real logic
 │   ├── systemd/
 │   │   ├── csm-agent.socket   # defines the UNIX socket (systemd --user)
 │   │   └── csm-agent@.service # spawns agent.php per connection, loads .env
@@ -173,18 +216,22 @@ unit files themselves.
 
 ## Configuration (host agent)
 
-`host-agent/lib/Sessions.php` reads five host-specific values from the
+`host-agent/lib/Sessions.php` reads these host-specific values from the
 environment, each falling back to this box's real values if unset — a
 fresh checkout with no `.env` behaves exactly as before this mechanism
 existed:
 
-| Variable                    | Default                              | Meaning                                    |
-|------------------------------|---------------------------------------|---------------------------------------------|
-| `CLAUDE_BIN`                 | `/home/andres/.local/bin/claude`      | Real claude CLI (`argv[0]` must match this) |
-| `WWW_ROOT`                   | `/home/andres/www`                    | Root offered in the New Session dropdown    |
-| `TMUX_SOCKET`                | `/tmp/tmux-1000/default`              | tmux socket this agent drives (`-S`)        |
-| `SIDECAR_DIR`                | `/run/user/1000/csm-sessions`         | Per-session workdir/spawned_at metadata     |
-| `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                         | Inactivity threshold for "Kill inactive"    |
+| Variable                    | Default                                     | Meaning                                    |
+|------------------------------|-----------------------------------------------|---------------------------------------------|
+| `CLAUDE_BIN`                 | `/home/andres/.local/bin/claude`              | Real claude CLI (`argv[0]` must match this) |
+| `WWW_ROOT`                   | `/home/andres/www`                            | Root offered in the New Session dropdown    |
+| `TMUX_SOCKET`                | `/tmp/tmux-1000/default`                      | tmux socket this agent drives (`-S`)        |
+| `SIDECAR_DIR`                | `/run/user/1000/csm-sessions`                 | Per-session workdir/spawned_at metadata     |
+| `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                                 | Inactivity threshold for "Kill inactive"    |
+| `CLAUDE_QUOTA_BIN`           | `/home/andres/dotfiles/bin/claude-quota`      | Script that scrapes the `/usage` panel      |
+| `QUOTA_CACHE_FILE`           | `/run/user/1000/csm-agent-quota-cache.json`   | Where the last successful reading is cached |
+| `QUOTA_CACHE_TTL_SECONDS`    | `300` (5min)                                  | How long a cached reading is fresh          |
+| `QUOTA_TIMEOUT_SECONDS`      | `90`                                          | Max seconds a background scrape may run     |
 
 `host-agent/install.sh` copies `host-agent/.env.example` to `host-agent/.env`
 if missing (edit it if any of these paths differ on this box), and
