@@ -82,7 +82,7 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
-<div class="max-w-2xl mx-auto px-4 py-6 pb-24">
+<div class="max-w-2xl mx-auto px-4 py-6 pb-32">
 
   <header class="mb-6">
     <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
@@ -199,14 +199,137 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
   <?php endif; ?>
 
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
-    <div class="max-w-2xl mx-auto flex items-center justify-end">
+    <div class="max-w-2xl mx-auto flex items-start justify-between gap-3">
+      <div id="quota-info" class="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0 text-xl font-medium" aria-live="polite">
+        <span class="text-slate-500">Loading quota&hellip;</span>
+      </div>
       <a href="/"
-        class="min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2">
+        class="min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
         Refresh
       </a>
     </div>
   </div>
 
 </div>
+<script>
+(function () {
+  var el = document.getElementById('quota-info');
+
+  function pctColorClass(pct) {
+    if (pct >= 90) return 'text-red-400';
+    if (pct >= 70) return 'text-amber-400';
+    return 'text-slate-300';
+  }
+
+  function label(key) {
+    if (key === 'session') return 'Session';
+    if (key === 'week_all') return 'Week';
+    return key.replace(/^week_/, '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }) + ' (week)';
+  }
+
+  // No leading zeros by construction (Math.floor results are used bare).
+  function formatDuration(seconds, kind) {
+    if (seconds <= 0) return 'now';
+
+    if (kind === 'session') {
+      var h = Math.floor(seconds / 3600);
+      var m = Math.floor((seconds % 3600) / 60);
+      return h > 0 ? (h + 'h ' + m + 'm') : (m + 'm');
+    }
+
+    var d = Math.floor(seconds / 86400);
+    var wh = Math.floor((seconds % 86400) / 3600);
+    return d > 0 ? (d + 'd ' + wh + 'h') : (wh + 'h');
+  }
+
+  function showUnavailable(data) {
+    el.title = '';
+    el.innerHTML = '';
+    var line = document.createElement('span');
+    line.className = 'text-slate-600';
+    line.textContent = 'Quota unavailable' + (data && data.message ? ': ' + data.message : '');
+    el.appendChild(line);
+  }
+
+  function render(data) {
+    if (!data || !data.quota) {
+      showUnavailable(data);
+      return;
+    }
+
+    var q = data.quota;
+    var order = ['session', 'week_all'].concat(Object.keys(q).filter(function (k) {
+      return k.indexOf('week_') === 0 && k !== 'week_all';
+    }).sort());
+
+    var nowSeconds = Math.floor(Date.now() / 1000);
+    var lines = [];
+
+    order.forEach(function (key) {
+      var bar = q[key];
+      if (!bar || typeof bar.pct !== 'number') return;
+
+      var text = label(key) + ' ' + bar.pct + '%';
+
+      if (typeof bar.resets_at === 'number') {
+        var kind = key === 'session' ? 'session' : 'week';
+        text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind);
+      }
+
+      lines.push({ text: text, pct: bar.pct });
+    });
+
+    if (lines.length === 0) {
+      showUnavailable(data);
+      return;
+    }
+
+    var metaParts = [];
+    if (data.cached) metaParts.push(data.stale ? 'cached, stale' : 'cached');
+    if (data.refreshing) metaParts.push('refreshing in background…');
+
+    el.title = q.captured_at ? 'Captured ' + q.captured_at : '';
+    el.innerHTML = '';
+
+    // A left border marks every item after the first when there's room for
+    // them to sit on one row (sm: and up). On mobile, where each bucket
+    // stacks onto its own line, that border/padding is dropped so the text
+    // lines up flush left instead of looking indented.
+    lines.forEach(function (line, i) {
+      var item = document.createElement('span');
+      item.className = pctColorClass(line.pct) + (i > 0 ? ' sm:pl-3 sm:border-l sm:border-slate-700' : '');
+      item.textContent = line.text;
+      el.appendChild(item);
+    });
+
+    if (metaParts.length > 0) {
+      var meta = document.createElement('span');
+      meta.className = 'text-sm font-normal text-slate-400';
+      meta.textContent = '(' + metaParts.join(' · ') + ')';
+      el.appendChild(meta);
+    }
+  }
+
+  var loading = false;
+
+  function load() {
+    if (loading) return; // a slow request is still out there - don't pile another on top of it
+    loading = true;
+
+    fetch('/quota.php', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function () {
+        showUnavailable(null);
+      })
+      .finally(function () {
+        loading = false;
+      });
+  }
+
+  load();
+  setInterval(load, 60000);
+})();
+</script>
 </body>
 </html>
