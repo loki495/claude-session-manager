@@ -52,14 +52,32 @@ function cleanup_threshold_seconds(): int
     return (int)csm_config('CLEANUP_THRESHOLD_SECONDS', '43200'); // 12h
 }
 
+function claude_quota_bin(): string
+{
+    return csm_config('CLAUDE_QUOTA_BIN', '/home/andres/dotfiles/bin/claude-quota');
+}
+
+function quota_cache_file(): string
+{
+    return csm_config('QUOTA_CACHE_FILE', '/run/user/1000/csm-agent-quota-cache.json');
+}
+
+function quota_cache_ttl_seconds(): int
+{
+    return (int)csm_config('QUOTA_CACHE_TTL_SECONDS', '300'); // 5min
+}
+
+function quota_timeout_seconds(): int
+{
+    return (int)csm_config('QUOTA_TIMEOUT_SECONDS', '90');
+}
+
 /**
- * @param string[] $args
+ * @param string[] $cmd
  * @return array{exit:int,stdout:string,stderr:string}
  */
-function tmux_run(array $args): array
+function run_process(array $cmd): array
 {
-    $cmd = array_merge(['tmux', '-S', tmux_socket()], $args);
-
     $descriptors = [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],
@@ -69,7 +87,7 @@ function tmux_run(array $args): array
     $process = proc_open($cmd, $descriptors, $pipes);
 
     if (!is_resource($process)) {
-        return ['exit' => -1, 'stdout' => '', 'stderr' => 'failed to start tmux process'];
+        return ['exit' => -1, 'stdout' => '', 'stderr' => 'failed to start process'];
     }
 
     fclose($pipes[0]);
@@ -80,6 +98,15 @@ function tmux_run(array $args): array
     $exit = proc_close($process);
 
     return ['exit' => $exit, 'stdout' => (string)$stdout, 'stderr' => (string)$stderr];
+}
+
+/**
+ * @param string[] $args
+ * @return array{exit:int,stdout:string,stderr:string}
+ */
+function tmux_run(array $args): array
+{
+    return run_process(array_merge(['tmux', '-S', tmux_socket()], $args));
 }
 
 /**
@@ -525,6 +552,280 @@ function list_www_dirs(): array
 }
 
 /**
+ * claude-quota's "Resets" text is whatever Claude Code's own /usage panel
+ * prints - either a bare time ("3pm", presumed to be the next occurrence
+ * of that time - today unless that's already passed, then tomorrow) or a
+ * dated time ("Jul 10, 8pm"), always followed by a parenthesized IANA
+ * timezone. Converts that into an absolute unix timestamp so the frontend
+ * can render a live "resets in Xh Ym" countdown instead of a fixed string
+ * that goes stale the moment it's rendered.
+ */
+function parse_resets_at(string $resets, int $now): ?int
+{
+    if (preg_match('/^(.*)\s\(([^)]+)\)$/', $resets, $m) !== 1) {
+        return null;
+    }
+
+    $timePart = trim($m[1]);
+    $tzName = trim($m[2]);
+    $hasDate = preg_match('/^[A-Za-z]{3}\s+\d{1,2}\b/', $timePart) === 1;
+
+    // Normalize a bare "8pm" to "8:00pm" - PHP's parser otherwise misreads
+    // the hour as a timezone abbreviation when a date precedes it (e.g.
+    // "Jul 10 8pm"), and strip the comma between date and time for the
+    // same reason.
+    $normalized = preg_replace('/(?<!:)\b(\d{1,2})([ap]m)\b/i', '$1:00$2', str_replace(',', '', $timePart));
+
+    try {
+        $dt = new DateTime((string)$normalized, new DateTimeZone($tzName));
+    } catch (Throwable) {
+        return null;
+    }
+
+    if (!$hasDate && $dt->getTimestamp() <= $now) {
+        $dt->modify('+1 day');
+    }
+
+    return $dt->getTimestamp();
+}
+
+/**
+ * @param array<string, mixed> $quota
+ * @return array<string, mixed>
+ */
+function enrich_quota_resets(array $quota, int $now): array
+{
+    foreach ($quota as $key => $bucket) {
+        if (!is_array($bucket) || !isset($bucket['resets']) || !is_string($bucket['resets'])) {
+            continue;
+        }
+
+        $resetsAt = parse_resets_at($bucket['resets'], $now);
+
+        if ($resetsAt !== null) {
+            $quota[$key]['resets_at'] = $resetsAt;
+        }
+    }
+
+    return $quota;
+}
+
+/**
+ * Runs the claude-quota script (a wrapper that scrapes Claude Code's own
+ * /usage panel via a detached screen session - see the script itself for
+ * the mechanism). This is slow, 10-40s, since it drives a real TUI, so it
+ * must only ever be called in the background (see trigger_background_quota_refresh()),
+ * never inline while a request is waiting.
+ *
+ * @return array{ok:bool, quota?:array, message?:string}
+ */
+function run_claude_quota(): array
+{
+    $result = run_process(['timeout', (string)quota_timeout_seconds(), claude_quota_bin()]);
+
+    if ($result['exit'] !== 0) {
+        $message = trim($result['stderr']) !== ''
+            ? trim($result['stderr'])
+            : "claude-quota exited with code {$result['exit']}";
+
+        return ['ok' => false, 'message' => $message];
+    }
+
+    $decoded = json_decode($result['stdout'], true);
+
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'message' => 'claude-quota returned malformed JSON'];
+    }
+
+    return ['ok' => true, 'quota' => enrich_quota_resets($decoded, time())];
+}
+
+/**
+ * @return array{quota:array, fetched_at:int}|null
+ */
+function read_quota_cache(): ?array
+{
+    $raw = @file_get_contents(quota_cache_file());
+
+    if ($raw === false) {
+        return null;
+    }
+
+    $decoded = json_decode($raw, true);
+
+    if (!is_array($decoded) || !isset($decoded['quota'], $decoded['fetched_at']) || !is_array($decoded['quota'])) {
+        return null;
+    }
+
+    return ['quota' => $decoded['quota'], 'fetched_at' => (int)$decoded['fetched_at']];
+}
+
+function write_quota_cache(array $quota, int $fetchedAt): void
+{
+    $dir = dirname(quota_cache_file());
+
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0700, true);
+    }
+
+    @file_put_contents(quota_cache_file(), json_encode(['quota' => $quota, 'fetched_at' => $fetchedAt]));
+}
+
+function quota_refresh_marker_file(): string
+{
+    return quota_cache_file() . '.refreshing';
+}
+
+/**
+ * A refresh marker younger than the scrape timeout means some earlier
+ * request already spawned a background refresh that's presumably still
+ * running - don't spawn a second one. A marker older than the timeout is
+ * treated as abandoned (the process that wrote it crashed, or the host
+ * rebooted, without cleaning up) rather than blocking refreshes forever.
+ */
+function quota_refresh_in_flight(): bool
+{
+    $raw = @file_get_contents(quota_refresh_marker_file());
+
+    if ($raw === false) {
+        return false;
+    }
+
+    return (time() - (int)trim($raw)) < quota_timeout_seconds();
+}
+
+/**
+ * Atomically claims the right to spawn a refresh: fopen(..., 'x') is
+ * O_CREAT|O_EXCL, which fails if the marker already exists. That's the
+ * part that actually prevents a race - e.g. two browser tabs (or two
+ * quick page reloads) both hitting /quota.php within the same instant
+ * would otherwise both see "no marker yet" from a plain
+ * file_exists()-then-write check and both spawn a scrape. With an
+ * exclusive create, only one of them can ever win.
+ */
+function claim_quota_refresh_marker(): bool
+{
+    $handle = @fopen(quota_refresh_marker_file(), 'x');
+
+    if ($handle === false) {
+        return false;
+    }
+
+    fwrite($handle, (string)time());
+    fclose($handle);
+
+    return true;
+}
+
+/**
+ * Fires a fully detached background process that runs the slow
+ * claude-quota scrape and writes the result to the cache file itself, so
+ * the request that triggered this can return immediately instead of
+ * waiting on it. Stdio is bound to /dev/null via proc_open's 'file'
+ * descriptor type (not pipes) specifically so the child has nothing tied
+ * to this short-lived agent.php connection process - it keeps running
+ * fine after this process has already sent its response and exited.
+ *
+ * @return bool true if a refresh is (now, or already) in flight
+ */
+function trigger_background_quota_refresh(): bool
+{
+    $dir = dirname(quota_refresh_marker_file());
+
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0700, true);
+    }
+
+    if (!claim_quota_refresh_marker()) {
+        // Someone else's marker is already there. If it's fresh, that
+        // refresh is genuinely in flight - nothing more to do. If it's
+        // stale (abandoned by a crashed process), reclaim it once; if
+        // even that loses a race to another request doing the same
+        // thing, defer to whichever of us won rather than double-spawning.
+        if (quota_refresh_in_flight()) {
+            return true;
+        }
+
+        @unlink(quota_refresh_marker_file());
+
+        if (!claim_quota_refresh_marker()) {
+            return true;
+        }
+    }
+
+    $descriptors = [
+        0 => ['file', '/dev/null', 'r'],
+        1 => ['file', '/dev/null', 'w'],
+        2 => ['file', '/dev/null', 'w'],
+    ];
+
+    $process = @proc_open([PHP_BINARY, __DIR__ . '/../quota_refresh.php'], $descriptors, $pipes);
+
+    if (!is_resource($process)) {
+        @unlink(quota_refresh_marker_file());
+        return false;
+    }
+
+    // Deliberately not proc_close()'d - that blocks the caller until the
+    // child exits, defeating the entire point of backgrounding this.
+    return true;
+}
+
+/**
+ * Cached in front of run_claude_quota() since that's expensive (spins up a
+ * real `claude` TUI in a screen session just to read a percentage) and
+ * always non-blocking: a stale/missing cache triggers a background
+ * refresh (see trigger_background_quota_refresh()) and returns immediately
+ * with whatever's cached (marked "stale") rather than making the request
+ * wait 10-40s for a fresh scrape.
+ *
+ * @return array{ok:bool, quota:?array, fetched_at:?int, cached:bool, stale:bool, refreshing:bool, message?:string}
+ */
+function get_quota(): array
+{
+    $ttl = quota_cache_ttl_seconds();
+    $cache = read_quota_cache();
+    $now = time();
+    $fresh = $cache !== null && ($now - $cache['fetched_at']) < $ttl;
+
+    if ($fresh) {
+        return [
+            'ok' => true,
+            'quota' => $cache['quota'],
+            'fetched_at' => $cache['fetched_at'],
+            'cached' => true,
+            'stale' => false,
+            'refreshing' => false,
+        ];
+    }
+
+    $refreshing = trigger_background_quota_refresh();
+
+    if ($cache !== null) {
+        return [
+            'ok' => true,
+            'quota' => $cache['quota'],
+            'fetched_at' => $cache['fetched_at'],
+            'cached' => true,
+            'stale' => true,
+            'refreshing' => $refreshing,
+        ];
+    }
+
+    return [
+        'ok' => $refreshing,
+        'quota' => null,
+        'fetched_at' => null,
+        'cached' => false,
+        'stale' => false,
+        'refreshing' => $refreshing,
+        'message' => $refreshing
+            ? 'Fetching quota for the first time - this can take up to a minute'
+            : 'Could not start quota refresh',
+    ];
+}
+
+/**
  * @return array
  */
 function dispatch_action(array $request): array
@@ -544,6 +845,9 @@ function dispatch_action(array $request): array
 
         case 'list_www_dirs':
             return list_www_dirs();
+
+        case 'quota':
+            return get_quota();
 
         default:
             return ['ok' => false, 'message' => 'Unknown action'];
