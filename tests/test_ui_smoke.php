@@ -106,6 +106,17 @@ try {
     ]));
     assert_contains('ok=0', $result['headers']['location'] ?? '', 'POST kill: ok=0 for an unrecognized session name');
 
+    // --- quota.php: auth enforced, same as / ---
+    $result = curl_request('GET', "{$baseUrl}/quota.php");
+    assert_equal(401, $result['status'], 'GET /quota.php without auth: 401');
+
+    // --- quota.php: authed request passes the canned agent's quota action through as JSON ---
+    $result = curl_request('GET', "{$baseUrl}/quota.php", $authArgs);
+    assert_equal(200, $result['status'], 'GET /quota.php with auth: 200');
+    $quotaBody = json_decode($result['body'], true);
+    assert_true(is_array($quotaBody) && ($quotaBody['ok'] ?? false), 'GET /quota.php: response decodes as ok=true JSON');
+    assert_equal(73, $quotaBody['quota']['session']['pct'] ?? null, 'GET /quota.php: canned session percentage passed through');
+
     // --- cross-origin POST rejected ---
     $result = curl_request('POST', "{$baseUrl}/", array_merge($authArgs, [
         '-H', 'Origin: http://evil.example',

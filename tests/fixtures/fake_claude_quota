@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Stand-in for the real claude-quota script (see run_claude_quota() in
+# host-agent/lib/Sessions.php) - never spins up a real screen/claude TUI.
+# Controlled by env vars so tests can drive success/failure/timing:
+#   FAKE_QUOTA_MODE=fail        -> exits 1 with a stderr message instead of printing JSON
+#   FAKE_QUOTA_SLEEP=<seconds>  -> sleeps before responding, to simulate the real scrape's latency
+#   FAKE_QUOTA_COUNTER_FILE=... -> appends one line per invocation, so tests can assert call count
+set -euo pipefail
+
+if [ -n "${FAKE_QUOTA_COUNTER_FILE:-}" ]; then
+    echo "1" >> "$FAKE_QUOTA_COUNTER_FILE"
+fi
+
+if [ "${FAKE_QUOTA_SLEEP:-0}" != "0" ]; then
+    sleep "$FAKE_QUOTA_SLEEP"
+fi
+
+if [ "${FAKE_QUOTA_MODE:-ok}" = "fail" ]; then
+    echo "fake claude-quota: simulated failure" >&2
+    exit 1
+fi
+
+cat <<'JSON'
+{"session":{"pct":42,"resets":"11:59pm (UTC)"},"week_all":{"pct":17,"resets":"7am (UTC)"},"captured_at":"2026-01-01T00:00:00+0000"}
+JSON

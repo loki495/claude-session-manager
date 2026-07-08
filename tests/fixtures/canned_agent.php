@@ -40,6 +40,19 @@ $response = match ($action) {
         ? ['ok' => true, 'message' => 'Killed ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
     'cleanup' => ['ok' => true, 'killed' => [CANNED_SESSION_NAME], 'failed' => []],
+    'quota' => [
+        'ok' => true,
+        'quota' => [
+            'session' => ['pct' => 73, 'resets' => '3pm (America/Los_Angeles)', 'resets_at' => time() + 3600 + 1800],
+            'week_all' => ['pct' => 29, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
+            'week_fable' => ['pct' => 92, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
+            'captured_at' => '2026-07-08T12:00:00-0700',
+        ],
+        'fetched_at' => time() - 120,
+        'cached' => true,
+        'stale' => false,
+        'refreshing' => false,
+    ],
     default => ['ok' => false, 'message' => 'Unknown action'],
 };
 

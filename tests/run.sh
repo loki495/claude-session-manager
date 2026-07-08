@@ -30,6 +30,7 @@ set +a
 # session.
 REAL_TMUX_SOCKET="/tmp/tmux-1000/default"
 REAL_SIDECAR_DIR="/run/user/1000/csm-sessions"
+REAL_QUOTA_CACHE_FILE="/run/user/1000/csm-agent-quota-cache.json"
 
 if [ "$TMUX_SOCKET" = "$REAL_TMUX_SOCKET" ] || [ -z "$TMUX_SOCKET" ]; then
     echo "REFUSING TO RUN: TMUX_SOCKET in tests/.env.testing resolves to the real host socket (or is empty). Aborting before touching tmux." >&2
@@ -41,6 +42,11 @@ if [ "$SIDECAR_DIR" = "$REAL_SIDECAR_DIR" ] || [ -z "$SIDECAR_DIR" ]; then
     exit 1
 fi
 
+if [ "${QUOTA_CACHE_FILE:-}" = "$REAL_QUOTA_CACHE_FILE" ] || [ -z "${QUOTA_CACHE_FILE:-}" ]; then
+    echo "REFUSING TO RUN: QUOTA_CACHE_FILE in tests/.env.testing resolves to the real quota cache (or is empty). Aborting before deleting anything." >&2
+    exit 1
+fi
+
 cleanup() {
     # Guard repeated here (not just above) so cleanup() is safe to call
     # standalone and never depends on the checks above having run.
@@ -49,9 +55,14 @@ cleanup() {
     fi
 
     pkill -f "$SCRIPT_DIR/fixtures/fake_claude" >/dev/null 2>&1 || true
+    pkill -f "$SCRIPT_DIR/../host-agent/quota_refresh.php" >/dev/null 2>&1 || true
 
     if [ -n "${SIDECAR_DIR:-}" ] && [ "$SIDECAR_DIR" != "$REAL_SIDECAR_DIR" ]; then
         rm -rf "$SIDECAR_DIR"
+    fi
+
+    if [ -n "${QUOTA_CACHE_FILE:-}" ] && [ "$QUOTA_CACHE_FILE" != "$REAL_QUOTA_CACHE_FILE" ]; then
+        rm -rf "$(dirname "$QUOTA_CACHE_FILE")"
     fi
 
     rm -rf "$(dirname "$TMUX_SOCKET")"
@@ -71,7 +82,7 @@ interrupt() {
 trap cleanup EXIT
 trap interrupt INT TERM
 
-mkdir -p "$(dirname "$TMUX_SOCKET")" "$SIDECAR_DIR"
+mkdir -p "$(dirname "$TMUX_SOCKET")" "$SIDECAR_DIR" "$(dirname "$QUOTA_CACHE_FILE")"
 
 failures=0
 
