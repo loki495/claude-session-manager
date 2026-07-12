@@ -7,7 +7,7 @@ declare(strict_types=1);
  * tests/lib/socket_harness.php to stand in for systemd's Accept=yes
  * socket activation. Runs against the isolated fixtures from
  * tests/.env.testing (inherited from the environment tests/run.sh
- * exported), so 'list'/'list_www_dirs' see fixture data, not the real
+ * exported), so 'list'/'browse_dir' see fixture data, not the real
  * host - this file never creates a tmux session itself.
  */
 
@@ -28,11 +28,16 @@ try {
     assert_true(is_array($result['sessions'] ?? null), 'list: sessions is an array');
     assert_equal([], $result['sessions'], 'list: no sessions on a fresh isolated tmux socket');
 
-    // --- list_www_dirs ---
-    $result = agent_call(['action' => 'list_www_dirs']);
-    assert_true($result['ok'] ?? false, 'list_www_dirs: ok=true');
-    assert_equal(['project-a', 'project-b'], $result['dirs'] ?? null, 'list_www_dirs: dotfiles excluded, sorted');
-    assert_equal(getenv('WWW_ROOT'), $result['root'] ?? null, 'list_www_dirs: root matches fixture WWW_ROOT');
+    // --- browse_dir: no path -> defaults to WWW_ROOT ---
+    $result = agent_call(['action' => 'browse_dir', 'path' => '']);
+    assert_true($result['ok'] ?? false, 'browse_dir (default): ok=true');
+    assert_equal(getenv('WWW_ROOT'), $result['path'] ?? null, 'browse_dir (default): path defaults to WWW_ROOT');
+    assert_equal(['project-a', 'project-b'], $result['dirs'] ?? null, 'browse_dir (default): dotfiles excluded, sorted');
+    assert_equal(getenv('HOME_ROOT'), $result['parent'] ?? null, 'browse_dir (default): parent is HOME_ROOT');
+
+    // --- browse_dir: outside HOME_ROOT is rejected ---
+    $result = agent_call(['action' => 'browse_dir', 'path' => '/etc']);
+    assert_equal(false, $result['ok'] ?? null, 'browse_dir (/etc): rejected as outside the home directory');
 
     // --- malformed request (raw socket, bypassing agent_call()'s own encoding) ---
     $conn = stream_socket_client('unix://' . $socketPath, $errno, $errstr, 5);

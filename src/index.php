@@ -21,8 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     switch ($action) {
         case 'new':
-            $choice = (string)($_POST['workdir_choice'] ?? '');
-            $workdir = $choice === '__custom__' ? trim((string)($_POST['workdir_custom'] ?? '')) : $choice;
+            $workdir = trim((string)($_POST['workdir'] ?? ''));
             $result = agent_call(['action' => 'create', 'workdir' => $workdir]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
@@ -65,10 +64,6 @@ $agentReachable = (bool)($listResult['ok'] ?? false);
 $sessions = $agentReachable ? ($listResult['sessions'] ?? []) : [];
 $bare = $agentReachable ? ($listResult['bare'] ?? []) : [];
 
-$dirsResult = $agentReachable ? agent_call(['action' => 'list_www_dirs']) : ['ok' => false];
-$wwwRoot = (string)($dirsResult['root'] ?? '/home/andres/www');
-$wwwDirs = $dirsResult['ok'] ?? false ? ($dirsResult['dirs'] ?? []) : [];
-
 $flashMsg = isset($_GET['msg']) ? (string)$_GET['msg'] : null;
 $flashOk = ($_GET['ok'] ?? '1') === '1';
 ?>
@@ -103,29 +98,21 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
     </div>
   <?php endif; ?>
 
-  <details class="mb-3 rounded-xl border border-slate-800 bg-slate-900/50">
-    <summary class="min-h-[3rem] flex items-center justify-center rounded-xl bg-indigo-600 active:bg-indigo-700 font-medium text-base px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+  <details id="new-session-details" class="mb-3 rounded-xl border border-slate-800 bg-slate-900/50">
+    <summary id="new-session-summary" class="min-h-[3rem] flex items-center justify-center rounded-xl bg-indigo-600 active:bg-indigo-700 font-medium text-base px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
       + New Session
     </summary>
-    <form method="post" action="/" class="px-4 pt-4 pb-4 flex flex-col gap-3">
+    <form method="post" action="/" class="px-4 pt-4 pb-4 flex flex-col gap-3" id="new-session-form">
       <input type="hidden" name="action" value="new">
-      <label class="text-sm text-slate-300 flex flex-col gap-1">
-        Working directory
-        <select name="workdir_choice"
-          onchange="document.getElementById('workdir_custom').classList.toggle('hidden', this.value !== '__custom__')"
-          class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-base text-slate-100">
-          <option value="<?= htmlspecialchars($wwwRoot, ENT_QUOTES) ?>">~/www (default)</option>
-          <?php foreach ($wwwDirs as $dir): ?>
-            <option value="<?= htmlspecialchars($wwwRoot . '/' . $dir, ENT_QUOTES) ?>">~/www/<?= htmlspecialchars($dir, ENT_QUOTES) ?></option>
-          <?php endforeach; ?>
-          <option value="__custom__">Custom path&hellip;</option>
-        </select>
-      </label>
-      <input id="workdir_custom" type="text" name="workdir_custom" placeholder="/absolute/path"
-        class="hidden w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-base font-mono text-slate-100">
-      <button type="submit"
-        class="min-h-[3rem] rounded-lg bg-indigo-600 active:bg-indigo-700 font-medium text-base px-4 py-3">
-        Start Session
+      <input type="hidden" name="workdir" id="workdir_value">
+      <div class="text-sm text-slate-300">Working directory</div>
+      <div class="rounded-lg border border-slate-700 bg-slate-800 overflow-hidden">
+        <div id="browser_path" class="px-3 py-2 text-xs font-mono text-slate-400 truncate border-b border-slate-700">Loading&hellip;</div>
+        <ul id="browser_list" class="max-h-56 overflow-y-auto divide-y divide-slate-700/60 text-sm"></ul>
+      </div>
+      <button type="submit" id="new-session-submit" disabled
+        class="min-h-[3rem] rounded-lg bg-indigo-600 active:bg-indigo-700 disabled:opacity-50 disabled:active:bg-indigo-600 font-medium text-base px-4 py-3">
+        Start Session Here
       </button>
     </form>
   </details>
@@ -212,6 +199,89 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
 
 </div>
 <script>
+(function () {
+  var details = document.getElementById('new-session-details');
+  var summary = document.getElementById('new-session-summary');
+  var pathEl = document.getElementById('browser_path');
+  var listEl = document.getElementById('browser_list');
+  var hiddenInput = document.getElementById('workdir_value');
+  var submitBtn = document.getElementById('new-session-submit');
+  var loaded = false;
+
+  function setStatusRow(text) {
+    listEl.innerHTML = '';
+    var li = document.createElement('li');
+    li.className = 'px-3 py-2 text-slate-500';
+    li.textContent = text;
+    listEl.appendChild(li);
+  }
+
+  function renderRow(label, muted, onClick) {
+    var li = document.createElement('li');
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'w-full text-left px-3 py-2 active:bg-slate-700 truncate ' + (muted ? 'text-slate-400' : 'text-slate-100');
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    li.appendChild(btn);
+    listEl.appendChild(li);
+  }
+
+  function load(path) {
+    hiddenInput.value = '';
+    submitBtn.disabled = true;
+    setStatusRow('Loading…');
+
+    fetch('/browse.php?path=' + encodeURIComponent(path || ''), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) {
+          pathEl.textContent = 'Unavailable';
+          setStatusRow((data && data.message) || 'Could not load folders.');
+          return;
+        }
+
+        hiddenInput.value = data.path;
+        pathEl.textContent = data.path;
+        pathEl.title = data.path;
+        submitBtn.disabled = false;
+        listEl.innerHTML = '';
+
+        if (data.parent !== null) {
+          renderRow('.. (up)', true, function () { load(data.parent); });
+        }
+
+        if (data.dirs.length === 0) {
+          var li = document.createElement('li');
+          li.className = 'px-3 py-2 text-slate-500';
+          li.textContent = 'No subfolders here.';
+          listEl.appendChild(li);
+        }
+
+        data.dirs.forEach(function (dir) {
+          renderRow(dir, false, function () { load(data.path + '/' + dir); });
+        });
+      })
+      .catch(function () {
+        pathEl.textContent = 'Unavailable';
+        setStatusRow('Network error.');
+      });
+  }
+
+  details.addEventListener('toggle', function () {
+    summary.textContent = details.open ? '− Cancel' : '+ New Session';
+    summary.classList.toggle('bg-indigo-600', !details.open);
+    summary.classList.toggle('active:bg-indigo-700', !details.open);
+    summary.classList.toggle('bg-red-900/70', details.open);
+    summary.classList.toggle('active:bg-red-800', details.open);
+
+    if (details.open && !loaded) {
+      loaded = true;
+      load('');
+    }
+  });
+})();
+
 (function () {
   var el = document.getElementById('quota-info');
 

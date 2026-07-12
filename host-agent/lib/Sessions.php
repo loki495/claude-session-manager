@@ -37,6 +37,11 @@ function www_root(): string
     return csm_config('WWW_ROOT', '/home/andres/www');
 }
 
+function home_root(): string
+{
+    return csm_config('HOME_ROOT', '/home/andres');
+}
+
 function tmux_socket(): string
 {
     return csm_config('TMUX_SOCKET', '/tmp/tmux-1000/default');
@@ -101,11 +106,31 @@ function run_process(array $cmd): array
 }
 
 /**
+ * tmux only auto-creates its socket's parent directory when using its own
+ * default naming ($TMPDIR/tmux-$UID); since this app always passes an
+ * explicit -S path, tmux instead expects that directory to already exist
+ * and fails outright if it doesn't. /tmp is wiped on every host reboot,
+ * and nothing else recreates this directory afterward - so without this,
+ * every session-create attempt fails until someone notices and mkdirs it
+ * by hand. Cheap enough (an is_dir check) to just do on every call.
+ */
+function ensure_tmux_socket_dir(): void
+{
+    $dir = dirname(tmux_socket());
+
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0700, true);
+    }
+}
+
+/**
  * @param string[] $args
  * @return array{exit:int,stdout:string,stderr:string}
  */
 function tmux_run(array $args): array
 {
+    ensure_tmux_socket_dir();
+
     return run_process(array_merge(['tmux', '-S', tmux_socket()], $args));
 }
 
@@ -528,27 +553,52 @@ function cleanup_inactive_sessions(): array
 }
 
 /**
- * @return array{ok:bool, dirs:string[], root:string}
+ * Lists the immediate, non-hidden subdirectories of $path, for the New
+ * Session folder browser - lets a session start anywhere under the home
+ * directory, not just under www_root(). $path (after resolving symlinks)
+ * must be home_root() itself or a descendant of it; anything else is
+ * rejected rather than letting the browser wander into the rest of the
+ * filesystem. An empty $path defaults to www_root(), the common case,
+ * rather than home_root() itself - the browser can still walk up to
+ * home_root() from there via the returned `parent`.
+ *
+ * @return array{ok:bool, path?:string, parent?:?string, dirs?:string[], message?:string}
  */
-function list_www_dirs(): array
+function browse_dir(string $path): array
 {
+    $root = home_root();
+    $realRoot = realpath($root);
+
+    if ($realRoot === false) {
+        return ['ok' => false, 'message' => 'Home directory is not configured correctly on the host'];
+    }
+
+    $real = realpath($path !== '' ? $path : www_root());
+
+    if ($real === false || !is_dir($real) || ($real !== $realRoot && !str_starts_with($real . '/', $realRoot . '/'))) {
+        return ['ok' => false, 'message' => 'Path is outside the home directory'];
+    }
+
     $dirs = [];
 
-    $root = www_root();
-
-    foreach (scandir($root) ?: [] as $entry) {
+    foreach (scandir($real) ?: [] as $entry) {
         if ($entry === '.' || $entry === '..' || $entry[0] === '.') {
             continue;
         }
 
-        if (is_dir($root . '/' . $entry)) {
+        if (is_dir($real . '/' . $entry)) {
             $dirs[] = $entry;
         }
     }
 
     sort($dirs, SORT_STRING | SORT_FLAG_CASE);
 
-    return ['ok' => true, 'dirs' => $dirs, 'root' => $root];
+    return [
+        'ok' => true,
+        'path' => $real,
+        'parent' => $real === $realRoot ? null : dirname($real),
+        'dirs' => $dirs,
+    ];
 }
 
 /**
@@ -843,8 +893,8 @@ function dispatch_action(array $request): array
         case 'cleanup':
             return cleanup_inactive_sessions();
 
-        case 'list_www_dirs':
-            return list_www_dirs();
+        case 'browse_dir':
+            return browse_dir((string)($request['path'] ?? ''));
 
         case 'quota':
             return get_quota();

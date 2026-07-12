@@ -224,7 +224,8 @@ existed:
 | Variable                    | Default                                     | Meaning                                    |
 |------------------------------|-----------------------------------------------|---------------------------------------------|
 | `CLAUDE_BIN`                 | `/home/andres/.local/bin/claude`              | Real claude CLI (`argv[0]` must match this) |
-| `WWW_ROOT`                   | `/home/andres/www`                            | Root offered in the New Session dropdown    |
+| `WWW_ROOT`                   | `/home/andres/www`                            | Starting folder for the New Session browser |
+| `HOME_ROOT`                  | `/home/andres`                                | Upper bound the folder browser can't escape |
 | `TMUX_SOCKET`                | `/tmp/tmux-1000/default`                      | tmux socket this agent drives (`-S`)        |
 | `SIDECAR_DIR`                | `/run/user/1000/csm-sessions`                 | Per-session workdir/spawned_at metadata     |
 | `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                                 | Inactivity threshold for "Kill inactive"    |

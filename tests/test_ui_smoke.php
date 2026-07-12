@@ -80,7 +80,7 @@ try {
 
     // --- POST new: redirect + flash message ---
     $result = curl_request('POST', "{$baseUrl}/", array_merge($authArgs, [
-        '-d', 'action=new&workdir_choice=' . urlencode('/home/andres/www/demo-project'),
+        '-d', 'action=new&workdir=' . urlencode('/home/andres/www/demo-project'),
     ]));
     assert_equal(303, $result['status'], 'POST new: 303 redirect');
     $location = $result['headers']['location'] ?? '';
@@ -116,6 +116,17 @@ try {
     $quotaBody = json_decode($result['body'], true);
     assert_true(is_array($quotaBody) && ($quotaBody['ok'] ?? false), 'GET /quota.php: response decodes as ok=true JSON');
     assert_equal(73, $quotaBody['quota']['session']['pct'] ?? null, 'GET /quota.php: canned session percentage passed through');
+
+    // --- browse.php: auth enforced, same as / ---
+    $result = curl_request('GET', "{$baseUrl}/browse.php");
+    assert_equal(401, $result['status'], 'GET /browse.php without auth: 401');
+
+    // --- browse.php: authed request passes the canned agent's browse_dir action through as JSON ---
+    $result = curl_request('GET', "{$baseUrl}/browse.php?path=" . urlencode('/home/andres/www'), $authArgs);
+    assert_equal(200, $result['status'], 'GET /browse.php with auth: 200');
+    $browseBody = json_decode($result['body'], true);
+    assert_true(is_array($browseBody) && ($browseBody['ok'] ?? false), 'GET /browse.php: response decodes as ok=true JSON');
+    assert_equal(['project-a', 'project-b'], $browseBody['dirs'] ?? null, 'GET /browse.php: canned dirs passed through');
 
     // --- cross-origin POST rejected ---
     $result = curl_request('POST', "{$baseUrl}/", array_merge($authArgs, [
@@ -154,10 +165,11 @@ function find_headless_browser(): ?string
 /**
  * Best-effort: renders the page in a real JS engine to catch things curl
  * can't (uncaught JS errors, whether the DOM curl already checked
- * actually parses in a browser). Does NOT simulate the workdir_choice
- * onchange click - that needs a scriptable devtools protocol client
- * (puppeteer/playwright), which isn't assumed to be installed offline on
- * this host. If that's ever added, it belongs here.
+ * actually parses in a browser). Does NOT open the New Session <details>
+ * or exercise the folder browser's fetch()-driven navigation - that needs
+ * a scriptable devtools protocol client (puppeteer/playwright), which
+ * isn't assumed to be installed offline on this host. If that's ever
+ * added, it belongs here.
  */
 function run_headless_browser_checks(string $browser, string $authUser, string $authPass, int $port): void
 {
@@ -183,6 +195,6 @@ function run_headless_browser_checks(string $browser, string $authUser, string $
         return;
     }
 
-    assert_contains('id="workdir_custom"', $dom, 'headless browser: renders the custom workdir input');
+    assert_contains('id="new-session-details"', $dom, 'headless browser: renders the New Session folder browser');
     assert_true(!str_contains($stderr, 'Uncaught'), 'headless browser: no uncaught JS errors on load');
 }

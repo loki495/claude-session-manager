@@ -58,6 +58,28 @@ assert_equal('No spinner here', clean_pane_title('No spinner here'), 'clean_pane
 assert_equal(null, clean_pane_title(''), 'clean_pane_title: empty title -> null (caller falls back to session name)');
 assert_equal(null, clean_pane_title('   '), 'clean_pane_title: whitespace-only title -> null');
 
+// --- browse_dir(): powers the New Session folder browser, walking from
+// WWW_ROOT up to (but never past) HOME_ROOT ---
+$result = browse_dir(www_root() . '/project-a');
+assert_true($result['ok'] ?? false, 'browse_dir(project-a): ok=true');
+assert_equal(['nested'], $result['dirs'] ?? null, 'browse_dir(project-a): lists its one subfolder');
+assert_equal(www_root(), $result['parent'] ?? null, 'browse_dir(project-a): parent is WWW_ROOT');
+
+$result = browse_dir(www_root() . '/project-a/nested');
+assert_true($result['ok'] ?? false, 'browse_dir(nested): ok=true');
+assert_equal([], $result['dirs'] ?? null, 'browse_dir(nested): no subfolders');
+assert_equal(www_root() . '/project-a', $result['parent'] ?? null, 'browse_dir(nested): parent is project-a');
+
+$result = browse_dir(home_root());
+assert_true($result['ok'] ?? false, 'browse_dir(home_root): ok=true');
+assert_equal(null, $result['parent'], 'browse_dir(home_root): parent is null - can\'t go up further');
+
+$result = browse_dir('/etc');
+assert_equal(false, $result['ok'] ?? null, 'browse_dir(/etc): rejects a path outside home_root');
+
+$result = browse_dir(www_root() . '/does-not-exist');
+assert_equal(false, $result['ok'] ?? null, 'browse_dir(missing dir): rejects a nonexistent path');
+
 try {
     // --- create ---
     $created = create_and_track(www_root() . '/project-a', $createdSessions);
@@ -94,6 +116,26 @@ try {
     // --- input validation: relative path rejected before touching tmux ---
     $result = create_cc_session('relative/path');
     assert_equal(false, $result['ok'] ?? null, 'create: rejects a relative workdir');
+
+    // --- self-healing: the tmux socket's parent directory can vanish
+    // entirely (e.g. a host reboot wipes /tmp) since it's addressed via an
+    // explicit -S path, which - unlike tmux's own default $TMPDIR/tmux-$UID
+    // naming - tmux never auto-creates. tmux_run() must recreate it on
+    // demand rather than every command failing until someone notices. ---
+    tmux_run(['kill-server']); // empties the isolated test socket dir so it can be removed
+    $socketDir = dirname(tmux_socket());
+    foreach (glob("{$socketDir}/*") ?: [] as $leftover) {
+        @unlink($leftover);
+    }
+    @rmdir($socketDir);
+    assert_true(!is_dir($socketDir), 'self-heal setup: tmux socket dir removed');
+
+    $healed = create_and_track(www_root() . '/project-a', $createdSessions);
+    assert_true($healed['ok'], 'create: recreates a missing tmux socket dir and still succeeds');
+    if ($healed['name'] !== null) {
+        kill_cc_session($healed['name']);
+        $createdSessions = array_values(array_diff($createdSessions, [$healed['name']]));
+    }
 
     // --- claude binary fails to start: tmux registers the session, then the pane
     // exits immediately since the command doesn't exist - create_cc_session()'s

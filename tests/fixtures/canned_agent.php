@@ -30,10 +30,11 @@ $response = match ($action) {
         ]],
         'bare' => [],
     ],
-    'list_www_dirs' => [
+    'browse_dir' => [
         'ok' => true,
+        'path' => '/home/andres/www',
+        'parent' => '/home/andres',
         'dirs' => ['project-a', 'project-b'],
-        'root' => '/home/andres/www',
     ],
     'create' => ['ok' => true, 'message' => 'Created session cc-20260101-1300 in /home/andres/www/demo-project'],
     'kill' => ($request['session'] ?? null) === CANNED_SESSION_NAME
