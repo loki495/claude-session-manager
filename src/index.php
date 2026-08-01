@@ -5,6 +5,7 @@ require __DIR__ . '/lib/AgentClient.php';
 require __DIR__ . '/lib/Auth.php';
 
 require_basic_auth();
+start_app_session();
 
 /* ---------- handle actions (POST) ---------- */
 
@@ -14,6 +15,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo "Rejected: cross-origin request.";
         exit;
     }
+
+    require_csrf();
 
     $action = $_POST['action'] ?? '';
     $message = '';
@@ -30,6 +33,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'kill':
             $requested = (string)($_POST['session'] ?? '');
             $result = agent_call(['action' => 'kill', 'session' => $requested]);
+            $ok = (bool)($result['ok'] ?? false);
+            $message = (string)($result['message'] ?? 'Unknown error');
+            break;
+
+        case 'kill_bare':
+            $pid = (int)($_POST['pid'] ?? 0);
+            $result = agent_call(['action' => 'kill_bare', 'pid' => $pid]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
             break;
@@ -52,8 +62,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'Unknown action';
     }
 
-    $redirect = '/?msg=' . rawurlencode($message) . '&ok=' . ($ok ? '1' : '0');
-    header('Location: ' . $redirect, true, 303);
+    $_SESSION['flash'] = ['msg' => $message, 'ok' => $ok];
+    header('Location: /', true, 303);
     exit;
 }
 
@@ -64,8 +74,12 @@ $agentReachable = (bool)($listResult['ok'] ?? false);
 $sessions = $agentReachable ? ($listResult['sessions'] ?? []) : [];
 $bare = $agentReachable ? ($listResult['bare'] ?? []) : [];
 
-$flashMsg = isset($_GET['msg']) ? (string)$_GET['msg'] : null;
-$flashOk = ($_GET['ok'] ?? '1') === '1';
+$flash = $_SESSION['flash'] ?? null;
+unset($_SESSION['flash']);
+$flashMsg = is_array($flash) ? (string)($flash['msg'] ?? '') : null;
+$flashOk = !is_array($flash) || ($flash['ok'] ?? true);
+
+$csrfToken = csrf_token();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -104,6 +118,7 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
     </summary>
     <form method="post" action="/" class="px-4 pt-4 pb-4 flex flex-col gap-3" id="new-session-form">
       <input type="hidden" name="action" value="new">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
       <input type="hidden" name="workdir" id="workdir_value">
       <div class="text-sm text-slate-300">Working directory</div>
       <div class="rounded-lg border border-slate-700 bg-slate-800 overflow-hidden">
@@ -119,6 +134,7 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
 
   <form method="post" action="/" class="mb-6" onsubmit="return confirm('Kill all cc-* sessions inactive for more than 12h?');">
     <input type="hidden" name="action" value="cleanup">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
     <button type="submit"
       class="w-full min-h-[3rem] rounded-lg bg-amber-700 active:bg-amber-800 font-medium text-base px-4 py-3">
       Kill inactive &gt;12h
@@ -135,7 +151,9 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
       <?php foreach ($sessions as $s): ?>
         <li class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 flex items-center justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-sm truncate"><?= htmlspecialchars($s['title'] ?? $s['name'], ENT_QUOTES) ?></div>
+            <div class="text-sm truncate">
+              <a href="/session.php?session=<?= urlencode($s['name']) ?>" class="hover:underline"><?= htmlspecialchars($s['title'] ?? $s['name'], ENT_QUOTES) ?></a>
+            </div>
             <?php if ($s['title'] !== null): ?>
               <div class="font-mono text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($s['name'], ENT_QUOTES) ?></div>
             <?php endif; ?>
@@ -151,9 +169,11 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
                 <span class="text-slate-500">detached</span>
               <?php endif; ?>
             </div>
+            <?= blocked_prompt_panel_html($s) ?>
           </div>
           <form method="post" action="/" onsubmit="return confirm('Kill session <?= htmlspecialchars($s['name'], ENT_QUOTES) ?>?');">
             <input type="hidden" name="action" value="kill">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
             <input type="hidden" name="session" value="<?= htmlspecialchars($s['name'], ENT_QUOTES) ?>">
             <button type="submit"
               class="min-h-[2.75rem] shrink-0 rounded-lg bg-red-900/70 active:bg-red-800 text-red-100 font-medium text-sm px-4 py-2">
@@ -171,14 +191,30 @@ $flashOk = ($_GET['ok'] ?? '1') === '1';
       <p class="text-xs text-slate-500 mb-2">Not managed by this tool.</p>
       <ul class="flex flex-col gap-2">
         <?php foreach ($bare as $b): ?>
-          <li class="rounded-xl border border-slate-800/60 bg-slate-900/30 px-4 py-3">
-            <div class="font-mono text-sm text-slate-300">pid <?= (int)$b['pid'] ?></div>
-            <?php if (!empty($b['cwd'])): ?>
-              <div class="text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($b['cwd'], ENT_QUOTES) ?></div>
-            <?php endif; ?>
-            <div class="text-xs text-slate-500 mt-1">
-              <?= $b['started_at'] !== null ? htmlspecialchars(relative_time($b['started_at']), ENT_QUOTES) : 'start time unknown' ?>
+          <li class="rounded-xl border border-slate-800/60 bg-slate-900/30 px-4 py-3 flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <?php if (!empty($b['title'])): ?>
+                <div class="text-sm truncate text-slate-300"><?= htmlspecialchars((string)$b['title'], ENT_QUOTES) ?></div>
+              <?php endif; ?>
+              <div class="font-mono text-xs text-slate-500 truncate mt-0.5">
+                pid <?= (int)$b['pid'] ?><?= !empty($b['tmux_session']) ? ' · tmux: ' . htmlspecialchars((string)$b['tmux_session'], ENT_QUOTES) : ' · no tmux (plain process)' ?>
+              </div>
+              <?php if (!empty($b['cwd'])): ?>
+                <div class="text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($b['cwd'], ENT_QUOTES) ?></div>
+              <?php endif; ?>
+              <div class="text-xs text-slate-500 mt-1">
+                <?= $b['started_at'] !== null ? htmlspecialchars(relative_time($b['started_at']), ENT_QUOTES) : 'start time unknown' ?>
+              </div>
             </div>
+            <form method="post" action="/" onsubmit="return confirm('Kill pid <?= (int)$b['pid'] ?><?= !empty($b['tmux_session']) ? ' (tmux session ' . htmlspecialchars((string)$b['tmux_session'], ENT_QUOTES) . ')' : '' ?>? This process was not started by this tool.');">
+              <input type="hidden" name="action" value="kill_bare">
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
+              <input type="hidden" name="pid" value="<?= (int)$b['pid'] ?>">
+              <button type="submit"
+                class="min-h-[2.75rem] shrink-0 rounded-lg bg-red-900/70 active:bg-red-800 text-red-100 font-medium text-sm px-4 py-2">
+                Kill
+              </button>
+            </form>
           </li>
         <?php endforeach; ?>
       </ul>

@@ -32,10 +32,12 @@ function require_basic_auth(): void
     }
 }
 
-/* ---------- light CSRF guard ---------- */
-/* No sessions/DB are used, so this is a same-origin check rather than a
-   token. Basic Auth is the real access control; this just blocks a stray
-   cross-site form post from a page loaded in the same authenticated browser. */
+/* ---------- CSRF guards ---------- */
+/* Two independent layers, both required on every state-changing POST:
+   same_origin_or_no_origin() (a same-origin check, no token involved) plus
+   the session-bound token pair below. Basic Auth is the real access
+   control; these just block a stray cross-site form post from a page
+   loaded in the same authenticated browser. */
 
 function same_origin_or_no_origin(): bool
 {
@@ -52,4 +54,46 @@ function same_origin_or_no_origin(): bool
     $host = $_SERVER['HTTP_HOST'] ?? null;
 
     return $sourceAuthority === $host || $sourceHost === $host;
+}
+
+/**
+ * Starts (or resumes) the PHP session used for the CSRF token and flash
+ * messages - session_start() itself is idempotent-safe to call more than
+ * once (a second call is a silent no-op), but callers should still only
+ * need to call this once per request, near the top before any output.
+ */
+function start_app_session(): void
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+}
+
+/**
+ * Returns this session's CSRF token, generating and stashing one on first
+ * use. Call start_app_session() first.
+ */
+function csrf_token(): string
+{
+    if (!isset($_SESSION['csrf_token']) || !is_string($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Rejects the request with 403 unless $_POST['csrf_token'] matches this
+ * session's token. Call start_app_session() first.
+ */
+function require_csrf(): void
+{
+    $provided = (string)($_POST['csrf_token'] ?? '');
+    $expected = (string)($_SESSION['csrf_token'] ?? '');
+
+    if ($expected === '' || !hash_equals($expected, $provided)) {
+        http_response_code(403);
+        echo "Rejected: missing or invalid CSRF token.";
+        exit;
+    }
 }

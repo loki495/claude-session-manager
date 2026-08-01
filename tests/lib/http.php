@@ -3,11 +3,15 @@ declare(strict_types=1);
 
 /**
  * @param string[] $extraArgs extra curl args (e.g. ['-u', 'user:pass'], ['-d', 'a=b'])
+ * @param ?string $cookieJar path to a cookie-jar file, read via -b and rewritten via -c on
+ *   every call - lets a caller carry a PHP session cookie across several requests (e.g. to
+ *   read a CSRF token from a GET, then use it on a following POST) the same way a browser would
  * @return array{status:int, headers:array<string,string>, body:string}
  */
-function curl_request(string $method, string $url, array $extraArgs = []): array
+function curl_request(string $method, string $url, array $extraArgs = [], ?string $cookieJar = null): array
 {
-    $cmd = array_merge(['curl', '-s', '-i', '--max-time', '5', '-X', $method], $extraArgs, [$url]);
+    $cookieArgs = $cookieJar !== null ? ['-b', $cookieJar, '-c', $cookieJar] : [];
+    $cmd = array_merge(['curl', '-s', '-i', '--max-time', '5', '-X', $method], $cookieArgs, $extraArgs, [$url]);
 
     $process = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 

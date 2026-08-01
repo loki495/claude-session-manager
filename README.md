@@ -48,22 +48,41 @@ of scope to avoid adding a second, SIGTERM-based kill path alongside
 
 - Lists `cc-*` tmux sessions: name, working directory (if known), relative
   last-active time, attached/detached.
+- **Blocked-on-input warning**: if a session's pane is currently showing an
+  interactive prompt Claude Code needs a human for (folder trust on first
+  launch in a new directory, tool-permission approval, ...), the row shows
+  what it's waiting on plus the exact `tmux -S <socket> attach -t <name>`
+  command to go answer it. Detected via the leading `❯ N.` cursor Claude
+  Code renders on every such prompt's selected option
+  (`detect_blocking_prompt()` in `Sessions.php`), not by matching specific
+  prompt wording. Never auto-answered — only ever a copy-pasteable hint, so
+  nothing gets silently approved without a human actually looking.
 - Also lists any other real `claude` process found on the host that isn't
-  inside a tracked session, read-only, under "Other claude processes on
-  host".
+  inside a `cc-*` session this tool manages, under "Other claude processes
+  on host" — including its pane title and owning tmux session name if it
+  happens to be running inside some other, manually created tmux session.
+  Killable too (see Kill, below), since these are just as real as tracked
+  sessions.
 - **New Session**: prompts for a working directory (a dropdown of your
-  `~/www/*` project folders, or a manual absolute path), then runs
+  `~/www/*` project folders — hidden folders included, walkable all the way
+  up to your home directory — or a manual absolute path), then runs
   `tmux new-session -d -s "cc-$(date +%Y%m%d-%H%M)" -c "<chosen dir>" /home/andres/.local/bin/claude`
   on the host agent (the timestamp is generated server-side, never from
   user input). Verifies the session actually stayed running before
   reporting success.
 - **Kill** (per row): only killable if the exact session name is present in
   a freshly-fetched session listing computed in the same request on the
-  agent. Anything else is rejected.
+  agent. Anything else is rejected. "Other claude processes" are killed by
+  pid instead, re-verified against a fresh process scan the same way —
+  killing the whole tmux session if the pid lives in one, or a direct
+  `SIGTERM` otherwise.
 - **Kill sessions inactive > 12h**: agent re-lists `cc-*` sessions and kills
   any whose `session_activity` is older than 12 hours. No per-session input
   involved.
 - No auto-refresh — a manual Refresh button re-fetches everything on demand.
+- Every action result (created/killed/rejected/...) is shown as a flash
+  message stored server-side in a PHP session, not in the URL — refreshing
+  or re-sharing the URL after an action never re-shows or re-triggers it.
 - **Usage quota footer**: a sticky footer shows session/weekly usage
   percentages and reset countdowns from `claude-quota` — a separate script
   (not part of this repo) that scrapes Claude Code's own `/usage` panel.
@@ -320,11 +339,12 @@ processes on this host:**
   — a completely separate tmux **server**, never the real one at
   `/tmp/tmux-1000/default`. It cannot see or touch the real `cc-*`
   sessions.
-- `CLAUDE_BIN` points at `tests/fixtures/fake_claude`, a symlink to
-  `/bin/cat` (not a script — a plain symlink, so `argv[0]` is preserved
-  exactly like the real launcher, which matters for
-  `find_claude_processes()`'s matching). The real, billable `claude` CLI
-  is never invoked by the test suite.
+- `CLAUDE_BIN` points at `tests/fixtures/fake_claude`, a script that behaves
+  like `cat` with no arguments (blocks on stdin) regardless of what real
+  flags it's actually invoked with (e.g. `--session-id <uuid>`), using
+  `exec -a "$0" cat` so `argv[0]` still ends up exactly this path, matching
+  the real launcher for `find_claude_processes()`'s matching. The real,
+  billable `claude` CLI is never invoked by the test suite.
 - `tests/run.sh` traps normal exit, Ctrl-C, and `TERM` and always runs
   cleanup: `tmux -S <test socket> kill-server` (kills the isolated server
   and every process it started), a `pkill -f fake_claude` sweep, and
@@ -351,14 +371,23 @@ end to end via curl (plus the optional headless-browser tier above).
   for New Session, which is passed as a `proc_open()` array argument (never
   through a shell) and only ever used as a `tmux -c` target — it can change
   *where* the fixed `claude` command starts, not *what* command runs.
-- The only two commands the app can ever cause to run are a fixed
-  `new-session` invocation and `kill-session` against a server-verified
-  whitelist, both re-validated against a freshly-fetched session list on
-  every request.
+- Every POST (`new`/`kill`/`kill_bare`/`cleanup`) is guarded twice: a
+  same-origin check (`Origin`/`Referer` vs `Host`) and a session-bound CSRF
+  token embedded as a hidden field in every form and checked with
+  `hash_equals()`. Basic Auth is still the real access control; these just
+  stop a stray cross-site form post from a page loaded in the same
+  authenticated browser.
+- The commands the app can cause to run are: a fixed `new-session`
+  invocation, `kill-session` against a server-verified whitelist (either a
+  tracked `cc-*` session or, for a "bare" process, whatever tmux session its
+  pid resolves to), or a direct `SIGTERM` to a bare pid re-verified against
+  a fresh `/proc` scan immediately before signaling it. All re-validated
+  against fresh state on every request, never trusted from the client.
 - The container has no access to the host filesystem, tmux, or the process
   table — only a single UNIX socket to the host agent, gated further by
   UNIX socket permissions (`SocketMode=0660`, `SocketGroup`).
-- No database, no sessions, no persistent state of any kind (aside from
-  small JSON sidecar files under `/run/user/1000/csm-sessions/` that only
-  record which working directory a session was started with — on tmpfs,
-  gone on reboot).
+- No database, no persistent state of any kind beyond: a PHP session
+  holding only a CSRF token and the next flash message (server-side,
+  cleared after one read), and small JSON sidecar files under
+  `/run/user/1000/csm-sessions/` that only record which working directory a
+  session was started with (on tmpfs, gone on reboot).

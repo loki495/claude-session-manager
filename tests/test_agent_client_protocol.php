@@ -39,6 +39,15 @@ try {
     $result = agent_call(['action' => 'browse_dir', 'path' => '/etc']);
     assert_equal(false, $result['ok'] ?? null, 'browse_dir (/etc): rejected as outside the home directory');
 
+    // --- session_detail / session_history: wired over the socket (deeper
+    // coverage, incl. the actual create -> transcript-not-found path, lives
+    // in test_sessions_lifecycle.php against real tmux) ---
+    $result = agent_call(['action' => 'session_detail', 'session' => 'cc-not-a-real-session']);
+    assert_equal(false, $result['ok'] ?? null, 'session_detail: ok=false for a session that does not exist on a fresh isolated tmux socket');
+
+    $result = agent_call(['action' => 'session_history', 'session' => 'cc-not-a-real-session', 'before' => null, 'limit' => 10]);
+    assert_equal(false, $result['ok'] ?? null, 'session_history: ok=false for a session with no sidecar');
+
     // --- malformed request (raw socket, bypassing agent_call()'s own encoding) ---
     $conn = stream_socket_client('unix://' . $socketPath, $errno, $errstr, 5);
     assert_true($conn !== false, 'malformed: connected to harness');

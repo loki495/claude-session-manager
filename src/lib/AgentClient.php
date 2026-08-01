@@ -47,6 +47,32 @@ function agent_call(array $request): array
     return $decoded;
 }
 
+/**
+ * The "waiting on input" amber panel shown for a blocked session - shared
+ * between index.php's list rows and session.php's detail view so the two
+ * never drift apart.
+ *
+ * @param array{blocked_reason?:?string, resume_hint?:?string} $session
+ */
+function blocked_prompt_panel_html(array $session): string
+{
+    if (empty($session['blocked_reason'])) {
+        return '';
+    }
+
+    $html = '<div class="mt-2 rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60">';
+    $html .= '<p class="font-medium">Waiting on input: ' . htmlspecialchars((string)$session['blocked_reason'], ENT_QUOTES) . '</p>';
+
+    if (!empty($session['resume_hint'])) {
+        $html .= '<p class="mt-1 text-amber-300/90">Attach to answer it:</p>';
+        $html .= '<code class="block mt-0.5 font-mono text-[11px] text-amber-100 break-all select-all">' . htmlspecialchars((string)$session['resume_hint'], ENT_QUOTES) . '</code>';
+    }
+
+    $html .= '</div>';
+
+    return $html;
+}
+
 function relative_time(int $timestamp): string
 {
     $diff = time() - $timestamp;

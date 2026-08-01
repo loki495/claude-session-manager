@@ -1,0 +1,13 @@
+- Mobile: sticky quota footer text is too large / takes up too much screen space on a
+  phone. Shrink the text, and ideally make the footer user-minimizable (collapse/expand).
+- session.php: add a sidebar showing the status of every other session (title,
+  blocked/active state, etc.), so you can jump between sessions or answer a blocked
+  prompt on another session without leaving the current one. Could piggyback on the
+  same visibility-gated poll that already refreshes this page's own info/history.
+- index.php (home page): show each session's last message, plus a toggle to expand
+  the last 2-3 messages inline, so you can gauge a session's status without clicking
+  into session.php. Reuse session_history.php (small limit) rather than adding a new
+  endpoint. Extend this to "Other claude processes" (bare) rows too, not just
+  cc-*-managed ones - note: bare processes have no claude_session_id recorded (only
+  create_cc_session() writes one to a sidecar), so this needs its own way to locate
+  their transcript, e.g. newest-modified .jsonl under the project dir for that cwd.
