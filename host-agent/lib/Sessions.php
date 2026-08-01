@@ -553,9 +553,9 @@ function cleanup_inactive_sessions(): array
 }
 
 /**
- * Lists the immediate, non-hidden subdirectories of $path, for the New
- * Session folder browser - lets a session start anywhere under the home
- * directory, not just under www_root(). $path (after resolving symlinks)
+ * Lists the immediate subdirectories of $path (hidden ones included), for
+ * the New Session folder browser - lets a session start anywhere under the
+ * home directory, not just under www_root(). $path (after resolving symlinks)
  * must be home_root() itself or a descendant of it; anything else is
  * rejected rather than letting the browser wander into the rest of the
  * filesystem. An empty $path defaults to www_root(), the common case,
@@ -582,7 +582,7 @@ function browse_dir(string $path): array
     $dirs = [];
 
     foreach (scandir($real) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..' || $entry[0] === '.') {
+        if ($entry === '.' || $entry === '..') {
             continue;
         }
 

@@ -60,6 +60,10 @@ assert_equal(null, clean_pane_title('   '), 'clean_pane_title: whitespace-only t
 
 // --- browse_dir(): powers the New Session folder browser, walking from
 // WWW_ROOT up to (but never past) HOME_ROOT ---
+$result = browse_dir(www_root());
+assert_true($result['ok'] ?? false, 'browse_dir(www_root): ok=true');
+assert_equal(['.hidden-dir', 'project-a', 'project-b'], $result['dirs'] ?? null, 'browse_dir(www_root): includes hidden dirs, sorted');
+
 $result = browse_dir(www_root() . '/project-a');
 assert_true($result['ok'] ?? false, 'browse_dir(project-a): ok=true');
 assert_equal(['nested'], $result['dirs'] ?? null, 'browse_dir(project-a): lists its one subfolder');

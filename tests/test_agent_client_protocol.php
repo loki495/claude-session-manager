@@ -32,7 +32,7 @@ try {
     $result = agent_call(['action' => 'browse_dir', 'path' => '']);
     assert_true($result['ok'] ?? false, 'browse_dir (default): ok=true');
     assert_equal(getenv('WWW_ROOT'), $result['path'] ?? null, 'browse_dir (default): path defaults to WWW_ROOT');
-    assert_equal(['project-a', 'project-b'], $result['dirs'] ?? null, 'browse_dir (default): dotfiles excluded, sorted');
+    assert_equal(['.hidden-dir', 'project-a', 'project-b'], $result['dirs'] ?? null, 'browse_dir (default): includes hidden dirs, sorted');
     assert_equal(getenv('HOME_ROOT'), $result['parent'] ?? null, 'browse_dir (default): parent is HOME_ROOT');
 
     // --- browse_dir: outside HOME_ROOT is rejected ---
