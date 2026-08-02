@@ -68,12 +68,18 @@ const TRANSCRIPT_BLOCK_HARD_CAP_LENGTH = 50000;
  * (verified against a real capture: "Bash(echo ... > /tmp/...)"). `element`
  * covers MCP browser-automation tools (verified against a real capture of
  * an MCP Playwright browser_click call: {"element": "...", "target": "..."}).
+ * `notebook_path` covers NotebookEdit specifically - the one single-file
+ * tool whose path argument isn't actually named `file_path` (found live:
+ * without this, its filename only happened to lead the summary when it
+ * was already first in the input's own key order, not on the strength of
+ * being the primary arg - the same "wherever it falls in normal param
+ * order" problem this whole list exists to avoid).
  *
  * @return string[]
  */
 function tool_use_primary_arg_keys(): array
 {
-    return ['command', 'file_path', 'pattern', 'query', 'url', 'path', 'prompt', 'element', 'description'];
+    return ['command', 'file_path', 'notebook_path', 'pattern', 'query', 'url', 'path', 'prompt', 'element', 'description'];
 }
 
 /**

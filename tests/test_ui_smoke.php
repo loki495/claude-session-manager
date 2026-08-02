@@ -89,6 +89,15 @@ try {
     assert_contains('id="quota-footer"', $result['body'], 'GET /: collapsible quota footer present');
     assert_contains('id="quota-toggle-btn"', $result['body'], 'GET /: quota footer collapse/expand toggle present');
     assert_true(!str_contains($result['body'], "isn't installed"), 'GET /: session-rotation hook banner not shown when the canned agent reports it already installed');
+    // Both canned sessions have working=true, but only the non-blocked one
+    // should ever show the indicator - the blocked one must not, proving
+    // dashboard_thinking_indicator_html()'s blocked_reason check actually
+    // wins rather than just happening to not be exercised by the fixture.
+    assert_equal(1, substr_count($result['body'], 'Thinking&hellip;'), 'GET /: thinking indicator shown exactly once - for the working, non-blocked session, not the working-but-blocked one');
+    assert_contains('id="poll-interval-select"', $result['body'], 'GET /: dashboard polling-interval dropdown present in the header');
+    assert_contains('id="session-count-text"', $result['body'], 'GET /: session-count text is a targetable element (updated live by the poll)');
+    assert_contains('id="sessions-container"', $result['body'], 'GET /: session list lives inside a targetable container (swapped in place by the poll)');
+    assert_contains('id="bare-container"', $result['body'], 'GET /: bare-process list lives inside a targetable container (swapped in place by the poll)');
 
     // CSRF token must round-trip through the session (via the cookie jar), not the URL - every
     // POST below extracts it fresh from whatever page it's reacting to.
@@ -163,6 +172,22 @@ try {
     assert_true(is_array($sessionsListBody) && ($sessionsListBody['ok'] ?? false), 'GET /sessions_list.php: response decodes as ok=true JSON');
     assert_equal(2, count($sessionsListBody['sessions'] ?? []), 'GET /sessions_list.php: canned sessions passed through');
 
+    // --- sessions_fragment.php: pre-rendered HTML for index.php's own live
+    // poll - same underlying data as sessions_list.php, but rendered
+    // through the exact same sessions_list_html()/bare_processes_html()/
+    // session_count_label_html() functions index.php's SSR render itself
+    // calls (see AgentClient.php), so this must contain the same
+    // content/markers the initial GET / assertions above already checked. ---
+    $result = curl_request('GET', "{$baseUrl}/sessions_fragment.php");
+    assert_equal(200, $result['status'], 'GET /sessions_fragment.php: 200');
+    $fragmentBody = json_decode($result['body'], true);
+    assert_true(is_array($fragmentBody) && ($fragmentBody['ok'] ?? false), 'GET /sessions_fragment.php: response decodes as ok=true JSON');
+    assert_contains('2 active', $fragmentBody['session_count_html'] ?? '', 'GET /sessions_fragment.php: session_count_html matches the canned session count');
+    assert_contains('Fix the login redirect bug', $fragmentBody['sessions_html'] ?? '', 'GET /sessions_fragment.php: sessions_html carries the canned pane title');
+    assert_equal(1, substr_count($fragmentBody['sessions_html'] ?? '', 'Thinking&hellip;'), 'GET /sessions_fragment.php: thinking indicator carried through the poll fragment too, still exactly once');
+    assert_contains('rm -rf /tmp/dashboard-example', $fragmentBody['sessions_html'] ?? '', 'GET /sessions_fragment.php: sessions_html carries the blocked row\'s rich context');
+    assert_contains('Bare title', $fragmentBody['bare_html'] ?? '', 'GET /sessions_fragment.php: bare_html carries the canned bare process');
+
     // --- session_detail.php/session_history.php/sessions_list.php/quota.php now join the
     // session (not just AgentClient.php) - a tab left open just polling (no send/answer)
     // must keep its session, and the CSRF token it holds, alive rather than letting it
@@ -175,7 +200,7 @@ try {
     $pollCsrfToken = extract_csrf_token($pollPage['body']);
     assert_true($pollCsrfToken !== null, 'GET /session.php: page includes a csrf_token field (poll-keepalive setup)');
 
-    foreach (['session_detail.php?session=cc-20260101-1200', 'session_history.php?session=cc-20260101-1200', 'sessions_list.php', 'quota.php'] as $pollEndpoint) {
+    foreach (['session_detail.php?session=cc-20260101-1200', 'session_history.php?session=cc-20260101-1200', 'sessions_list.php', 'sessions_fragment.php', 'quota.php'] as $pollEndpoint) {
         $pollResult = curl_request('GET', "{$baseUrl}/{$pollEndpoint}", [], $pollCookieJar);
         assert_equal(200, $pollResult['status'], "GET /{$pollEndpoint} (poll, with session cookie): 200");
 

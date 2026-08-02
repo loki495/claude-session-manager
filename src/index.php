@@ -106,9 +106,19 @@ $csrfToken = csrf_token();
 <body class="bg-slate-950 text-slate-100 min-h-screen">
 <div class="max-w-2xl mx-auto px-4 py-6 pb-32">
 
-  <header class="mb-6">
-    <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
-    <p class="text-sm text-slate-400 mt-1"><?= count($sessions) ?> active <code>cc-*</code> session<?= count($sessions) === 1 ? '' : 's' ?></p>
+  <header class="mb-6 flex items-start justify-between gap-2">
+    <div class="min-w-0">
+      <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
+      <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= session_count_label_html(count($sessions)) ?></p>
+    </div>
+    <select id="poll-interval-select" aria-label="Polling interval"
+      class="shrink-0 text-xs font-medium pl-1.5 pr-5 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-400">
+      <option value="1000">1s</option>
+      <option value="3000">3s</option>
+      <option value="5000">5s</option>
+      <option value="10000">10s</option>
+      <option value="15000" selected>15s</option>
+    </select>
   </header>
 
   <?php if (!$agentReachable): ?>
@@ -173,97 +183,12 @@ $csrfToken = csrf_token();
     </button>
   </form>
 
-  <?php if ($agentReachable && empty($sessions)): ?>
-    <div class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-10 text-center text-slate-400">
-      <p class="text-base">No active Claude sessions.</p>
-      <p class="text-sm mt-1">Tap "New Session" to start one.</p>
-    </div>
-  <?php elseif ($agentReachable): ?>
-    <ul class="flex flex-col gap-3">
-      <?php foreach ($sessions as $s): ?>
-        <li class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <div class="text-sm truncate">
-              <a href="/session.php?session=<?= urlencode($s['name']) ?>" class="hover:underline"><?= htmlspecialchars($s['title'] ?? $s['name'], ENT_QUOTES) ?></a>
-            </div>
-            <?php if ($s['title'] !== null): ?>
-              <div class="font-mono text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($s['name'], ENT_QUOTES) ?></div>
-            <?php endif; ?>
-            <?php if (!empty($s['workdir'])): ?>
-              <div class="text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($s['workdir'], ENT_QUOTES) ?></div>
-            <?php endif; ?>
-            <div class="text-xs text-slate-400 mt-1 flex items-center gap-2">
-              <span><?= htmlspecialchars(relative_time($s['activity']), ENT_QUOTES) ?></span>
-              <span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
-              <?php if ($s['attached']): ?>
-                <span class="text-emerald-400">attached</span>
-              <?php else: ?>
-                <span class="text-slate-500">detached</span>
-              <?php endif; ?>
-            </div>
-            <div class="mt-1">
-              <button type="button" class="show-recent-btn rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5"
-                data-session="<?= htmlspecialchars($s['name'], ENT_QUOTES) ?>" data-loaded="0">
-                Show last 3 messages
-              </button>
-              <div class="recent-messages hidden mt-1 flex flex-col gap-1 max-h-64 overflow-y-auto"></div>
-            </div>
-            <?php if (!empty($s['blocked_reason']) && !empty($s['prompt_is_folder_trust'])): ?>
-              <?= blocked_prompt_panel_html($s) ?>
-            <?php elseif (!empty($s['blocked_reason'])): ?>
-              <?= blocked_prompt_rich_html($s, $csrfToken, true) ?>
-            <?php else: ?>
-              <?= last_message_preview_html($s['last_message'] ?? null, 'mt-1') ?>
-            <?php endif; ?>
-          </div>
-          <form method="post" action="/" onsubmit="return confirm('Kill session <?= htmlspecialchars($s['name'], ENT_QUOTES) ?>?');">
-            <input type="hidden" name="action" value="kill">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
-            <input type="hidden" name="session" value="<?= htmlspecialchars($s['name'], ENT_QUOTES) ?>">
-            <button type="submit"
-              class="min-h-[2.75rem] shrink-0 rounded-lg bg-red-900/70 active:bg-red-800 text-red-100 font-medium text-sm px-4 py-2">
-              Kill
-            </button>
-          </form>
-        </li>
-      <?php endforeach; ?>
-    </ul>
+  <?php if ($agentReachable): ?>
+    <div id="sessions-container"><?= sessions_list_html($sessions, $csrfToken) ?></div>
   <?php endif; ?>
 
-  <?php if ($agentReachable && !empty($bare)): ?>
-    <div class="mt-8">
-      <h2 class="text-sm font-medium text-slate-400 mb-1">Other claude processes on host</h2>
-      <p class="text-xs text-slate-500 mb-2">Not managed by this tool.</p>
-      <ul class="flex flex-col gap-2">
-        <?php foreach ($bare as $b): ?>
-          <li class="rounded-xl border border-slate-800/60 bg-slate-900/30 px-4 py-3 flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <?php if (!empty($b['title'])): ?>
-                <div class="text-sm truncate text-slate-300"><?= htmlspecialchars((string)$b['title'], ENT_QUOTES) ?></div>
-              <?php endif; ?>
-              <div class="font-mono text-xs text-slate-500 truncate mt-0.5">
-                pid <?= (int)$b['pid'] ?><?= !empty($b['tmux_session']) ? ' · tmux: ' . htmlspecialchars((string)$b['tmux_session'], ENT_QUOTES) : ' · no tmux (plain process)' ?>
-              </div>
-              <?php if (!empty($b['cwd'])): ?>
-                <div class="text-xs text-slate-500 truncate mt-0.5"><?= htmlspecialchars($b['cwd'], ENT_QUOTES) ?></div>
-              <?php endif; ?>
-              <div class="text-xs text-slate-500 mt-1">
-                <?= $b['started_at'] !== null ? htmlspecialchars(relative_time($b['started_at']), ENT_QUOTES) : 'start time unknown' ?>
-              </div>
-            </div>
-            <form method="post" action="/" onsubmit="return confirm('Kill pid <?= (int)$b['pid'] ?><?= !empty($b['tmux_session']) ? ' (tmux session ' . htmlspecialchars((string)$b['tmux_session'], ENT_QUOTES) . ')' : '' ?>? This process was not started by this tool.');">
-              <input type="hidden" name="action" value="kill_bare">
-              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
-              <input type="hidden" name="pid" value="<?= (int)$b['pid'] ?>">
-              <button type="submit"
-                class="min-h-[2.75rem] shrink-0 rounded-lg bg-red-900/70 active:bg-red-800 text-red-100 font-medium text-sm px-4 py-2">
-                Kill
-              </button>
-            </form>
-          </li>
-        <?php endforeach; ?>
-      </ul>
-    </div>
+  <?php if ($agentReachable): ?>
+    <div id="bare-container"><?= bare_processes_html($bare, $csrfToken) ?></div>
   <?php endif; ?>
 
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
@@ -624,6 +549,147 @@ document.addEventListener('keydown', function (e) {
       load('');
     }
   });
+})();
+
+// --- visibility-gated live polling: keeps the session list, bare-process
+// list, and header count in sync without a manual refresh - same pattern
+// as session.php's own poll (stopped while the tab isn't visible, so a
+// backgrounded tab doesn't keep hitting the socket for nobody), sharing
+// its localStorage key so a chosen interval carries over between pages. ---
+(function () {
+  var agentReachable = <?= json_encode($agentReachable) ?>;
+  var sessionsContainer = document.getElementById('sessions-container');
+  var bareContainer = document.getElementById('bare-container');
+  var countText = document.getElementById('session-count-text');
+
+  if (!agentReachable || !sessionsContainer) {
+    return; // nothing to keep live - the "cannot reach host agent" banner is SSR-only
+  }
+
+  var POLL_INTERVAL_STORAGE_KEY = 'csm-poll-interval-ms';
+  var POLL_INTERVAL_ALLOWED_MS = [1000, 3000, 5000, 10000, 15000];
+  var pollIntervalMs = (function () {
+    try {
+      var stored = parseInt(window.localStorage.getItem(POLL_INTERVAL_STORAGE_KEY), 10);
+      return POLL_INTERVAL_ALLOWED_MS.indexOf(stored) !== -1 ? stored : 15000;
+    } catch (e) {
+      return 15000;
+    }
+  })();
+
+  var pollTimer = null;
+  var pollingActive = false;
+  var pollAbortController = new AbortController();
+
+  // Skip-if-unchanged, same reasoning as session.php's renderBlockedSection():
+  // the common case is a poll landing on data identical to what's already
+  // shown, and replacing innerHTML unconditionally would collapse any
+  // mid-interaction state (an expanded "Show last 3 messages" panel, a
+  // focused free-text reply box) on every single cycle for no reason.
+  var lastSessionsHtml = sessionsContainer.innerHTML;
+  var lastBareHtml = bareContainer ? bareContainer.innerHTML : null;
+
+  function pollOnce() {
+    return fetch('/sessions_fragment.php', { credentials: 'same-origin', signal: pollAbortController.signal })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) {
+          return; // agent unreachable this cycle - leave the last-good state on screen rather than blanking it
+        }
+
+        if (data.sessions_html !== lastSessionsHtml) {
+          sessionsContainer.innerHTML = data.sessions_html;
+          lastSessionsHtml = data.sessions_html;
+        }
+
+        if (bareContainer && data.bare_html !== lastBareHtml) {
+          bareContainer.innerHTML = data.bare_html;
+          lastBareHtml = data.bare_html;
+        }
+
+        if (countText && typeof data.session_count_html === 'string') {
+          countText.innerHTML = data.session_count_html;
+        }
+      })
+      .catch(function () {});
+  }
+
+  function startPolling() {
+    if (pollingActive) {
+      return;
+    }
+
+    pollingActive = true;
+    pollAbortController = new AbortController();
+
+    function cycle() {
+      pollOnce().finally(function () {
+        if (pollingActive) {
+          pollTimer = setTimeout(cycle, pollIntervalMs);
+        }
+      });
+    }
+
+    cycle();
+  }
+
+  function stopPolling() {
+    if (!pollingActive) {
+      return;
+    }
+
+    pollingActive = false;
+
+    if (pollTimer !== null) {
+      clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+
+    pollAbortController.abort();
+  }
+
+  window.addEventListener('pagehide', function () {
+    pollAbortController.abort();
+  });
+
+  var pollIntervalSelect = document.getElementById('poll-interval-select');
+
+  if (pollIntervalSelect) {
+    pollIntervalSelect.value = String(pollIntervalMs);
+
+    pollIntervalSelect.addEventListener('change', function () {
+      var chosen = parseInt(pollIntervalSelect.value, 10);
+
+      if (POLL_INTERVAL_ALLOWED_MS.indexOf(chosen) === -1) {
+        return;
+      }
+
+      pollIntervalMs = chosen;
+
+      try {
+        window.localStorage.setItem(POLL_INTERVAL_STORAGE_KEY, String(chosen));
+      } catch (e) {}
+
+      var wasPolling = pollTimer !== null;
+      stopPolling();
+
+      if (wasPolling) {
+        startPolling();
+      }
+    });
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  });
+
+  if (document.visibilityState === 'visible') {
+    startPolling();
+  }
 })();
 </script>
 </body>

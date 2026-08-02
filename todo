@@ -207,10 +207,33 @@ Tier 1 - quick wins (small, isolated changes):
   only session/week_all are present.
 Tier 2 - self-contained features/fixes:
 
-- index.php (home page): poll for updated messages/prompts and dynamically update
-  in place, like session.php's visibility-gated poll does (currently manual-refresh
-  only) - also right-align the polling-interval selector in the dashboard's header
-  once it exists there, matching session.php's layout (added 2026-08-02).
+- RESOLVED: dashboard live polling - done 2026-08-02. index.php now polls
+  sessions_fragment.php (new endpoint) on the same visibility-gated pattern as
+  session.php, sharing its localStorage interval key so a chosen speed carries
+  over between pages. Rather than porting the dashboard's fairly involved
+  per-row markup (blocked-prompt cards, folder-trust panel, free-text reply,
+  Kill forms with CSRF) into JS, the row/list rendering was extracted into
+  shared PHP functions (session_row_html()/sessions_list_html()/
+  bare_process_row_html()/bare_processes_html()/session_count_label_html() in
+  AgentClient.php) that BOTH index.php's SSR page and the new fragment
+  endpoint call - one source of truth, no JS/PHP duplication to keep in sync.
+  The poll swaps #sessions-container/#bare-container's innerHTML wholesale,
+  skipping the replace when the returned HTML string is byte-identical to
+  what's already shown (same "don't rebuild on every poll" reasoning as
+  renderBlockedSection() on session.php - avoids collapsing an expanded "Show
+  last 3 messages" panel or similar for no reason). Live-verified against a
+  real throwaway session: watched the dashboard's session count and a new
+  row appear with zero manual refresh, and separately confirmed the skip-
+  logic itself by instrumenting the container's innerHTML setter - it held
+  steady across identical polls and only fired when this very conversation's
+  own tracked session (also shown on the same dashboard) picked up new
+  transcript content, proving both halves work: skip when nothing changed,
+  update when something real does. Also added a per-row "Thinking…" badge
+  (dashboard_thinking_indicator_html(), mirrors session.php's
+  render_thinking_indicator_html() minus the Stop button, which has nowhere
+  to live on a list row) per Andres's follow-up ask once the poll made it
+  worth showing live - verified live too: appeared while a throwaway session
+  was actively generating a long reply, cleared the moment it finished.
 - RESOLVED: new-content marker on session.php - done 2026-08-02. A "New" divider
   is inserted above whatever a poll cycle just appended (markNewContent() in
   session.php), plus each new entry bubble itself gets an indigo box-shadow ring
@@ -240,10 +263,15 @@ Tier 2 - self-contained features/fixes:
   does (hides tool_result blocks via the hide-tool-details CSS class; tool_use blocks
   are unaffected) before renaming, since the current name may already be accurate for
   half of what people expect it to do.
-- host-agent/lib/Transcript.php (summarize_tool_use()/tool_use_param_lines()): for
-  single-file tools (Read, Edit, Write, ...), put the filename on the first line of
-  the summary rather than wherever it falls in normal param order - it's the thing
-  most worth seeing without expanding.
+- RESOLVED: filename-first-line for single-file tool summaries - done 2026-08-02.
+  Turned out mostly already true: tool_use_primary_arg_keys() already recognized
+  `file_path` as a primary arg, so Read/Edit/Write/MultiEdit already led with the
+  filename. The actual gap was NotebookEdit, whose path argument is named
+  `notebook_path` - not in the list, so it only happened to lead the summary when
+  the JSONL transcript's own key order put it first, not because it was treated
+  as primary. Added `notebook_path` alongside `file_path`; regression test added
+  with the field deliberately NOT first in input order, to prove it's the
+  primary-key match doing the work, not accidental key order.
 - RESOLVED: a cluster of session.php history/prompt-answer fixes, done 2026-08-02:
   (1) History entries are now colored+labeled by kind, not just entry.role - rose
   "User", emerald "Assistant", sky "Tool call" (tool_use), violet "Tool output"
@@ -456,3 +484,8 @@ Tier 3 - bigger or investigative items:
   could replace/improve any of the pane-scraping this app currently does -
   e.g. detecting "done thinking"/idle state, or catching a tool result
   right as it lands instead of waiting for the next transcript poll.
+- Investigate: Andres reports messages he typed sometimes disappear from
+  session.php after navigating to another page and back to the session.
+  Needs more detail to reproduce - which messages (his own compose sends,
+  or ones typed directly into a real Claude Code session outside the app?),
+  how soon after sending, whether a poll cycle happens in between.

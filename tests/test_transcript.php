@@ -51,6 +51,16 @@ assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash']], $toolUseLine['blo
 assert_equal('tool: Bash - command: rm -rf /tmp/x, description: Clean up', summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - command first (primary arg), then every other param');
 assert_equal('tool: Read - file_path: /etc/hosts', summarize_tool_use(['name' => 'Read', 'input' => ['file_path' => '/etc/hosts']]), 'summarize_tool_use: Read - file_path used');
 assert_equal('tool: Grep - pattern: TODO', summarize_tool_use(['name' => 'Grep', 'input' => ['pattern' => 'TODO']]), 'summarize_tool_use: Grep - pattern used');
+// NotebookEdit's path argument is named notebook_path, not file_path -
+// input order deliberately does NOT have it first, so this only passes if
+// notebook_path is itself a recognized primary key (see
+// tool_use_primary_arg_keys()), not by accident of already leading the
+// input array.
+assert_equal(
+    'tool: NotebookEdit - notebook_path: /tmp/x.ipynb, cell_id: 3',
+    summarize_tool_use(['name' => 'NotebookEdit', 'input' => ['cell_id' => '3', 'notebook_path' => '/tmp/x.ipynb']]),
+    'summarize_tool_use: NotebookEdit - notebook_path leads the summary even though it is not the first input key'
+);
 assert_equal('tool: Bash', summarize_tool_use(['name' => 'Bash', 'input' => []]), 'summarize_tool_use: empty input -> bare name');
 assert_equal('tool: Bash', summarize_tool_use(['name' => 'Bash']), 'summarize_tool_use: no input key at all -> bare name');
 assert_equal(
