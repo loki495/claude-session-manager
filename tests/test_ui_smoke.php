@@ -13,6 +13,11 @@ require __DIR__ . '/lib/assert.php';
 require __DIR__ . '/lib/harness.php';
 require __DIR__ . '/lib/http.php';
 
+// Must match CANNED_TEST_IMAGE_BASE64 in fixtures/canned_agent.php - that
+// file runs as its own separate process (spawned per-connection by
+// socket_harness.php), so its constants aren't reachable from here.
+const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
 $agentSocket = sys_get_temp_dir() . '/csm-test-ui-agent.sock';
 $agentHarness = start_harness(['php', __DIR__ . '/fixtures/canned_agent.php'], $agentSocket);
 
@@ -75,6 +80,12 @@ try {
     assert_contains('show-recent-btn', $result['body'], 'GET /: "show last 3 messages" toggle button present');
     assert_contains('Found some old temp files worth cleaning up', $result['body'], 'GET /: blocked dashboard row includes the message that led up to the prompt');
     assert_contains('rm -rf /tmp/dashboard-example', $result['body'], 'GET /: blocked dashboard row (non-trust) shows the rich context+buttons treatment');
+    $firstShowRecentPos = strpos($result['body'], 'show-recent-btn');
+    $secondShowRecentPos = $firstShowRecentPos !== false ? strpos($result['body'], 'show-recent-btn', $firstShowRecentPos + 1) : false;
+    assert_true(
+        $secondShowRecentPos !== false && $secondShowRecentPos < strpos($result['body'], 'Found some old temp files worth cleaning up'),
+        'GET /: "show last 3 messages" button renders above the blocked-prompt card, not below it (checked on the blocked row specifically - it\'s the 2nd of 2 canned rows)'
+    );
     assert_contains('id="quota-footer"', $result['body'], 'GET /: collapsible quota footer present');
     assert_contains('id="quota-toggle-btn"', $result['body'], 'GET /: quota footer collapse/expand toggle present');
     assert_true(!str_contains($result['body'], "isn't installed"), 'GET /: session-rotation hook banner not shown when the canned agent reports it already installed');
@@ -208,6 +219,10 @@ try {
     assert_contains('demo-project', $result['body'], 'GET /session.php: canned workdir shown');
     assert_contains('Looking into it now.', $result['body'], 'GET /session.php: canned history entry rendered');
     assert_true(
+        preg_match('/<p class="whitespace-pre-wrap break-words[^"]*">\s*Looking into it now\./', $result['body']) === 1,
+        'GET /session.php: text blocks get break-words, not just whitespace-pre-wrap - otherwise a long unbroken token (found live: a 51-char FILTER_FLAG_... constant name) widens the whole page horizontally instead of wrapping'
+    );
+    assert_true(
         preg_match('/<div class="rounded border[^>]*>\s*<span class="whitespace-pre">\s*&rarr;\s*Bash\(pwd\)/', $result['body']) === 1,
         'GET /session.php: a short/trivial tool_use block renders as plain (non-wrapping, scrollable) text, not a <details>'
     );
@@ -221,6 +236,10 @@ try {
     );
     assert_contains('Load older messages', $result['body'], 'GET /session.php: load-more button shown when has_more=true');
     assert_contains('Do you want to proceed?', $result['body'], 'GET /session.php: canned blocked_reason shown');
+    assert_true(
+        preg_match('/<p class="font-medium break-words">Waiting on input:/', $result['body']) === 1,
+        'GET /session.php: the blocked-prompt reason also gets break-words, same reasoning as history text blocks'
+    );
     assert_contains('1. Yes', $result['body'], 'GET /session.php: real option button rendered (not just the copy-paste tip)');
     assert_contains('2. No', $result['body'], 'GET /session.php: second option button rendered');
     assert_contains('class="reveal-freetext-btn', $result['body'], 'GET /session.php: the "Type something." option renders as a reveal button, not an immediate-submit form');
@@ -250,7 +269,32 @@ try {
     assert_contains('class="tool-detail"', $result['body'], 'GET /session.php: tool_result blocks are tagged hideable by the show/hide toggle');
     assert_contains('class="tool-use-block"', $result['body'], 'GET /session.php: tool_use blocks get their own (never-hidden) class, kept separate from tool-detail');
     assert_contains('body.hide-tool-details .tool-detail', $result['body'], 'GET /session.php: the hide-tool-details CSS rule only targets tool_result (tool_use is untagged, shown in full instead)');
+    assert_contains('body.hide-tool-details .entry-tool-result-only', $result['body'], 'GET /session.php: a second hide-tool-details rule hides whole entries left with nothing but a hidden tool_result');
+    assert_contains('.new-content-divider.fading', $result['body'], 'GET /session.php: the new-content divider fade rule is shipped');
+    assert_contains('.new-content-highlight.fading', $result['body'], 'GET /session.php: the new-content highlight fade rule is shipped (two-class pattern, not a plain classList.remove, so `transition` survives the fade)');
+    assert_contains('function markNewContent(', $result['body'], 'GET /session.php: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
+    assert_contains('>Tool output<', $result['body'], 'GET /session.php: the canned tool_result entry ("done") is labeled "Tool output", not "User"');
+    assert_contains('>Tool call<', $result['body'], 'GET /session.php: the canned tool_use entry ("Bash(pwd)") is labeled "Tool call", not "Assistant"');
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Bash\(pwd\)/s', $result['body'], $toolUseEntryMatch) === 1
+            && strpos($toolUseEntryMatch[1], 'entry-tool-result-only') === false,
+        'GET /session.php: the canned tool_use entry ("Bash(pwd)") is NOT marked entry-tool-result-only - it has real content, so it must never be hidden'
+    );
+    // The canned "done" tool_result entry carries an image (a screenshot,
+    // in practice) - found live: it was still getting entry-tool-result-only
+    // (and so vanishing entirely under "hide tool details") even after
+    // images were made to always show, since that marker didn't originally
+    // account for an attached image at all.
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?<img src="data:image\/png;base64,' . preg_quote(CANNED_TEST_IMAGE_BASE64, '/') . '"[^>]*class="transcript-image/s', $result['body'], $imageEntryMatch) === 1
+            && strpos($imageEntryMatch[1], 'entry-tool-result-only') === false,
+        'GET /session.php: a tool_result entry carrying an image is NOT marked entry-tool-result-only - the image must always stay visible, so the whole entry must never be hidden'
+    );
     assert_contains('id="sidebar-list"', $result['body'], 'GET /session.php: sidebar (other sessions) drawer present');
+    assert_true(
+        preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="kill">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="session" value="cc-20260101-1200">\s*<button type="submit"[^>]*>\s*Close session#', $result['body']) === 1,
+        'GET /session.php: sidebar has a "Close session" action that kills THIS session'
+    );
     assert_true(
         strpos($result['body'], 'id="history-list"') < strpos($result['body'], 'id="blocked-prompt-section"'),
         'GET /session.php: the blocked-prompt section is placed after the history list, not above it'
@@ -395,6 +439,31 @@ try {
     ], $cookieJar);
     $modeRejectBody = json_decode($result['body'], true);
     assert_equal(false, $modeRejectBody['ok'] ?? null, 'POST /session_mode.php: canned agent rejects an unrecognized session');
+
+    // --- session_escape.php: GET not allowed ---
+    $result = curl_request('GET', "{$baseUrl}/session_escape.php?session=cc-20260101-1200");
+    assert_equal(405, $result['status'], 'GET /session_escape.php: 405 (POST required)');
+
+    // --- session_escape.php: CSRF enforced ---
+    $result = curl_request('POST', "{$baseUrl}/session_escape.php", [
+        '-d', 'session=cc-20260101-1200&csrf_token=not-the-real-token',
+    ]);
+    assert_equal(403, $result['status'], 'POST /session_escape.php with a wrong csrf_token: 403');
+
+    // --- session_escape.php: valid CSRF -> canned agent accepts it, returns JSON ---
+    $result = curl_request('POST', "{$baseUrl}/session_escape.php", [
+        '-d', 'session=' . urlencode('cc-20260101-1200') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    assert_equal(200, $result['status'], 'POST /session_escape.php with valid CSRF: 200 (JSON, not a redirect)');
+    $escapeBody = json_decode($result['body'], true);
+    assert_true(is_array($escapeBody) && ($escapeBody['ok'] ?? false), 'POST /session_escape.php: canned agent accepts the stop request, response decodes as ok=true JSON');
+
+    // --- session_escape.php: canned agent rejects a session it doesn't recognize ---
+    $result = curl_request('POST', "{$baseUrl}/session_escape.php", [
+        '-d', 'session=' . urlencode('cc-not-a-real-session') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $escapeRejectBody = json_decode($result['body'], true);
+    assert_equal(false, $escapeRejectBody['ok'] ?? null, 'POST /session_escape.php: canned agent rejects an unrecognized session');
 
     // --- cross-origin POST rejected ---
     $result = curl_request('POST', "{$baseUrl}/", [

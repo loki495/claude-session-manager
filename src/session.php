@@ -26,17 +26,47 @@ $hasMore = $historyOk && ($history['has_more'] ?? false);
 $newestLine = !empty($entries) ? end($entries)['line'] : null;
 
 /**
- * @param array{kind:string, text:string} $block
+ * @param array{media_type:string, data:string} $image
+ */
+// Starts as a small square thumbnail (cropped via object-cover, not
+// scaled - overflow-hidden isn't needed separately since object-cover
+// itself never overflows its box) - a full-size screenshot inline by
+// default would dominate the transcript. Tapping toggles to full size and
+// back (see the delegated click handler below) by swapping these classes
+// for w-full h-auto object-contain, not a separate lightbox/modal.
+function render_transcript_image_html(array $image): string
+{
+    $mediaType = htmlspecialchars($image['media_type'], ENT_QUOTES);
+    $data = htmlspecialchars($image['data'], ENT_QUOTES);
+
+    return '<img src="data:' . $mediaType . ';base64,' . $data . '" loading="lazy" alt="Image" class="transcript-image mt-1.5 rounded border border-slate-800 cursor-pointer w-24 h-24 object-cover">';
+}
+
+/**
+ * @param array{kind:string, text:string, image?:array{media_type:string, data:string}} $block
  */
 function render_transcript_block(array $block): string
 {
     $text = htmlspecialchars($block['text'], ENT_QUOTES);
+    $imageHtml = isset($block['image']) ? render_transcript_image_html($block['image']) : '';
 
+    // break-words (not break-all, used elsewhere for compact collapsed
+    // summary lines) - this is prose, so only a genuinely too-long token
+    // (a long constant name, URL, hash, ...) should ever break mid-word;
+    // normal short words shouldn't. Found live: a message containing
+    // "FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE" (no spaces,
+    // 51 chars) widened the whole page horizontally without this.
     return match ($block['kind']) {
-        'text' => '<p class="whitespace-pre-wrap text-sm text-slate-100">' . $text . '</p>',
+        'text' => '<p class="whitespace-pre-wrap break-words text-sm text-slate-100">' . $text . '</p>',
         'tool_use' => '<div class="tool-use-block">' . render_collapsible_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; ') . '</div>',
-        'tool_result' => '<div class="tool-detail">' . render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', '') . '</div>',
-        default => $text !== '' ? '<p class="text-xs text-slate-600">' . $text . '</p>' : '',
+        // The image (a browser-automation screenshot, most likely) is a
+        // SIBLING of .tool-detail, not nested inside it - unlike the raw
+        // text output, Andres wants a screenshot visible regardless of
+        // the show/hide-tool-details toggle, since it's often the whole
+        // point of having run the tool in the first place.
+        'tool_result' => '<div class="tool-detail">' . render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', '') . '</div>' . $imageHtml,
+        'image' => $imageHtml !== '' ? $imageHtml : ($text !== '' ? '<p class="break-words text-xs text-slate-600">' . $text . '</p>' : ''),
+        default => $text !== '' ? '<p class="break-words text-xs text-slate-600">' . $text . '</p>' : '',
     };
 }
 
@@ -106,13 +136,16 @@ function render_thinking_indicator_html(array $detail): string
         return '';
     }
 
-    return '<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 flex items-center gap-2">'
+    return '<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 flex items-center justify-between gap-2">'
+        . '<span class="flex items-center gap-2">'
         . '<span class="flex items-center gap-1">'
         . '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:0ms"></span>'
         . '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:150ms"></span>'
         . '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:300ms"></span>'
         . '</span>'
         . '<span>Thinking&hellip;</span>'
+        . '</span>'
+        . '<button type="button" id="stop-btn" class="rounded border border-red-800/60 bg-red-950/40 active:bg-red-900/60 text-red-300 text-xs font-medium px-2 py-1">Stop</button>'
         . '</div>';
 }
 
@@ -157,20 +190,110 @@ function render_mode_toggle_html(array $detail): string
 }
 
 /**
+ * "user"/"assistant"/"tool_use"/"tool_result"/"system" - not the same
+ * thing as $entry['role'] (Claude Code's own tool_result entries carry
+ * role=user under the hood, same as a real typed message - there's no
+ * separate "tool" role at the transcript level). An entry with no text at
+ * all reads as a tool action, not a conversational message, regardless of
+ * its literal role, so it's colored (and labeled - see render_transcript_
+ * entry()) as one instead - tool_use and tool_result get their own
+ * distinct kinds, not lumped into one "tool" bucket, so a call and its
+ * output are never confusable at a glance either.
+ *
+ * @param array{role?:?string, blocks?:array<int, array{kind:string}>} $entry
+ */
+function entry_color_kind(array $entry): string
+{
+    $blocks = $entry['blocks'] ?? [];
+    $hasText = false;
+    $hasToolUse = false;
+    $hasToolResult = false;
+
+    foreach ($blocks as $block) {
+        match ($block['kind'] ?? null) {
+            'text' => $hasText = true,
+            'tool_use' => $hasToolUse = true,
+            'tool_result' => $hasToolResult = true,
+            default => null,
+        };
+    }
+
+    if (!$hasText && $hasToolUse) {
+        return 'tool_use';
+    }
+
+    if (!$hasText && $hasToolResult) {
+        return 'tool_result';
+    }
+
+    return match ($entry['role'] ?? null) {
+        'assistant' => 'assistant',
+        'user' => 'user',
+        default => 'system',
+    };
+}
+
+/**
+ * @return array{border:string, bg:string, label:string}
+ */
+function entry_color_classes(string $kind): array
+{
+    return match ($kind) {
+        // Deliberately not indigo/blue - tool_use (below) is sky to match
+        // the existing tool_use block-border convention, and indigo sits
+        // too close to sky on the color wheel to reliably tell apart at a
+        // glance (found live: they read as "the same color").
+        'user' => ['border' => 'border-rose-800/60', 'bg' => 'bg-rose-950/40', 'label' => 'text-rose-300'],
+        'assistant' => ['border' => 'border-emerald-800/60', 'bg' => 'bg-emerald-950/40', 'label' => 'text-emerald-300'],
+        'tool_use' => ['border' => 'border-sky-800/60', 'bg' => 'bg-sky-950/40', 'label' => 'text-sky-300'],
+        'tool_result' => ['border' => 'border-violet-800/60', 'bg' => 'bg-violet-950/40', 'label' => 'text-violet-300'],
+        default => ['border' => 'border-slate-800', 'bg' => 'bg-slate-900/50', 'label' => 'text-slate-400'],
+    };
+}
+
+/**
  * @param array{role:?string, timestamp:?string, blocks:array<int, array{kind:string, text:string}>} $entry
  */
 function render_transcript_entry(array $entry): string
 {
     $role = $entry['role'] ?? 'system';
-    $roleLabel = htmlspecialchars(ucfirst((string)$role), ENT_QUOTES);
+    $colorKind = entry_color_kind($entry);
+    // A tool_use/tool_result entry's real role is user/assistant only
+    // because that's how Claude Code's own message format works, not
+    // because it's meaningfully "the user" or "the assistant" talking -
+    // labeling it "Tool" instead matches how it's actually colored.
+    $roleLabel = match ($colorKind) {
+        'tool_use' => 'Tool call',
+        'tool_result' => 'Tool output',
+        default => htmlspecialchars(ucfirst((string)$role), ENT_QUOTES),
+    };
     $parsedTimestamp = is_string($entry['timestamp'] ?? null) ? strtotime($entry['timestamp']) : false;
     $timestamp = $parsedTimestamp !== false ? htmlspecialchars(relative_time($parsedTimestamp), ENT_QUOTES) : '';
+    $colors = entry_color_classes($colorKind);
+    // Hides the WHOLE entry (not just the now-hidden tool_result block)
+    // once the "Show tool usage details" toggle turns off, since there'd
+    // be nothing left to show otherwise (a bare role-label-only bubble).
+    // tool_use isn't included: those blocks stay visible regardless of the
+    // toggle, so an entry containing one always has real content left -
+    // and neither is a tool_result carrying an image, for the same reason
+    // (found live: this was missing on the first pass, so an entry with a
+    // screenshot still vanished entirely instead of just its text).
+    $hasImage = false;
+
+    foreach ($entry['blocks'] as $block) {
+        if (isset($block['image'])) {
+            $hasImage = true;
+            break;
+        }
+    }
+
+    $extraClass = ($colorKind === 'tool_result' && !$hasImage) ? ' entry-tool-result-only' : '';
 
     $blocksHtml = implode('', array_map('render_transcript_block', $entry['blocks']));
 
-    return '<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2">'
+    return '<div class="rounded-lg border ' . $colors['border'] . ' ' . $colors['bg'] . ' px-3 py-2' . $extraClass . '">'
         . '<div class="mb-1 flex items-center gap-2 text-xs text-slate-500">'
-        . '<span class="font-medium text-slate-400">' . $roleLabel . '</span>'
+        . '<span class="font-medium ' . $colors['label'] . '">' . $roleLabel . '</span>'
         . ($timestamp !== '' ? '<span>' . $timestamp . '</span>' : '')
         . '</div>'
         . '<div class="flex flex-col gap-1.5">' . $blocksHtml . '</div>'
@@ -189,6 +312,33 @@ function render_transcript_entry(array $entry): string
      class + CSS rule so it applies uniformly to blocks rendered later by the
      poll too, without needing to walk/re-tag the DOM on every render. */
   body.hide-tool-details .tool-detail { display: none; }
+  /* An entry whose ONLY blocks are tool_result (marked at render time, see
+     entry-tool-result-only in render_transcript_entry()/renderEntry()) has
+     nothing left to show once the rule above hides its content - without
+     this it's a superfluous empty "User" bubble (role label + timestamp,
+     no body). tool_use isn't included in this: those blocks stay visible
+     regardless of the toggle, so an entry containing one always has real
+     content left to show. */
+  body.hide-tool-details .entry-tool-result-only { display: none; }
+  /* Marks where newly-polled entries start (see markNewContent() in the
+     <script> below) - opacity transition only, no layout-affecting
+     property, so the fade-out never causes a scroll jump right as the user
+     is looking at it. */
+  .new-content-divider { opacity: 1; transition: opacity 0.8s ease-out; }
+  .new-content-divider.fading { opacity: 0; }
+  /* Highlights the actual new entry bubbles, not just the divider above
+     them - a box-shadow ring rather than a background tint, so it doesn't
+     fight with each entry's own role-color background/border (see
+     entry_color_classes()). Same two-class fade pattern as
+     .new-content-divider above and for the same reason: the `transition`
+     property has to stay on the element for the whole fade, so toggling
+     .fading (which zeroes the ring's alpha) is what animates, rather than
+     removing .new-content-highlight itself mid-fade - that would strip
+     `transition` at the same instant as `box-shadow`, snapping it off
+     instead of fading (caught live: the ring vanished with no animation
+     at all before this fix). */
+  .new-content-highlight { box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.6); transition: box-shadow 1.2s ease-out; }
+  .new-content-highlight.fading { box-shadow: 0 0 0 2px rgba(129, 140, 248, 0); }
 </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
@@ -238,6 +388,19 @@ function render_transcript_entry(array $entry): string
       Show tool usage details
     </label>
   </div>
+  <?php if ($found): ?>
+    <div class="px-4 py-3 border-t border-slate-800">
+      <form method="post" action="/" onsubmit="return confirm('Close session <?= htmlspecialchars($sessionName, ENT_QUOTES) ?>?');">
+        <input type="hidden" name="action" value="kill">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
+        <input type="hidden" name="session" value="<?= htmlspecialchars($sessionName, ENT_QUOTES) ?>">
+        <button type="submit"
+          class="w-full min-h-[2.75rem] rounded-lg bg-red-900/70 active:bg-red-800 text-red-100 font-medium text-sm px-4 py-2">
+          Close session
+        </button>
+      </form>
+    </div>
+  <?php endif; ?>
 </aside>
 
 <div class="max-w-2xl mx-auto px-4 py-6 pb-44">
@@ -350,6 +513,25 @@ function render_transcript_entry(array $entry): string
   var pendingEntries = [];
   var currentBlockedReason = null;
   var answerPendingReason = null;
+  // The pending history bubble for a just-submitted prompt answer - unlike
+  // a compose message (real text, closely matches its eventual transcript
+  // entry), an answer's confirmed entry likely isn't literally the button
+  // label text, so reconcilePendingEntries()'s content-matching may never
+  // find it - found live: it stayed dimmed "Sending…" forever even once
+  // the prompt itself had genuinely resolved. Tied directly to
+  // answerPendingReason instead, in renderBlockedSection() below: the
+  // prompt actually resolving is a far more reliable confirmation signal
+  // for THIS entry specifically than generic content-matching.
+  var answerPendingHistoryEl = null;
+  var lastRenderedBlockedKey; // undefined, not null - see renderBlockedSection()
+
+  // The most recent "new since you last looked" markers (see
+  // markNewContent()) - a divider above the batch plus a highlight ring on
+  // each entry in it, tracked so a later poll can clear both before
+  // placing a fresh batch's markers, rather than letting them pile up one
+  // per poll cycle.
+  var newContentDivider = null;
+  var newContentHighlighted = [];
 
   // Mirrors the $composeBlocked SSR toggle above - hides the message
   // input (not the whole compose bar; quota/mode stay visible) while a
@@ -425,18 +607,6 @@ function render_transcript_entry(array $entry): string
 
   function applyShowToolDetails(show) {
     document.body.classList.toggle('hide-tool-details', !show);
-
-    // Hiding tool usage details doesn't hide the tool_use call itself (see
-    // "tool-use-block" vs the hideable "tool-detail" on tool_result) - it's
-    // shown in full instead, so there's still a quick record of what
-    // Claude did without the (often long/noisy) raw output. Only forces
-    // open, never re-collapses on toggling back on - once opened, an
-    // entry stays that way, same as everywhere else in this app.
-    if (!show) {
-      document.querySelectorAll('.tool-use-block details').forEach(function (d) {
-        d.open = true;
-      });
-    }
   }
 
   var showToolDetailsToggle = document.getElementById('show-tool-details-toggle');
@@ -562,11 +732,24 @@ function render_transcript_entry(array $entry): string
     var touchStartX = null;
     var touchStartY = null;
 
+    // A non-collapsed selection means this touch is (or might become)
+    // dragging a text-selection handle, not swiping - those handles are
+    // native OS chrome, not real DOM elements, so there's no element to
+    // target-check the way the scrollable-block case below does; checking
+    // the selection itself is the only reliable signal. Checked on both
+    // touchstart (the selection already exists from an earlier long-press)
+    // and touchend (in case it changed mid-touch), since real devices vary
+    // in whether those are the same touch sequence or two separate ones.
+    function touchTargetsActiveSelection() {
+      var selection = window.getSelection();
+      return !!selection && !selection.isCollapsed;
+    }
+
     document.addEventListener('touchstart', function (e) {
       // Ignore touches starting inside a horizontally-scrollable command/
       // output block - that gesture is for scrolling the block itself,
       // not for opening/closing the sidebar.
-      if (e.touches.length !== 1 || (e.target.closest && e.target.closest('.overflow-x-auto, .overflow-auto'))) {
+      if (e.touches.length !== 1 || (e.target.closest && e.target.closest('.overflow-x-auto, .overflow-auto')) || touchTargetsActiveSelection()) {
         touchStartX = null;
         touchStartY = null;
         return;
@@ -577,7 +760,7 @@ function render_transcript_entry(array $entry): string
     }, { passive: true });
 
     document.addEventListener('touchend', function (e) {
-      if (touchStartX === null || e.changedTouches.length !== 1) {
+      if (touchStartX === null || e.changedTouches.length !== 1 || touchTargetsActiveSelection()) {
         touchStartX = null;
         touchStartY = null;
         return;
@@ -651,7 +834,23 @@ function render_transcript_entry(array $entry): string
   // user was already at the bottom - never yanks them away from history
   // they scrolled up to read. ---
 
+  // window.innerHeight doesn't shrink when the on-screen keyboard opens on
+  // iOS Safari - the layout viewport stays full-height while the keyboard
+  // visually covers the bottom portion of it, so window.innerHeight +
+  // window.scrollY can claim "near bottom" even while the compose bar is
+  // actually hidden behind the keyboard. Found live: that false positive
+  // is what made maybeAutoScroll() below pull the page back to the
+  // (keyboard-covered) bottom on a later poll, with nothing actually typed
+  // to explain it. visualViewport tracks the real visible area - its
+  // height genuinely shrinks with the keyboard, and pageTop already
+  // accounts for scroll (comparable directly to scrollHeight, no separate
+  // + scrollY needed) - falls back to the old calculation on anything
+  // without visualViewport support.
   function isNearBottom() {
+    if (window.visualViewport) {
+      return (window.visualViewport.pageTop + window.visualViewport.height) >= (document.documentElement.scrollHeight - SCROLL_BOTTOM_THRESHOLD_PX);
+    }
+
     return (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - SCROLL_BOTTOM_THRESHOLD_PX);
   }
 
@@ -719,36 +918,119 @@ function render_transcript_entry(array $entry): string
     var summaryHtml = escapeHtml(summary);
 
     return '<details' + (forceOpen ? ' open' : '') + ' class="rounded border ' + borderClass + ' bg-slate-950/60">'
-      + '<summary class="cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' + textClass + '">' + prefix + summaryHtml + '</summary>'
+      + '<summary class="block w-full text-left cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' + textClass + '">' + prefix + summaryHtml + '</summary>'
       + '<pre class="whitespace-pre overflow-auto max-h-64 px-2 pb-1.5 text-xs ' + textClass + '">' + full + '</pre>'
       + '</details>';
   }
 
+  // Mirrors render_transcript_image_html() in session.php (PHP).
+  function renderImageHtml(image) {
+    var mediaType = escapeHtml(image.media_type);
+    var data = escapeHtml(image.data);
+
+    return '<img src="data:' + mediaType + ';base64,' + data + '" loading="lazy" alt="Image" class="transcript-image mt-1.5 rounded border border-slate-800 cursor-pointer w-24 h-24 object-cover">';
+  }
+
   function renderBlock(block) {
     var text = escapeHtml(block.text);
+    var imageHtml = block.image ? renderImageHtml(block.image) : '';
 
+    // break-words - see render_transcript_block() in session.php (the
+    // PHP-side counterpart) for why: a long unbroken token (a constant
+    // name, URL, hash, ...) in prose text can otherwise widen the whole
+    // page horizontally instead of wrapping.
     switch (block.kind) {
       case 'text':
-        return '<p class="whitespace-pre-wrap text-sm text-slate-100">' + text + '</p>';
+        return '<p class="whitespace-pre-wrap break-words text-sm text-slate-100">' + text + '</p>';
       case 'tool_use':
-        return '<div class="tool-use-block">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ', !shouldShowToolDetails()) + '</div>';
+        // Collapsed by default regardless of the show/hide-tool-details
+        // toggle - it used to force-open when details were hidden (on the
+        // theory that there'd be no result to click into for confirmation),
+        // but that's backwards from what's wanted: collapsed either way.
+        return '<div class="tool-use-block">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
       case 'tool_result':
-        return '<div class="tool-detail">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>';
+        // The image (a browser-automation screenshot, most likely) is a
+        // SIBLING of .tool-detail, not nested inside it - shown regardless
+        // of the show/hide-tool-details toggle, since it's often the
+        // whole point of having run the tool in the first place.
+        return '<div class="tool-detail">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml;
+      case 'image':
+        return imageHtml || (text ? '<p class="break-words text-xs text-slate-600">' + text + '</p>' : '');
       default:
-        return text ? '<p class="text-xs text-slate-600">' + text + '</p>' : '';
+        return text ? '<p class="break-words text-xs text-slate-600">' + text + '</p>' : '';
+    }
+  }
+
+  // Mirrors entry_color_kind()/entry_color_classes() in session.php (the
+  // PHP-side counterpart) - "user"/"assistant"/"tool_use"/"tool_result"/
+  // "system" is not the same thing as entry.role (a tool_result entry
+  // carries role="user" under the hood, same as a real typed message); an
+  // entry with no text at all reads as a tool action regardless of its
+  // literal role, so it's colored (and labeled - see renderEntry()) as
+  // one instead - tool_use and tool_result get their own distinct kinds,
+  // not lumped into one "tool" bucket, so a call and its output are never
+  // confusable at a glance either.
+  function entryColorKind(entry) {
+    var blocks = entry.blocks || [];
+    var hasText = blocks.some(function (b) { return b.kind === 'text'; });
+    var hasToolUse = blocks.some(function (b) { return b.kind === 'tool_use'; });
+    var hasToolResult = blocks.some(function (b) { return b.kind === 'tool_result'; });
+
+    if (!hasText && hasToolUse) {
+      return 'tool_use';
+    }
+
+    if (!hasText && hasToolResult) {
+      return 'tool_result';
+    }
+
+    if (entry.role === 'assistant' || entry.role === 'user') {
+      return entry.role;
+    }
+
+    return 'system';
+  }
+
+  function entryColorClasses(kind) {
+    switch (kind) {
+      case 'user':
+        // See entry_color_classes() in session.php (PHP) for why this is
+        // rose, not indigo/blue - too close to sky (tool_use) otherwise.
+        return { border: 'border-rose-800/60', bg: 'bg-rose-950/40', label: 'text-rose-300' };
+      case 'assistant':
+        return { border: 'border-emerald-800/60', bg: 'bg-emerald-950/40', label: 'text-emerald-300' };
+      case 'tool_use':
+        return { border: 'border-sky-800/60', bg: 'bg-sky-950/40', label: 'text-sky-300' };
+      case 'tool_result':
+        return { border: 'border-violet-800/60', bg: 'bg-violet-950/40', label: 'text-violet-300' };
+      default:
+        return { border: 'border-slate-800', bg: 'bg-slate-900/50', label: 'text-slate-400' };
     }
   }
 
   function renderEntry(entry) {
-    var roleLabel = ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System');
+    var colorKind = entryColorKind(entry);
+    // See entry_color_kind()'s label comment in session.php (PHP) - a
+    // tool_use/tool_result entry is labeled "Tool", not its literal
+    // user/assistant role, to match how it's actually colored.
+    var roleLabel = colorKind === 'tool_use' ? 'Tool call'
+      : colorKind === 'tool_result' ? 'Tool output'
+      : (ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System'));
     var parsedMs = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
     var timestamp = !isNaN(parsedMs) ? escapeHtml(relativeTimeLabel(Math.floor(parsedMs / 1000))) : '';
     var blocksHtml = (entry.blocks || []).map(renderBlock).join('');
+    var colors = entryColorClasses(colorKind);
+    // Hides the WHOLE entry (not just the now-hidden tool_result block)
+    // once the "Show tool usage details" toggle turns off - see the PHP
+    // comment in render_transcript_entry() for why, including why a
+    // tool_result carrying an image is excluded too.
+    var hasImage = (entry.blocks || []).some(function (b) { return !!b.image; });
+    var extraClass = (colorKind === 'tool_result' && !hasImage) ? ' entry-tool-result-only' : '';
 
     var div = document.createElement('div');
-    div.className = 'rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2';
+    div.className = 'rounded-lg border ' + colors.border + ' ' + colors.bg + ' px-3 py-2' + extraClass;
     div.innerHTML = '<div class="mb-1 flex items-center gap-2 text-xs text-slate-500">'
-      + '<span class="font-medium text-slate-400">' + roleLabel + '</span>'
+      + '<span class="font-medium ' + colors.label + '">' + roleLabel + '</span>'
       + (timestamp ? '<span>' + timestamp + '</span>' : '')
       + '</div>'
       + '<div class="flex flex-col gap-1.5">' + blocksHtml + '</div>';
@@ -759,9 +1041,13 @@ function render_transcript_entry(array $entry): string
   // --- optimistic history entries: rendered with renderEntry() itself (so
   // a pending compose message/prompt answer looks exactly like the real
   // thing once confirmed, just dimmed), tracked in pendingEntries so
-  // pollHistory() can clear them the moment a poll actually returns fresh
-  // data - see the comment there for why "any fresh data landed" is used
-  // as the confirmation signal instead of trying to match a specific entry. ---
+  // pollHistory() can reconcile them against real incoming data - see
+  // reconcilePendingEntries() below for the matching logic. ---
+
+  function pendingEntryText(blocks) {
+    var textBlock = (blocks || []).find(function (b) { return b.kind === 'text'; });
+    return textBlock ? textBlock.text : '';
+  }
 
   function appendPendingEntry(role, blocks) {
     if (!list) {
@@ -771,6 +1057,8 @@ function render_transcript_entry(array $entry): string
     var wasNearBottom = isNearBottom();
     var el = renderEntry({ role: role, timestamp: new Date().toISOString(), blocks: blocks });
     el.classList.add('opacity-50');
+    el.dataset.pendingRole = role;
+    el.dataset.pendingText = pendingEntryText(blocks);
 
     var pendingNote = document.createElement('span');
     pendingNote.className = 'italic';
@@ -785,8 +1073,8 @@ function render_transcript_entry(array $entry): string
   }
 
   // Only used to undo a pending entry after a failed send - the success
-  // path never calls this directly, pollHistory() clears every pending
-  // entry at once instead (see there).
+  // path never calls this directly, pollHistory() reconciles pending
+  // entries against real incoming data instead (see there).
   function removePendingEntry(el) {
     if (!el) {
       return;
@@ -803,19 +1091,32 @@ function render_transcript_entry(array $entry): string
     }
   }
 
-  // Called by pollHistory() the moment a poll returns ANY fresh entry -
-  // not matched against a specific pending one, since neither a compose
-  // send nor a prompt answer gets back an id that maps to a transcript
-  // line. Good enough here: sends are normally one-at-a-time, and "a poll
-  // just saw new data" is the same confirmation signal the pending
-  // entries were dimmed pending in the first place.
-  function clearPendingEntries() {
-    pendingEntries.forEach(function (el) {
-      if (el.parentNode) {
+  // Called by pollHistory() with whatever fresh entries just came back -
+  // a pending entry is only cleared once one of them actually matches it
+  // (same role + same text), not just because SOME fresh data landed.
+  // That matters because a compose send's own confirming line can take a
+  // couple of seconds to actually reach the transcript file (measured
+  // live - Claude Code's own write latency, nothing this app controls),
+  // so an earlier poll can easily see OTHER new content first; clearing
+  // every pending entry on any fresh batch made the just-sent message
+  // vanish (cleared as if confirmed) without ever actually rendering the
+  // real one, since it genuinely wasn't in that batch yet.
+  function reconcilePendingEntries(freshEntries) {
+    if (pendingEntries.length === 0) {
+      return;
+    }
+
+    pendingEntries = pendingEntries.filter(function (el) {
+      var matched = freshEntries.some(function (entry) {
+        return entry.role === el.dataset.pendingRole && pendingEntryText(entry.blocks) === el.dataset.pendingText;
+      });
+
+      if (matched && el.parentNode) {
         el.parentNode.removeChild(el);
       }
+
+      return !matched;
     });
-    pendingEntries = [];
   }
 
   // Mirrors render_session_static_info_html() in session.php - kept
@@ -856,13 +1157,16 @@ function render_transcript_entry(array $entry): string
       return;
     }
 
-    thinkingIndicator.innerHTML = '<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 flex items-center gap-2">'
+    thinkingIndicator.innerHTML = '<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 flex items-center justify-between gap-2">'
+      + '<span class="flex items-center gap-2">'
       + '<span class="flex items-center gap-1">'
       + '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:0ms"></span>'
       + '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:150ms"></span>'
       + '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:300ms"></span>'
       + '</span>'
       + '<span>Thinking&hellip;</span>'
+      + '</span>'
+      + '<button type="button" id="stop-btn" class="rounded border border-red-800/60 bg-red-950/40 active:bg-red-900/60 text-red-300 text-xs font-medium px-2 py-1">Stop</button>'
       + '</div>';
   }
 
@@ -897,32 +1201,61 @@ function render_transcript_entry(array $entry): string
       return;
     }
 
-    // A poll can land while the free-text reply box is open mid-draft (most
-    // plausibly the immediate poll a tab regaining visibility triggers) -
-    // rebuilding the section from scratch would otherwise silently discard
-    // both the open state and whatever's been typed but not sent yet.
+    // A poll is a no-op here whenever the blocked-prompt data hasn't
+    // actually changed from what's already on screen - the common case
+    // while a prompt just sits unanswered, poll after poll. Skipping the
+    // rebuild entirely (rather than rebuilding every time and carefully
+    // trying to restore state afterward) is what actually fixes the whole
+    // family of poll-during-interaction bugs found live: lost textarea
+    // focus/cursor, the page scrolling back to the top, an expanded
+    // command's own scroll position resetting (so only its last lines were
+    // visible), a manually-opened <details> snapping shut - none of that
+    // needs preserving if the DOM was never touched to begin with.
+    var key = JSON.stringify([detail.blocked_reason || null, detail.prompt_context || null, detail.prompt_options || null]);
+
+    if (key === lastRenderedBlockedKey) {
+      return;
+    }
+
+    lastRenderedBlockedKey = key;
+
+    // The rebuild below can still occasionally happen while the free-text
+    // reply box is open mid-draft or the command <details> is manually
+    // expanded (typically just the first poll after page load, landing on
+    // the same prompt the server already rendered) - preserved as a safety
+    // net for that case, same mechanism as before, just rarely exercised now.
     var existingReply = blockedSection.querySelector('.freetext-reply');
     var freetextWasOpen = existingReply && !existingReply.classList.contains('hidden');
-    var freetextDraft = existingReply ? existingReply.querySelector('.freetext-reply-textarea').value : '';
+    var existingTextarea = existingReply ? existingReply.querySelector('.freetext-reply-textarea') : null;
+    var freetextDraft = existingTextarea ? existingTextarea.value : '';
     var freetextOption = existingReply ? existingReply.dataset.option : null;
+    var freetextHadFocus = existingTextarea !== null && existingTextarea === document.activeElement;
+    var freetextSelectionStart = freetextHadFocus ? existingTextarea.selectionStart : null;
+    var freetextSelectionEnd = freetextHadFocus ? existingTextarea.selectionEnd : null;
 
-    // Same problem for the pending command's own <details> - manually
-    // expanding it to read a long command shouldn't snap back closed the
-    // next time this same still-pending prompt gets polled.
     var existingContextDetails = blockedSection.querySelector('details');
     var contextDetailsWasOpen = existingContextDetails ? existingContextDetails.open : false;
+    var existingPre = existingContextDetails ? existingContextDetails.querySelector('pre') : null;
+    var contextScrollTop = existingPre ? existingPre.scrollTop : 0;
+
+    // Page scroll position, restored (if captured) after the rebuild below
+    // - only when there was actually something on screen worth not
+    // yanking the user away from, never fights normal scrolling otherwise.
+    var scrollYBeforeRebuild = (freetextHadFocus || contextDetailsWasOpen) ? window.scrollY : null;
 
     if (!detail.blocked_reason) {
       blockedSection.innerHTML = '';
       currentBlockedReason = null;
       answerPendingReason = null;
+      removePendingEntry(answerPendingHistoryEl);
+      answerPendingHistoryEl = null;
       return;
     }
 
     currentBlockedReason = detail.blocked_reason;
 
     var html = '<div class="rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60">'
-      + '<p class="font-medium">Waiting on input: ' + escapeHtml(detail.blocked_reason) + '</p>';
+      + '<p class="font-medium break-words">Waiting on input: ' + escapeHtml(detail.blocked_reason) + '</p>';
 
     if (detail.prompt_context) {
       html += '<div class="mt-2">' + renderCollapsibleBlock(detail.prompt_context, 'border-amber-700/40', 'text-amber-100', '') + '</div>';
@@ -974,7 +1307,13 @@ function render_transcript_entry(array $entry): string
       if (newReply) {
         newReply.classList.remove('hidden');
         newReply.dataset.option = freetextOption;
-        newReply.querySelector('.freetext-reply-textarea').value = freetextDraft;
+        var newTextarea = newReply.querySelector('.freetext-reply-textarea');
+        newTextarea.value = freetextDraft;
+
+        if (freetextHadFocus) {
+          newTextarea.focus();
+          newTextarea.setSelectionRange(freetextSelectionStart, freetextSelectionEnd);
+        }
       }
     }
 
@@ -983,7 +1322,21 @@ function render_transcript_entry(array $entry): string
 
       if (newContextDetails) {
         newContextDetails.open = true;
+        var newPre = newContextDetails.querySelector('pre');
+
+        if (newPre) {
+          newPre.scrollTop = contextScrollTop;
+        }
       }
+    }
+
+    if (scrollYBeforeRebuild !== null) {
+      // Applied a frame later, after the browser's own focus/reflow-driven
+      // scroll-into-view (if any) has already happened, so this is the
+      // last word rather than getting immediately overridden by it.
+      requestAnimationFrame(function () {
+        window.scrollTo(0, scrollYBeforeRebuild);
+      });
     }
 
     // A poll can land mid-flight, between an answer being submitted and the
@@ -997,6 +1350,8 @@ function render_transcript_entry(array $entry): string
       markBlockedSectionAnswerPending();
     } else {
       answerPendingReason = null;
+      removePendingEntry(answerPendingHistoryEl);
+      answerPendingHistoryEl = null;
     }
   }
 
@@ -1062,6 +1417,7 @@ function render_transcript_entry(array $entry): string
       answerPendingReason = currentBlockedReason;
       markBlockedSectionAnswerPending();
       var pendingEl = appendPendingEntry('user', [{ kind: 'text', text: form.dataset.confirmLabel }]);
+      answerPendingHistoryEl = pendingEl;
 
       fetch('/answer_prompt.php', {
         method: 'POST',
@@ -1082,6 +1438,7 @@ function render_transcript_entry(array $entry): string
           } else {
             alert((data && data.message) || 'Failed to send answer.');
             answerPendingReason = null;
+            answerPendingHistoryEl = null;
             removePendingEntry(pendingEl);
             revertBlockedSectionAnswerPending();
           }
@@ -1089,6 +1446,7 @@ function render_transcript_entry(array $entry): string
         .catch(function () {
           alert('Network error - answer not sent.');
           answerPendingReason = null;
+          answerPendingHistoryEl = null;
           removePendingEntry(pendingEl);
           revertBlockedSectionAnswerPending();
         });
@@ -1115,6 +1473,7 @@ function render_transcript_entry(array $entry): string
       answerPendingReason = currentBlockedReason;
       markBlockedSectionAnswerPending();
       var pendingEl = appendPendingEntry('user', [{ kind: 'text', text: text }]);
+      answerPendingHistoryEl = pendingEl;
 
       fetch('/answer_prompt.php', {
         method: 'POST',
@@ -1138,6 +1497,7 @@ function render_transcript_entry(array $entry): string
             textarea.disabled = false;
             sendBtn.disabled = false;
             answerPendingReason = null;
+            answerPendingHistoryEl = null;
             removePendingEntry(pendingEl);
             revertBlockedSectionAnswerPending();
           }
@@ -1147,6 +1507,7 @@ function render_transcript_entry(array $entry): string
           textarea.disabled = false;
           sendBtn.disabled = false;
           answerPendingReason = null;
+          answerPendingHistoryEl = null;
           removePendingEntry(pendingEl);
           revertBlockedSectionAnswerPending();
         });
@@ -1174,9 +1535,11 @@ function render_transcript_entry(array $entry): string
       }
     });
 
-    // Enter submits, Shift+Enter inserts a newline - same convention as the compose box.
+    // Plain Enter inserts a newline (the browser's own default - no
+    // handling needed here); only Shift+Enter submits, same convention as
+    // the compose box.
     blockedSection.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('freetext-reply-textarea')) {
+      if (e.key === 'Enter' && e.shiftKey && e.target.classList.contains('freetext-reply-textarea')) {
         e.preventDefault();
         submitFreetextReply(e.target.closest('.freetext-reply'));
       }
@@ -1247,6 +1610,104 @@ function render_transcript_entry(array $entry): string
       .catch(function () {});
   }
 
+  // Minimum time the "New" divider/highlight must actually be on screen
+  // before it starts fading - without this, a poll that lands while the
+  // user is already scrolled to the bottom (the common case, since
+  // maybeAutoScroll() keeps them there) would have the divider intersect
+  // the viewport and start fading the instant it's inserted, defeating
+  // the entire point of marking it as new.
+  var NEW_CONTENT_VISIBLE_DELAY_MS = 2500;
+
+  // Must match the .new-content-highlight.fading box-shadow transition
+  // duration in <style> above - the delay before the highlight classes are
+  // actually removed from the DOM, so cleanup happens after the fade is
+  // visually complete rather than cutting it off mid-animation.
+  var NEW_CONTENT_HIGHLIGHT_FADE_MS = 1200;
+
+  // Removes both markers from the previous "new" batch (if any) - the
+  // divider is removed from the DOM outright (purely decorative), each
+  // entry just loses its highlight ring (real content, stays put).
+  function clearNewContentMarkers() {
+    if (newContentDivider && newContentDivider.parentNode) {
+      newContentDivider.parentNode.removeChild(newContentDivider);
+    }
+    newContentDivider = null;
+
+    newContentHighlighted.forEach(function (el) { el.classList.remove('new-content-highlight'); });
+    newContentHighlighted = [];
+  }
+
+  // Marks entries fresh off this poll cycle: a "New" divider above the
+  // batch plus a highlight ring on each entry in it, so it's obvious what
+  // just arrived without having to spot it by eye in a long list. Clears
+  // the previous cycle's markers first - only ever one batch marked at a
+  // time. $beforeNode and every element in $entryElements must already be
+  // attached to `list` (not a detached DocumentFragment) - the
+  // IntersectionObserver below only fires once the divider is actually
+  // connected to the document, and inserting into a fragment first would
+  // leave a window where "attached but not yet observed" could miss the
+  // very first paint.
+  function markNewContent(beforeNode, entryElements) {
+    clearNewContentMarkers();
+
+    var divider = document.createElement('div');
+    divider.className = 'new-content-divider flex items-center gap-2 my-1 text-xs text-indigo-400';
+    divider.innerHTML = '<span class="flex-1 border-t border-indigo-500/50"></span>'
+      + '<span>New</span>'
+      + '<span class="flex-1 border-t border-indigo-500/50"></span>';
+    list.insertBefore(divider, beforeNode);
+    newContentDivider = divider;
+
+    entryElements.forEach(function (el) { el.classList.add('new-content-highlight'); });
+    newContentHighlighted = entryElements;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      return; // no observer support - markers just stay put, harmless
+    }
+
+    var observer = new IntersectionObserver(function (observerEntries) {
+      observerEntries.forEach(function (observerEntry) {
+        if (!observerEntry.isIntersecting) {
+          return;
+        }
+
+        observer.disconnect();
+
+        setTimeout(function () {
+          if (newContentDivider === divider) {
+            divider.classList.add('fading');
+            divider.addEventListener('transitionend', function () {
+              if (divider.parentNode) {
+                divider.parentNode.removeChild(divider);
+              }
+              if (newContentDivider === divider) {
+                newContentDivider = null;
+              }
+            }, { once: true });
+          }
+
+          if (newContentHighlighted === entryElements) {
+            // .fading (not a straight classList.remove('new-content-highlight'))
+            // so `transition` stays on the element for the whole animation -
+            // removing the base class immediately would strip `transition`
+            // at the same instant as `box-shadow`, snapping the ring off
+            // instead of fading it. Full cleanup (both classes) happens
+            // after the animation's own duration, not tied to transitionend
+            // per-element (cheaper for a whole batch, and box-shadow's
+            // computed value is already fully faded out by then either way).
+            entryElements.forEach(function (el) { el.classList.add('fading'); });
+            setTimeout(function () {
+              entryElements.forEach(function (el) { el.classList.remove('new-content-highlight', 'fading'); });
+            }, NEW_CONTENT_HIGHLIGHT_FADE_MS);
+            newContentHighlighted = [];
+          }
+        }, NEW_CONTENT_VISIBLE_DELAY_MS);
+      });
+    });
+
+    observer.observe(divider);
+  }
+
   function pollHistory(wasNearBottom) {
     if (!list) {
       return Promise.resolve(); // no transcript for this session - nothing to append to
@@ -1267,14 +1728,21 @@ function render_transcript_entry(array $entry): string
           return;
         }
 
-        clearPendingEntries();
+        reconcilePendingEntries(fresh);
 
         var fragment = document.createDocumentFragment();
+        var newEntryElements = [];
         fresh.forEach(function (entry) {
-          fragment.appendChild(renderEntry(entry));
+          var el = renderEntry(entry);
+          newEntryElements.push(el);
+          fragment.appendChild(el);
           newestLine = entry.line;
         });
+        var firstNewEntry = fragment.firstChild;
         list.appendChild(fragment);
+        if (firstNewEntry) {
+          markNewContent(firstNewEntry, newEntryElements);
+        }
         maybeAutoScroll(wasNearBottom);
       })
       .catch(function () {});
@@ -1479,9 +1947,13 @@ function render_transcript_entry(array $entry): string
     });
     composeSendBtn.addEventListener('click', sendComposedMessage);
 
-    // Enter submits, Shift+Enter inserts a newline - standard chat-box convention.
+    // Plain Enter inserts a newline (the browser's own default - no
+    // handling needed here); only Shift+Enter submits. The opposite of the
+    // usual chat-box convention, deliberately: multi-line messages are
+    // common enough here (pasted logs/commands) that submit-on-Enter kept
+    // firing mid-paste/mid-thought.
     composeTextarea.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && e.shiftKey) {
         e.preventDefault();
         sendComposedMessage();
       }
@@ -1517,6 +1989,95 @@ function render_transcript_entry(array $entry): string
         });
     });
   }
+
+  // --- transcript images: start as a small square thumbnail (see
+  // renderImageHtml()/render_transcript_image_html()), tapping toggles to
+  // full size and back - not a separate lightbox/modal, just swapping the
+  // sizing classes on the same <img> in place. ---
+  var TRANSCRIPT_IMAGE_THUMB_CLASSES = ['w-24', 'h-24', 'object-cover'];
+  var TRANSCRIPT_IMAGE_FULL_CLASSES = ['w-full', 'h-auto', 'object-contain'];
+
+  document.addEventListener('click', function (e) {
+    var img = e.target.closest('.transcript-image');
+
+    if (!img) {
+      return;
+    }
+
+    var isThumbnail = img.classList.contains('w-24');
+    img.classList.remove.apply(img.classList, isThumbnail ? TRANSCRIPT_IMAGE_THUMB_CLASSES : TRANSCRIPT_IMAGE_FULL_CLASSES);
+    img.classList.add.apply(img.classList, isThumbnail ? TRANSCRIPT_IMAGE_FULL_CLASSES : TRANSCRIPT_IMAGE_THUMB_CLASSES);
+  });
+
+  // --- collapsible tool_use/tool_result blocks: tapping anywhere on one
+  // toggles it, collapsed OR expanded (including inside the expanded
+  // <pre>), not just the exact summary text/marker - a real mobile
+  // annoyance otherwise (small precise tap target to collapse a long
+  // command/output back down). The <summary>'s own native click-to-toggle
+  // already handles the collapsed case (helped along by the block/w-full
+  // class on it, so the whole row is a real tap target, not just wherever
+  // the text glyphs render); this delegated handler is the backstop for
+  // the rest of the <details> box, expanded content included. Two things
+  // it must never do: double-toggle a tap that landed on <summary> itself
+  // (native behavior already fired), or collapse out from under an active
+  // text selection (a plain click event doesn't fire for a scroll-drag
+  // gesture to begin with, so normal scrolling/reading is unaffected
+  // either way - this guard is specifically for "tap elsewhere to dismiss
+  // a selection", not scrolling). ---
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('summary')) {
+      return;
+    }
+
+    var details = e.target.closest('.tool-use-block details, .tool-detail details');
+
+    if (!details) {
+      return;
+    }
+
+    var selection = window.getSelection();
+
+    if (selection && !selection.isCollapsed) {
+      return;
+    }
+
+    details.open = !details.open;
+  });
+
+  // --- stop button: interrupts Claude mid-response (sends Escape, same
+  // as pressing it while attached). Delegated at the document level, not
+  // attached directly to the button, since renderThinkingIndicator()
+  // recreates it (or removes it entirely) on every poll. ---
+  document.addEventListener('click', function (e) {
+    var stopBtn = e.target.closest('#stop-btn');
+
+    if (!stopBtn) {
+      return;
+    }
+
+    stopBtn.disabled = true;
+
+    fetch('/session_escape.php', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken }).toString()
+    })
+      .then(function (r) { return parseJsonResponse(r, 'session-escape'); })
+      .then(function (data) {
+        if (!data || !data.ok) {
+          alert((data && data.message) || 'Failed to stop.');
+        }
+
+        setTimeout(pollOnce, 300);
+      })
+      .catch(function () {
+        alert('Network error - stop not sent.');
+      })
+      .finally(function () {
+        stopBtn.disabled = false;
+      });
+  });
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') {

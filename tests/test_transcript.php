@@ -42,33 +42,36 @@ assert_equal('user', $userLine['role'] ?? null, 'parse_transcript_line: string c
 assert_equal([['kind' => 'text', 'text' => 'Fix the bug']], $userLine['blocks'] ?? null, 'parse_transcript_line: bare string content becomes one text block');
 
 $toolUseLine = parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]}}');
-assert_equal([['kind' => 'tool_use', 'text' => 'Bash']], $toolUseLine['blocks'] ?? null, 'parse_transcript_line: tool_use with no input falls back to the bare tool name');
+assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash']], $toolUseLine['blocks'] ?? null, 'parse_transcript_line: tool_use with no input falls back to the bare tool name');
 
-// --- summarize_tool_use(): shows the actual argument, not just the tool
-// name - "ToolName(detail)", matching Claude Code's own TUI convention
-// (verified against a real capture: "Bash(echo ... > /tmp/...)") ---
-assert_equal('Bash(rm -rf /tmp/x)', summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - command wins over description');
-assert_equal('Read(/etc/hosts)', summarize_tool_use(['name' => 'Read', 'input' => ['file_path' => '/etc/hosts']]), 'summarize_tool_use: Read - file_path used');
-assert_equal('Grep(TODO)', summarize_tool_use(['name' => 'Grep', 'input' => ['pattern' => 'TODO']]), 'summarize_tool_use: Grep - pattern used');
-assert_equal('Bash', summarize_tool_use(['name' => 'Bash', 'input' => []]), 'summarize_tool_use: empty input -> bare name');
-assert_equal('Bash', summarize_tool_use(['name' => 'Bash']), 'summarize_tool_use: no input key at all -> bare name');
+// --- summarize_tool_use(): "tool: X - key: value, ..." - shows every
+// param, not just one primary argument, joined onto a single line when
+// short enough (mirrors collapsible_summary()'s own single-line
+// threshold - see format_tool_use_summary()) ---
+assert_equal('tool: Bash - command: rm -rf /tmp/x, description: Clean up', summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - command first (primary arg), then every other param');
+assert_equal('tool: Read - file_path: /etc/hosts', summarize_tool_use(['name' => 'Read', 'input' => ['file_path' => '/etc/hosts']]), 'summarize_tool_use: Read - file_path used');
+assert_equal('tool: Grep - pattern: TODO', summarize_tool_use(['name' => 'Grep', 'input' => ['pattern' => 'TODO']]), 'summarize_tool_use: Grep - pattern used');
+assert_equal('tool: Bash', summarize_tool_use(['name' => 'Bash', 'input' => []]), 'summarize_tool_use: empty input -> bare name');
+assert_equal('tool: Bash', summarize_tool_use(['name' => 'Bash']), 'summarize_tool_use: no input key at all -> bare name');
 assert_equal(
-    'Weird({"foo":"bar"})',
+    'tool: Weird - foo: bar',
     summarize_tool_use(['name' => 'Weird', 'input' => ['foo' => 'bar']]),
-    'summarize_tool_use: unrecognized shape falls back to a compact JSON dump of the input'
+    'summarize_tool_use: unrecognized shape still shows its params as key: value, not a raw JSON dump'
 );
 
 // --- humanize_tool_name()/summarize_tool_use(): MCP tool names
 // ("mcp__server__tool") are reformatted to "server.tool" - real name taken
 // from a live captured transcript entry (an MCP Playwright call). Its
 // `element` field (also a real captured shape: {"element": "3. Type
-// something. button", "target": "f31e74"}) is a recognized primary arg too. ---
+// something. button", "target": "f31e74"}) is a recognized primary arg too.
+// Two params pushes this past the single-line length threshold, so it's
+// the multi-line "Params:" form - see format_tool_use_summary(). ---
 assert_equal('playwright.browser_click', humanize_tool_name('mcp__playwright__browser_click'), 'humanize_tool_name: strips the mcp__ prefix and joins server/tool with a dot');
 assert_equal('Bash', humanize_tool_name('Bash'), 'humanize_tool_name: a non-MCP name passes through unchanged');
 assert_equal(
-    'playwright.browser_click(3. Type something. button)',
+    "tool: playwright.browser_click\nParams:\n- element: 3. Type something. button\n- target: f31e74",
     summarize_tool_use(['name' => 'mcp__playwright__browser_click', 'input' => ['element' => '3. Type something. button', 'target' => 'f31e74']]),
-    'summarize_tool_use: MCP tool name humanized, element used as the primary argument'
+    'summarize_tool_use: MCP tool name humanized, element (primary arg) and target both shown'
 );
 
 // --- summarize_tool_use()/summarize_ask_user_question(): AskUserQuestion's
@@ -87,12 +90,12 @@ $realAskUserQuestionInput = [
     ]],
 ];
 assert_equal(
-    'AskUserQuestion: Does a hard refresh on that tab fix it? (Yes, fixed after hard refresh / No, still shows the tmux command after hard refresh)',
+    "tool: AskUserQuestion\nParams:\n- Does a hard refresh on that tab fix it? (Yes, fixed after hard refresh / No, still shows the tmux command after hard refresh)",
     summarize_tool_use(['name' => 'AskUserQuestion', 'input' => $realAskUserQuestionInput]),
     'summarize_tool_use: AskUserQuestion shows the question and its options, not a raw JSON dump'
 );
 assert_equal(
-    'AskUserQuestion: Favorite color? (Red / Blue); Favorite animal? (Cat / Dog)',
+    "tool: AskUserQuestion\nParams:\n- Favorite color? (Red / Blue); Favorite animal? (Cat / Dog)",
     summarize_tool_use(['name' => 'AskUserQuestion', 'input' => ['questions' => [
         ['question' => 'Favorite color?', 'options' => [['label' => 'Red'], ['label' => 'Blue']]],
         ['question' => 'Favorite animal?', 'options' => [['label' => 'Cat'], ['label' => 'Dog']]],
@@ -100,16 +103,66 @@ assert_equal(
     'summarize_tool_use: AskUserQuestion with multiple questions joins them with "; "'
 );
 assert_equal(
-    'AskUserQuestion({"questions":[]})',
+    'tool: AskUserQuestion - questions: []',
     summarize_tool_use(['name' => 'AskUserQuestion', 'input' => ['questions' => []]]),
-    'summarize_tool_use: AskUserQuestion with an empty/unrecognized questions shape falls back to the generic JSON dump'
+    'summarize_tool_use: AskUserQuestion with an empty/unrecognized questions shape falls back to showing the raw param'
 );
 
 $toolUseWithCommand = parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}');
-assert_equal([['kind' => 'tool_use', 'text' => 'Bash(ls -la)']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it, not just "Bash"');
+assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls -la, description: List files']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it, not just "Bash"');
 
 $toolResultLine = parse_transcript_line('{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}]}}');
 assert_equal([['kind' => 'tool_result', 'text' => "file1\nfile2"]], $toolResultLine['blocks'] ?? null, 'parse_transcript_line: tool_result content flattened to text');
+
+// --- images: a real captured shape (a browser-automation screenshot tool
+// result) has BOTH a text block and an image block side by side in the
+// same tool_result's content array - the image used to be silently
+// dropped entirely (summarize_content_block()'s default case: kind kept,
+// text always empty), now carried through as an extra "image" field
+// alongside the text summary. ---
+$fakeImageData = base64_encode('not a real png, just fixture bytes');
+$toolResultWithImage = parse_transcript_line(json_encode([
+    'type' => 'user',
+    'message' => ['role' => 'user', 'content' => [[
+        'type' => 'tool_result',
+        'content' => [
+            ['type' => 'text', 'text' => 'Screenshot taken'],
+            ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => $fakeImageData]],
+        ],
+    ]]],
+]));
+assert_equal('Screenshot taken', $toolResultWithImage['blocks'][0]['text'] ?? null, 'parse_transcript_line: tool_result with an image alongside text still shows the text');
+assert_equal(
+    ['media_type' => 'image/png', 'data' => $fakeImageData],
+    $toolResultWithImage['blocks'][0]['image'] ?? null,
+    'parse_transcript_line: tool_result with an image carries it through as an extra field, not silently dropped'
+);
+
+// --- a top-level image block (not nested in a tool_result) - e.g. a
+// directly-attached/pasted image. ---
+$topLevelImage = parse_transcript_line(json_encode([
+    'type' => 'user',
+    'message' => ['role' => 'user', 'content' => [
+        ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/jpeg', 'data' => $fakeImageData]],
+    ]],
+]));
+assert_equal(
+    ['kind' => 'image', 'text' => '', 'image' => ['media_type' => 'image/jpeg', 'data' => $fakeImageData]],
+    $topLevelImage['blocks'][0] ?? null,
+    'parse_transcript_line: a top-level (not tool_result-nested) image block is carried through too'
+);
+
+// --- a pathologically large image is dropped (not embedded, not crashed
+// on) rather than blowing up the page - falls back to a plain text note
+// so there's still some visible sign something was there. ---
+$hugeImage = parse_transcript_line(json_encode([
+    'type' => 'user',
+    'message' => ['role' => 'user', 'content' => [
+        ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => str_repeat('x', 8_000_001)]],
+    ]],
+]));
+assert_equal(null, $hugeImage['blocks'][0]['image'] ?? null, 'parse_transcript_line: an oversized image is not embedded');
+assert_equal('(image could not be displayed)', $hugeImage['blocks'][0]['text'] ?? null, 'parse_transcript_line: an oversized image falls back to a plain text note instead');
 
 $longLine = parse_transcript_line(json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => str_repeat('x', 52000)]]]]));
 assert_true(strlen($longLine['blocks'][0]['text']) < 50100, 'parse_transcript_line: text block beyond the hard cap is truncated');

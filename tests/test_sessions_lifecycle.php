@@ -38,6 +38,9 @@ $sendTestSession = null;
 /** @var string|null $wrapTestSession a cc-* session used to test tmux_capture_pane()'s line-wrap rejoin, for the finally-block safety net */
 $wrapTestSession = null;
 
+/** @var string|null $quotaTestSession a cc-* session used to test quota_from_live_pane(), for the finally-block safety net */
+$quotaTestSession = null;
+
 /**
  * @return array{ok:bool, name:?string, message:string}
  */
@@ -173,6 +176,31 @@ assert_equal(
     $permissionParsed['options'] ?? null,
     'parse_blocking_prompt: real permission prompt - all three options extracted'
 );
+
+// --- parse_blocking_prompt(): a command/preview taller than the old fixed
+// BLOCKING_PROMPT_CONTEXT_WINDOW (15 lines) used to have its earlier lines
+// silently cut off - found live (Andres reported a truncated command).
+// Fixed by finding the real top of the block via Claude Code's own "● "
+// tool-invocation marker line instead of a fixed window. This script body
+// is 20 lines, deliberately more than the window, with the marker at the
+// very top. ---
+$longCommandLines = [];
+for ($i = 1; $i <= 20; $i++) {
+    $longCommandLines[] = "  echo \"step {$i}\"";
+}
+$realLongPermissionPrompt = "● Bash(run a 20-step deploy script)\n"
+    . "\n"
+    . str_repeat('─', 40) . "\n"
+    . " Bash command\n"
+    . "\n"
+    . implode("\n", $longCommandLines) . "\n"
+    . "\n"
+    . " Do you want to proceed?\n"
+    . " ❯ 1. Yes\n"
+    . "   2. No\n";
+$longPermissionParsed = parse_blocking_prompt($realLongPermissionPrompt);
+assert_true(str_contains($longPermissionParsed['context'] ?? '', 'step 1"'), 'parse_blocking_prompt: a long (>15-line) command preview includes its FIRST line - the old fixed window would have cut this off');
+assert_true(str_contains($longPermissionParsed['context'] ?? '', 'step 20"'), 'parse_blocking_prompt: a long command preview also includes its last line');
 
 $parsedNoQuestion = parse_blocking_prompt("no question line here\n❯ 1. Yes\n  2. No\n");
 assert_equal(
@@ -590,6 +618,33 @@ try {
 
     tmux_run(['kill-session', '-t', $sendTestSession]);
     $sendTestSession = null;
+
+    // --- quota_from_live_pane()/get_quota(): prefers a live session's own
+    // status-line quota over the slow claude-quota fallback - crafted via
+    // a raw `cat` pane like the wrap-test above, since fake_claude never
+    // renders a real status line. ---
+    $quotaTestSession = 'cc-test-quota-' . getmypid();
+    $quotaSetup = tmux_run(['new-session', '-d', '-s', $quotaTestSession, '-c', www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    assert_equal(0, $quotaSetup['exit'], 'quota_from_live_pane setup: created a live cc-* session');
+    usleep(300000);
+
+    assert_equal(null, quota_from_live_pane(), 'quota_from_live_pane: null while no live session shows a quota line yet');
+
+    tmux_run(['send-keys', '-t', $quotaTestSession, 'andres@work /some/workdir | Sonnet 5 | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40% (5d 8h)', 'Enter']);
+    usleep(300000);
+
+    $liveQuota = quota_from_live_pane();
+    assert_true($liveQuota !== null, 'quota_from_live_pane: finds the quota line once a live session shows one');
+    assert_equal(51, $liveQuota['quota']['session']['pct'] ?? null, 'quota_from_live_pane: session pct read from the real pane');
+    assert_equal(40, $liveQuota['quota']['week_all']['pct'] ?? null, 'quota_from_live_pane: week_all pct read from the real pane');
+    assert_true(is_int($liveQuota['quota']['session']['resets_at'] ?? null), 'quota_from_live_pane: resets_at computed from the parenthetical duration');
+
+    $getQuotaResult = get_quota();
+    assert_equal(51, $getQuotaResult['quota']['session']['pct'] ?? null, 'get_quota(): prefers the live pane reading over the cache/scrape fallback');
+    assert_equal(false, $getQuotaResult['cached'] ?? null, 'get_quota(): a live pane reading is never reported as cached');
+
+    tmux_run(['kill-session', '-t', $quotaTestSession]);
+    $quotaTestSession = null;
 } finally {
     // Defense in depth - tests/run.sh's `tmux kill-server` on the isolated
     // socket is the real backstop regardless of what happens here, but
@@ -608,6 +663,9 @@ try {
     }
     if ($wrapTestSession !== null) {
         tmux_run(['kill-session', '-t', $wrapTestSession]);
+    }
+    if ($quotaTestSession !== null) {
+        tmux_run(['kill-session', '-t', $quotaTestSession]);
     }
     if ($bareProc !== null && is_resource($bareProc)) {
         proc_terminate($bareProc);

@@ -73,6 +73,27 @@ assert_equal(
 assert_equal(null, parse_resets_at('sometime soon', $noonUtc), 'parse_resets_at: no trailing timezone -> null');
 assert_equal(null, parse_resets_at('3pm (Not/AZone)', $noonUtc), 'parse_resets_at: unrecognized timezone -> null');
 
+// --- parse_footer_duration(): the short "1h 53m"/"5d 8h" shape next to each status-line percentage ---
+assert_equal(6780, parse_footer_duration('1h 53m'), 'parse_footer_duration: hours + minutes');
+assert_equal(460800, parse_footer_duration('5d 8h'), 'parse_footer_duration: days + hours');
+assert_equal(2700, parse_footer_duration('45m'), 'parse_footer_duration: minutes only');
+assert_equal(86400, parse_footer_duration('1d'), 'parse_footer_duration: days only');
+assert_equal(null, parse_footer_duration('now'), 'parse_footer_duration: unrecognized text -> null');
+assert_equal(null, parse_footer_duration(''), 'parse_footer_duration: empty string -> null');
+assert_equal(null, parse_footer_duration('1:50pm (America/Los_Angeles)'), 'parse_footer_duration: a full clock-time string (claude-quota\'s own shape, not the status line\'s) -> null');
+
+// --- parse_quota_from_pane(): the live status-line shape, not the /usage-panel scrape shape ---
+$realFooterLine = '  andres@work /some/workdir | Sonnet 5 | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40% (5d 8h)                    /rc';
+$parsedFooter = parse_quota_from_pane($realFooterLine);
+assert_equal(51, $parsedFooter['session']['pct'] ?? null, 'parse_quota_from_pane: reads the 5h percentage as "session"');
+assert_equal('1h 53m', $parsedFooter['session']['resets'] ?? null, 'parse_quota_from_pane: reads the 5h parenthetical as the session reset duration');
+assert_equal(40, $parsedFooter['week_all']['pct'] ?? null, 'parse_quota_from_pane: reads the 7d percentage as "week_all"');
+assert_equal('5d 8h', $parsedFooter['week_all']['resets'] ?? null, 'parse_quota_from_pane: reads the 7d parenthetical as the week_all reset duration');
+
+$welcomeScreenLine = '  andres@work /some/workdir | Sonnet 5';
+assert_equal(null, parse_quota_from_pane($welcomeScreenLine), 'parse_quota_from_pane: null on a pane with no quota shown yet (nothing sent in that session)');
+assert_equal(null, parse_quota_from_pane(''), 'parse_quota_from_pane: null on empty pane content');
+
 // --- enrich_quota_resets(): adds resets_at only where parseable, leaves everything else untouched ---
 $enriched = enrich_quota_resets([
     'session' => ['pct' => 50, 'resets' => '3pm (UTC)'],

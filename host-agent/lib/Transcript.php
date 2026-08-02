@@ -137,12 +137,94 @@ function summarize_ask_user_question(array $input): ?string
     return $parts !== [] ? implode('; ', $parts) : null;
 }
 
+// Matches collapsible_summary()'s own single-line threshold (the
+// downstream render_collapsible_block()/renderCollapsibleBlock() rule
+// that skips the expand affordance entirely for trivial content) - the
+// decision has to be made here, not there, since once this returns a
+// multi-line string, the downstream renderer has no way to know it could
+// have fit on one line.
+const TOOL_USE_SUMMARY_LINE_MAX = 80;
+
 /**
- * "ToolName(detail)" - not just the bare tool name, so a Bash entry shows
- * the actual command run, an Edit shows the file touched, etc., instead
- * of requiring a click into `tool_result` to guess what happened. Falls
- * back to a compact JSON dump of the input for tools with no known
- * single-argument shape, and to the bare name if there's no input at all.
+ * @param array<string, mixed> $input
+ * @return string[] "key: value" lines, the primary arg (see
+ *   tool_use_primary_arg_keys()) first if present, then every other
+ *   param in $input's own order - unlike the single-primary-arg-only
+ *   format this replaced, nothing is dropped. Non-scalar values are
+ *   JSON-encoded compactly rather than skipped.
+ */
+function tool_use_param_lines(array $input): array
+{
+    $primaryKey = null;
+
+    foreach (tool_use_primary_arg_keys() as $key) {
+        if (array_key_exists($key, $input)) {
+            $primaryKey = $key;
+            break;
+        }
+    }
+
+    $lines = [];
+
+    if ($primaryKey !== null) {
+        $lines[] = tool_use_param_line($primaryKey, $input[$primaryKey]);
+    }
+
+    foreach ($input as $key => $value) {
+        if ($key === $primaryKey) {
+            continue;
+        }
+
+        $lines[] = tool_use_param_line((string)$key, $value);
+    }
+
+    return $lines;
+}
+
+function tool_use_param_line(string $key, mixed $value): string
+{
+    if (is_scalar($value)) {
+        return "{$key}: {$value}";
+    }
+
+    $json = json_encode($value);
+
+    return "{$key}: " . ($json !== false ? $json : '(unrepresentable)');
+}
+
+/**
+ * "tool: X" plus every param, e.g. "tool: Bash - command: pwd" - joined
+ * onto one line for a short/simple call (mirrors the existing
+ * trivial-block rule: no point in an expand affordance for something
+ * already fully visible), broken out into its own "Params:" list
+ * otherwise, one "- key: value" per line.
+ *
+ * @param string[] $paramLines
+ */
+function format_tool_use_summary(string $displayName, array $paramLines): string
+{
+    if ($paramLines === []) {
+        return "tool: {$displayName}";
+    }
+
+    $singleLine = "tool: {$displayName} - " . implode(', ', $paramLines);
+
+    if (!str_contains($singleLine, "\n") && mb_strlen($singleLine) <= TOOL_USE_SUMMARY_LINE_MAX) {
+        return $singleLine;
+    }
+
+    $bulleted = array_map(static fn(string $line): string => "- {$line}", $paramLines);
+
+    return "tool: {$displayName}\nParams:\n" . implode("\n", $bulleted);
+}
+
+/**
+ * "tool: X - key: value, ..." (or the multi-line "Params:" form for
+ * anything long enough to need it - see format_tool_use_summary()) - not
+ * just the bare tool name, so a Bash entry shows the actual command run,
+ * an Edit shows the file touched, etc., instead of requiring a click into
+ * `tool_result` to guess what happened. Shows every param, not just one
+ * primary argument.
  */
 function summarize_tool_use(array $block): string
 {
@@ -151,26 +233,18 @@ function summarize_tool_use(array $block): string
     $input = $block['input'] ?? null;
 
     if (!is_array($input) || $input === []) {
-        return $displayName;
+        return "tool: {$displayName}";
     }
 
     if ($name === 'AskUserQuestion') {
         $summary = summarize_ask_user_question($input);
 
         if ($summary !== null) {
-            return $displayName . ': ' . $summary;
+            return format_tool_use_summary($displayName, [$summary]);
         }
     }
 
-    foreach (tool_use_primary_arg_keys() as $key) {
-        if (isset($input[$key]) && is_scalar($input[$key]) && (string)$input[$key] !== '') {
-            return $displayName . '(' . (string)$input[$key] . ')';
-        }
-    }
-
-    $json = json_encode($input);
-
-    return $json !== false && $json !== '{}' ? $displayName . '(' . $json . ')' : $displayName;
+    return format_tool_use_summary($displayName, tool_use_param_lines($input));
 }
 
 /**
@@ -184,7 +258,17 @@ function summarize_content_block(array $block): array
     return match ($type) {
         'text' => ['kind' => 'text', 'text' => (string)($block['text'] ?? '')],
         'tool_use' => ['kind' => 'tool_use', 'text' => summarize_tool_use($block)],
-        'tool_result' => ['kind' => 'tool_result', 'text' => transcript_tool_result_text($block['content'] ?? null)],
+        'tool_result' => array_filter(
+            [
+                'kind' => 'tool_result',
+                'text' => transcript_tool_result_text($block['content'] ?? null),
+                'image' => transcript_tool_result_image($block['content'] ?? null),
+            ],
+            static fn(mixed $v): bool => $v !== null
+        ),
+        'image' => transcript_image_from_block($block) !== null
+            ? ['kind' => 'image', 'text' => '', 'image' => transcript_image_from_block($block)]
+            : ['kind' => 'image', 'text' => '(image could not be displayed)'],
         default => ['kind' => $type !== '' ? $type : 'unknown', 'text' => ''],
     };
 }
@@ -213,6 +297,60 @@ function transcript_tool_result_text(mixed $content): string
     }
 
     return implode("\n", $parts);
+}
+
+// A hard safety cap on the base64 image DATA itself (not the whole
+// message), separate from TRANSCRIPT_BLOCK_HARD_CAP_LENGTH below (which
+// only applies to text and would corrupt an image if it truncated
+// mid-base64) - generous for a real screenshot (a few MB of actual image
+// data), just a guard against something pathological blowing up the page.
+const TRANSCRIPT_IMAGE_MAX_BASE64_LENGTH = 8_000_000;
+
+/**
+ * @param array<string, mixed> $block a raw {type: "image", source: {...}} block
+ * @return array{media_type:string, data:string}|null
+ */
+function transcript_image_from_block(array $block): ?array
+{
+    $source = $block['source'] ?? null;
+
+    if (!is_array($source) || ($source['type'] ?? null) !== 'base64') {
+        return null;
+    }
+
+    $data = (string)($source['data'] ?? '');
+
+    if ($data === '' || strlen($data) > TRANSCRIPT_IMAGE_MAX_BASE64_LENGTH) {
+        return null;
+    }
+
+    return ['media_type' => (string)($source['media_type'] ?? 'image/png'), 'data' => $data];
+}
+
+/**
+ * A tool_result's content can include an inline image alongside its text
+ * (e.g. a browser-automation screenshot tool, verified against a real
+ * capture) - the first one found, if any.
+ *
+ * @return array{media_type:string, data:string}|null
+ */
+function transcript_tool_result_image(mixed $content): ?array
+{
+    if (!is_array($content)) {
+        return null;
+    }
+
+    foreach ($content as $item) {
+        if (is_array($item) && ($item['type'] ?? null) === 'image') {
+            $image = transcript_image_from_block($item);
+
+            if ($image !== null) {
+                return $image;
+            }
+        }
+    }
+
+    return null;
 }
 
 /**

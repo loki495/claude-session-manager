@@ -60,8 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = agent_call(['action' => 'install_session_hook']);
             $ok = (bool)($result['ok'] ?? false);
             $message = $ok
-                ? 'Session-rotation hook installed in ~/.claude/settings.json.'
-                : (string)($result['message'] ?? 'Failed to install hook');
+                ? 'App hooks installed in ~/.claude/settings.json.'
+                : (string)($result['message'] ?? 'Failed to install hooks');
             break;
 
         default:
@@ -127,19 +127,19 @@ $csrfToken = csrf_token();
 
   <?php if ($agentReachable && $hookCheckOk && !$hookInstalled): ?>
     <div class="mb-4 rounded-lg px-4 py-3 text-sm bg-amber-900/40 text-amber-200 border border-amber-700/60">
-      <p class="font-medium">Session-rotation hook isn't installed.</p>
-      <p class="mt-1 text-amber-300/90">Without it, a session's transcript view goes stale forever after a <code>/clear</code>, <code>/compact</code>, or resume - Claude Code starts a new transcript file this app can't discover on its own.</p>
+      <p class="font-medium">App hooks aren't fully installed.</p>
+      <p class="mt-1 text-amber-300/90">Without the SessionStart hook, a session's transcript view goes stale forever after a <code>/clear</code>, <code>/compact</code>, or resume. Without the PreToolUse hook, a blocked prompt's preview can come out truncated for long commands/files instead of showing the full thing.</p>
       <form method="post" action="/" class="mt-2">
         <input type="hidden" name="action" value="install_hook">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
         <button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2">
-          Install hook
+          Install hooks
         </button>
       </form>
     </div>
   <?php elseif ($agentReachable && !$hookCheckOk): ?>
     <div class="mb-4 rounded-lg px-4 py-3 text-sm bg-amber-900/40 text-amber-200 border border-amber-700/60">
-      <p class="font-medium">Could not check the session-rotation hook.</p>
+      <p class="font-medium">Could not check the app hooks.</p>
       <p class="mt-1 text-amber-300/90"><?= htmlspecialchars((string)($hookResult['message'] ?? 'Unknown error'), ENT_QUOTES) ?></p>
     </div>
   <?php endif; ?>
@@ -201,6 +201,13 @@ $csrfToken = csrf_token();
                 <span class="text-slate-500">detached</span>
               <?php endif; ?>
             </div>
+            <div class="mt-1">
+              <button type="button" class="show-recent-btn rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5"
+                data-session="<?= htmlspecialchars($s['name'], ENT_QUOTES) ?>" data-loaded="0">
+                Show last 3 messages
+              </button>
+              <div class="recent-messages hidden mt-1 flex flex-col gap-1 max-h-64 overflow-y-auto"></div>
+            </div>
             <?php if (!empty($s['blocked_reason']) && !empty($s['prompt_is_folder_trust'])): ?>
               <?= blocked_prompt_panel_html($s) ?>
             <?php elseif (!empty($s['blocked_reason'])): ?>
@@ -208,13 +215,6 @@ $csrfToken = csrf_token();
             <?php else: ?>
               <?= last_message_preview_html($s['last_message'] ?? null, 'mt-1') ?>
             <?php endif; ?>
-            <div class="mt-1">
-              <button type="button" class="show-recent-btn text-xs font-medium text-indigo-400 active:text-indigo-300"
-                data-session="<?= htmlspecialchars($s['name'], ENT_QUOTES) ?>" data-loaded="0">
-                Show last 3 messages
-              </button>
-              <div class="recent-messages hidden mt-1 flex flex-col gap-1"></div>
-            </div>
           </div>
           <form method="post" action="/" onsubmit="return confirm('Kill session <?= htmlspecialchars($s['name'], ENT_QUOTES) ?>?');">
             <input type="hidden" name="action" value="kill">
@@ -441,13 +441,50 @@ document.addEventListener('keydown', function (e) {
     return div.innerHTML;
   }
 
+  // Mirrors entry_color_kind()/entry_color_classes() in session.php - see
+  // there for why this isn't just entry.role (a tool_result entry carries
+  // role="user" under the hood, same as a real typed message).
+  function entryColorKind(entry) {
+    var blocks = entry.blocks || [];
+    var hasText = blocks.some(function (b) { return b.kind === 'text'; });
+
+    if (!hasText && blocks.length > 0) {
+      return 'tool';
+    }
+
+    if (entry.role === 'assistant' || entry.role === 'user') {
+      return entry.role;
+    }
+
+    return 'system';
+  }
+
+  function entryColorClasses(kind) {
+    switch (kind) {
+      case 'user':
+        return { border: 'border-indigo-800/60', bg: 'bg-indigo-950/40', label: 'text-indigo-300' };
+      case 'assistant':
+        return { border: 'border-emerald-800/60', bg: 'bg-emerald-950/40', label: 'text-emerald-300' };
+      case 'tool':
+        return { border: 'border-sky-800/60', bg: 'bg-sky-950/40', label: 'text-sky-300' };
+      default:
+        return { border: 'border-slate-800', bg: 'bg-slate-900/50', label: 'text-slate-400' };
+    }
+  }
+
+  // Only ever called with an assistant/text entry now (see the fetch
+  // handler below, which filters to that before rendering anything) - the
+  // color/role machinery still runs generically for consistency with
+  // session.php, it just always resolves to the same "assistant" look here.
   function renderRecentEntry(entry) {
     var roleLabel = ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System');
-    var text = (entry.blocks && entry.blocks[0] && entry.blocks[0].text) || '';
+    var textBlock = (entry.blocks || []).find(function (b) { return b.kind === 'text'; });
+    var text = textBlock ? textBlock.text : '';
+    var colors = entryColorClasses(entryColorKind(entry));
 
     var p = document.createElement('p');
-    p.className = 'text-xs text-slate-400 whitespace-pre-wrap break-words';
-    p.innerHTML = '<span class="font-medium">' + roleLabel + ':</span> ' + escapeHtml(text);
+    p.className = 'text-xs text-slate-400 whitespace-pre-wrap break-words rounded border ' + colors.border + ' ' + colors.bg + ' px-1.5 py-1';
+    p.innerHTML = '<span class="font-medium ' + colors.label + '">' + roleLabel + ':</span> ' + escapeHtml(text);
     return p;
   }
 
@@ -469,7 +506,12 @@ document.addEventListener('keydown', function (e) {
     btn.disabled = true;
     btn.textContent = 'Loading…';
 
-    fetch('/session_history.php?session=' + encodeURIComponent(btn.dataset.session) + '&limit=3', { credentials: 'same-origin' })
+    // Fetches a bigger page than the 3 actually shown - only agent text
+    // replies count (no tool_use/tool_result/user messages), and those
+    // can easily be outnumbered within the last handful of raw entries by
+    // a run of tool calls, so a plain limit=3 off the raw transcript could
+    // come back with zero real replies to show.
+    fetch('/session_history.php?session=' + encodeURIComponent(btn.dataset.session) + '&limit=20', { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         btn.disabled = false;
@@ -479,8 +521,17 @@ document.addEventListener('keydown', function (e) {
           return;
         }
 
+        var agentReplies = data.entries.filter(function (entry) {
+          return entry.role === 'assistant' && (entry.blocks || []).some(function (b) { return b.kind === 'text'; });
+        }).slice(-3);
+
+        if (agentReplies.length === 0) {
+          btn.textContent = 'No agent replies to show.';
+          return;
+        }
+
         container.innerHTML = '';
-        data.entries.forEach(function (entry) { container.appendChild(renderRecentEntry(entry)); });
+        agentReplies.forEach(function (entry) { container.appendChild(renderRecentEntry(entry)); });
         container.classList.remove('hidden');
         btn.dataset.loaded = '1';
         btn.textContent = 'Hide recent messages';

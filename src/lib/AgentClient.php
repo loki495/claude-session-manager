@@ -67,7 +67,7 @@ function blocked_prompt_panel_html(array $session): string
     }
 
     $html = '<div class="mt-2 rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60">';
-    $html .= '<p class="font-medium">Waiting on input: ' . htmlspecialchars((string)$session['blocked_reason'], ENT_QUOTES) . '</p>';
+    $html .= '<p class="font-medium break-words">Waiting on input: ' . htmlspecialchars((string)$session['blocked_reason'], ENT_QUOTES) . '</p>';
 
     if (!empty($session['resume_hint'])) {
         $html .= '<p class="mt-1 text-amber-300/90">Attach to answer it:</p>';
@@ -127,7 +127,7 @@ function render_collapsible_block(string $rawText, string $borderClass, string $
     $full = htmlspecialchars($rawText, ENT_QUOTES);
 
     return '<details class="rounded border ' . $borderClass . ' bg-slate-950/60">'
-        . '<summary class="cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' . $textClass . '">' . $prefix . $summaryHtml . '</summary>'
+        . '<summary class="block w-full text-left cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' . $textClass . '">' . $prefix . $summaryHtml . '</summary>'
         . '<pre class="whitespace-pre overflow-auto max-h-64 px-2 pb-1.5 text-xs ' . $textClass . '">' . $full . '</pre>'
         . '</details>';
 }
@@ -232,7 +232,7 @@ function blocked_prompt_rich_html(array $session, string $csrfToken, bool $inclu
         $html .= last_message_preview_html($session['last_message'] ?? null, 'text-amber-300/80 italic mb-1');
     }
 
-    $html .= '<p class="font-medium">Waiting on input: ' . htmlspecialchars((string)$session['blocked_reason'], ENT_QUOTES) . '</p>';
+    $html .= '<p class="font-medium break-words">Waiting on input: ' . htmlspecialchars((string)$session['blocked_reason'], ENT_QUOTES) . '</p>';
 
     if (!empty($session['prompt_context'])) {
         $html .= '<div class="mt-2">' . render_collapsible_block((string)$session['prompt_context'], 'border-amber-700/40', 'text-amber-100', '') . '</div>';

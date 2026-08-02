@@ -59,6 +59,29 @@ function cleanup_threshold_seconds(): int
     return (int)csm_config('CLEANUP_THRESHOLD_SECONDS', '43200'); // 12h
 }
 
+/**
+ * A new session's tmux pane, with no real client ever attached to give it
+ * a size to inherit, otherwise falls back to the SERVER's default-size
+ * (confirmed live: 80x24, tmux's own classic default) - nowhere near
+ * enough for Claude Code's own TUI to render a long tool-permission
+ * preview (a big Write, a long Bash script) without cutting it short.
+ * Found live: capture-pane (even with extra -S scrollback) came back
+ * missing the earlier lines entirely - not truncated by this app's own
+ * parsing, genuinely never rendered by Claude Code in the first place,
+ * since it adapts its own output to whatever height it detects. Sized
+ * generously since nothing is ever really "looking at" this pane as a
+ * literal terminal window - it only ever gets read via capture-pane.
+ */
+function new_session_pane_width(): int
+{
+    return (int)csm_config('TMUX_PANE_WIDTH', '200');
+}
+
+function new_session_pane_height(): int
+{
+    return (int)csm_config('TMUX_PANE_HEIGHT', '150');
+}
+
 function claude_quota_bin(): string
 {
     return csm_config('CLAUDE_QUOTA_BIN', '/home/andres/dotfiles/bin/claude-quota');
@@ -103,6 +126,16 @@ function claude_settings_path(): string
 function session_start_hook_command(): string
 {
     return 'php ' . csm_repo_root() . '/host-agent/hooks/session_start.php';
+}
+
+/**
+ * Same convention as session_start_hook_command(), for the PreToolUse
+ * hook (see host-agent/hooks/pre_tool_use.php) that records a pending
+ * tool call's full, untruncated tool_input for the blocked-prompt preview.
+ */
+function pre_tool_use_hook_command(): string
+{
+    return 'php ' . csm_repo_root() . '/host-agent/hooks/pre_tool_use.php';
 }
 
 /**
@@ -327,14 +360,15 @@ function tmux_capture_pane(string $session): string
  * lines) as a short human-readable reason, or a generic fallback.
  */
 /**
- * Number of pane lines above the choice list to consider as context - a
- * fixed window rather than trying to detect the exact top of the prompt
- * (a bordered box for tool-permission previews, plain text for the trust
- * dialog, and other shapes over time). Calibrated against two real
- * captures: the trust dialog's own explanation fits in ~8 lines, and a
- * Bash-permission prompt's tool name + command + description fits in
- * ~10; 15 comfortably covers both without dragging in a full screen's
- * worth of unrelated earlier scrollback.
+ * Fallback number of pane lines above the choice list to consider as
+ * context, used only when no "●" tool-invocation marker (see
+ * parse_blocking_prompt()) is found above the cursor - the trust dialog
+ * is the one real prompt shape that has no such marker, and its own
+ * explanation fits in ~8 lines. Andres reported a long command/file-
+ * content preview showing truncated - found live: this used to be the
+ * ONLY boundary, a fixed 15-line window regardless of how tall the actual
+ * preview was, silently cutting off anything longer (a multi-line script,
+ * a large file being written) with no visible sign anything was missing.
  */
 const BLOCKING_PROMPT_CONTEXT_WINDOW = 15;
 
@@ -388,7 +422,23 @@ function parse_blocking_prompt(string $paneContent): ?array
         return null;
     }
 
-    $start = max(0, $choiceIndex - BLOCKING_PROMPT_CONTEXT_WINDOW);
+    // Claude Code prefixes each tool invocation with a "● " marker line
+    // (e.g. "● Bash(...)", verified against a real capture) - the actual
+    // top of the block being approved, found by scanning up from the
+    // choice cursor for the nearest one. Far more reliable than a fixed
+    // window: it's exactly as tall as the real content, whether that's 3
+    // lines or 300. Only falls back to BLOCKING_PROMPT_CONTEXT_WINDOW for
+    // prompt shapes with no such marker (the trust dialog).
+    $markerIndex = null;
+
+    for ($i = $choiceIndex - 1; $i >= 0; $i--) {
+        if (preg_match('/^\s*●/u', $lines[$i]) === 1) {
+            $markerIndex = $i;
+            break;
+        }
+    }
+
+    $start = $markerIndex !== null ? $markerIndex : max(0, $choiceIndex - BLOCKING_PROMPT_CONTEXT_WINDOW);
     $contextLines = array_map('rtrim', array_slice($lines, $start, $choiceIndex - $start));
     $contextLines = array_values(array_filter($contextLines, fn(string $l) => !is_decorative_pane_line($l)));
 
@@ -508,6 +558,108 @@ function parse_blocking_prompt(string $paneContent): ?array
 function detect_blocking_prompt(string $paneContent): ?string
 {
     return parse_blocking_prompt($paneContent)['question'] ?? null;
+}
+
+/**
+ * Renders a PreToolUse hook payload's tool_input into the same kind of
+ * full-text preview a human attached over tmux would eventually see -
+ * except never truncated by pane height/width, since it comes straight
+ * from the hook's JSON rather than rendered terminal output. Returns null
+ * for a shape this doesn't know how to render usefully (an unrecognized
+ * tool with no fields worth showing raw), in which case the caller should
+ * keep the pane-scraped context instead of replacing it with nothing.
+ */
+function format_pending_tool_input(string $toolName, array $toolInput): ?string
+{
+    switch ($toolName) {
+        case 'Bash':
+            $command = is_string($toolInput['command'] ?? null) ? $toolInput['command'] : null;
+
+            if ($command === null) {
+                return null;
+            }
+
+            $description = is_string($toolInput['description'] ?? null) ? $toolInput['description'] : null;
+
+            return ($description !== null ? "{$description}\n\n" : '') . $command;
+
+        case 'Write':
+            $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
+            $content = is_string($toolInput['content'] ?? null) ? $toolInput['content'] : null;
+
+            if ($path === null || $content === null) {
+                return null;
+            }
+
+            return "Write {$path}\n\n{$content}";
+
+        case 'Edit':
+            $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
+
+            if ($path === null) {
+                return null;
+            }
+
+            $oldString = is_string($toolInput['old_string'] ?? null) ? $toolInput['old_string'] : '';
+            $newString = is_string($toolInput['new_string'] ?? null) ? $toolInput['new_string'] : '';
+
+            return "Edit {$path}\n\n--- old ---\n{$oldString}\n\n--- new ---\n{$newString}";
+
+        default:
+            $encoded = json_encode($toolInput, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+            return $encoded === false ? null : "{$toolName}\n\n{$encoded}";
+    }
+}
+
+/**
+ * Enriches a pane-parsed blocking prompt's context with the full,
+ * untruncated tool_input recorded by the PreToolUse hook, when one is
+ * available and actually looks like it belongs to the prompt currently on
+ * screen - falls back to the pane-scraped $prompt completely unchanged
+ * otherwise (no hook installed, a plain unmanaged claude session, or a
+ * stale pending-tool file left over from a tool call answered outside
+ * this app).
+ *
+ * The cross-check against the pane's own "● ToolName(...)" marker line
+ * matters because this app only ever tracks one pending tool call per
+ * session (the latest PreToolUse write wins) - for the rare case of
+ * multiple tool calls queued in one assistant turn, that file could
+ * belong to a different call than the one actually blocking. There's no
+ * tool_use_id visible in the rendered pane to correlate more precisely
+ * than the tool name, so a name mismatch is treated as "not this prompt"
+ * and the pane-scraped context is kept instead.
+ *
+ * @param array{question:string, context:string, options:array, multi_question:bool, is_folder_trust:bool} $prompt
+ * @param array{tool_name:?string, tool_input:?array}|null $pendingTool
+ * @return array{question:string, context:string, options:array, multi_question:bool, is_folder_trust:bool}
+ */
+function augment_prompt_with_pending_tool(array $prompt, ?array $pendingTool): array
+{
+    if ($pendingTool === null) {
+        return $prompt;
+    }
+
+    $toolName = is_string($pendingTool['tool_name'] ?? null) ? $pendingTool['tool_name'] : null;
+    $toolInput = is_array($pendingTool['tool_input'] ?? null) ? $pendingTool['tool_input'] : null;
+
+    if ($toolName === null || $toolInput === null) {
+        return $prompt;
+    }
+
+    if (preg_match('/^\s*●\s*([A-Za-z_]+)/u', $prompt['context'], $m) === 1 && strcasecmp($m[1], $toolName) !== 0) {
+        return $prompt;
+    }
+
+    $fullContext = format_pending_tool_input($toolName, $toolInput);
+
+    if ($fullContext === null) {
+        return $prompt;
+    }
+
+    $prompt['context'] = $fullContext;
+
+    return $prompt;
 }
 
 /**
@@ -744,16 +896,66 @@ function delete_sidecar(string $sessionName): void
  * going through kill_cc_session(), leaving its sidecar file behind on
  * tmpfs. Since this runs on every listing anyway, prune anything whose
  * session no longer exists rather than letting them accumulate.
+ *
+ * Globs both plain sidecars (sessionName.json) and pending-tool files
+ * (sessionName.pending-tool.json, see pending_tool_path()) in one pass -
+ * the ".pending-tool" suffix is stripped back off before the liveness
+ * check so a live session's own pending-tool file is never mistaken for
+ * an orphan just because its filename doesn't equal a session name
+ * verbatim.
  */
 function prune_orphaned_sidecars(array $liveSessionNames): void
 {
     foreach (glob(sidecar_dir() . '/*.json') ?: [] as $path) {
-        $name = basename($path, '.json');
+        $base = basename($path, '.json');
+        $name = str_ends_with($base, '.pending-tool') ? substr($base, 0, -strlen('.pending-tool')) : $base;
 
         if (!in_array($name, $liveSessionNames, true)) {
             @unlink($path);
         }
     }
+}
+
+function pending_tool_path(string $sessionName): string
+{
+    return sidecar_dir() . '/' . $sessionName . '.pending-tool.json';
+}
+
+/**
+ * The most recent PreToolUse hook payload recorded for this session (see
+ * host-agent/hooks/pre_tool_use.php) - one file per session, always
+ * overwritten by the latest tool call, never appended. Only meaningful
+ * alongside a pane-detected blocking prompt (see
+ * augment_prompt_with_pending_tool()); by itself this says nothing about
+ * whether that tool call actually ended up needing approval.
+ *
+ * @return array{tool_name:?string, tool_input:?array, written_at:?int}|null
+ */
+function read_pending_tool(string $sessionName): ?array
+{
+    $raw = @file_get_contents(pending_tool_path($sessionName));
+
+    if ($raw === false) {
+        return null;
+    }
+
+    $decoded = json_decode($raw, true);
+
+    return is_array($decoded) ? $decoded : null;
+}
+
+function write_pending_tool(string $sessionName, array $data): void
+{
+    if (!is_dir(sidecar_dir())) {
+        @mkdir(sidecar_dir(), 0700, true);
+    }
+
+    @file_put_contents(pending_tool_path($sessionName), json_encode($data));
+}
+
+function delete_pending_tool(string $sessionName): void
+{
+    @unlink(pending_tool_path($sessionName));
 }
 
 /**
@@ -783,6 +985,11 @@ function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppid
     $sidecar = read_sidecar($tmuxSession['name']);
     $paneContent = tmux_capture_pane($tmuxSession['name']);
     $prompt = parse_blocking_prompt($paneContent);
+
+    if ($prompt !== null) {
+        $prompt = augment_prompt_with_pending_tool($prompt, read_pending_tool($tmuxSession['name']));
+    }
+
     $claudeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
 
     return [
@@ -957,17 +1164,17 @@ function reindent_json_pretty(string $json): string
 }
 
 /**
- * True if ~/.claude/settings.json already has a SessionStart hook entry
- * running our exact hook script (see session_start_hook_command()) -
- * checked by command string, not just "a SessionStart hook exists", so a
- * user's own unrelated SessionStart hooks are never mistaken for ours.
+ * True if ~/.claude/settings.json already has a hook entry under $event
+ * running the exact given command - checked by command string, not just
+ * "a hook of this type exists", so a user's own unrelated hooks are never
+ * mistaken for ours. Shared by session_start_hook_present() and
+ * pre_tool_use_hook_present() below.
  *
  * @param array<string, mixed> $settings
  */
-function session_start_hook_present(array $settings): bool
+function hook_command_present(array $settings, string $event, string $command): bool
 {
-    $command = session_start_hook_command();
-    $entries = $settings['hooks']['SessionStart'] ?? [];
+    $entries = $settings['hooks'][$event] ?? [];
 
     if (!is_array($entries)) {
         return false;
@@ -987,12 +1194,29 @@ function session_start_hook_present(array $settings): bool
 }
 
 /**
- * Reads ~/.claude/settings.json (if any) and reports whether the
- * SessionStart hook (see host-agent/hooks/session_start.php) is already
- * registered - a missing file is a normal, expected "not set up yet"
- * state, not an error; a file that exists but fails to parse as JSON is
- * an error, since installing on top of it risks Claude Code refusing to
- * start (or install_session_hook() below refusing to touch it at all).
+ * @param array<string, mixed> $settings
+ */
+function session_start_hook_present(array $settings): bool
+{
+    return hook_command_present($settings, 'SessionStart', session_start_hook_command());
+}
+
+/**
+ * @param array<string, mixed> $settings
+ */
+function pre_tool_use_hook_present(array $settings): bool
+{
+    return hook_command_present($settings, 'PreToolUse', pre_tool_use_hook_command());
+}
+
+/**
+ * Reads ~/.claude/settings.json (if any) and reports whether both of this
+ * app's hooks - SessionStart (host-agent/hooks/session_start.php) and
+ * PreToolUse (host-agent/hooks/pre_tool_use.php) - are already registered.
+ * A missing file is a normal, expected "not set up yet" state, not an
+ * error; a file that exists but fails to parse as JSON is an error, since
+ * installing on top of it risks Claude Code refusing to start (or
+ * install_session_hook() below refusing to touch it at all).
  *
  * @return array{ok:bool, installed:bool, message?:string}
  */
@@ -1010,17 +1234,18 @@ function check_session_hook(): array
         return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON'];
     }
 
-    return ['ok' => true, 'installed' => session_start_hook_present($settings)];
+    return ['ok' => true, 'installed' => session_start_hook_present($settings) && pre_tool_use_hook_present($settings)];
 }
 
 /**
- * Adds this app's SessionStart hook entry to ~/.claude/settings.json,
- * creating the file if it doesn't exist yet. Never overwrites an existing
- * file that fails to parse - a blind reset-to-empty-then-write would
- * silently discard every other hook/setting Andres already has configured
- * there. Idempotent: a no-op (still ok:true) if the hook is already
- * present, so this is safe to call from a "just make sure it's there"
- * dashboard button without a separate check first.
+ * Adds this app's SessionStart and PreToolUse hook entries to
+ * ~/.claude/settings.json, creating the file if it doesn't exist yet.
+ * Never overwrites an existing file that fails to parse - a blind
+ * reset-to-empty-then-write would silently discard every other
+ * hook/setting Andres already has configured there. Idempotent per hook:
+ * each is only added if not already present, so this is safe to call from
+ * a "just make sure it's there" dashboard button without a separate check
+ * first, and safe to re-run after only one of the two was ever installed.
  *
  * @return array{ok:bool, installed:bool, message?:string}
  */
@@ -1034,22 +1259,35 @@ function install_session_hook(): array
         $settings = json_decode($raw, true);
 
         if (!is_array($settings)) {
-            return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON - fix or add the SessionStart hook manually, see README'];
+            return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON - fix or add the hooks manually, see README'];
         }
     }
 
-    if (session_start_hook_present($settings)) {
+    if (session_start_hook_present($settings) && pre_tool_use_hook_present($settings)) {
         return ['ok' => true, 'installed' => true];
     }
 
     $settings['hooks'] ??= [];
-    $settings['hooks']['SessionStart'] ??= [];
-    $settings['hooks']['SessionStart'][] = [
-        'matcher' => '*',
-        'hooks' => [
-            ['type' => 'command', 'command' => session_start_hook_command()],
-        ],
-    ];
+
+    if (!session_start_hook_present($settings)) {
+        $settings['hooks']['SessionStart'] ??= [];
+        $settings['hooks']['SessionStart'][] = [
+            'matcher' => '*',
+            'hooks' => [
+                ['type' => 'command', 'command' => session_start_hook_command()],
+            ],
+        ];
+    }
+
+    if (!pre_tool_use_hook_present($settings)) {
+        $settings['hooks']['PreToolUse'] ??= [];
+        $settings['hooks']['PreToolUse'][] = [
+            'matcher' => '*',
+            'hooks' => [
+                ['type' => 'command', 'command' => pre_tool_use_hook_command()],
+            ],
+        ];
+    }
 
     $encoded = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
@@ -1107,6 +1345,8 @@ function create_cc_session(string $workdir): array
         'new-session', '-d', '-s', $name,
         '-c', $workdir,
         '-e', "CSM_SESSION_NAME={$name}",
+        '-x', (string)new_session_pane_width(),
+        '-y', (string)new_session_pane_height(),
         claude_bin(), '--session-id', $claudeSessionId,
     ]);
 
@@ -1154,6 +1394,7 @@ function kill_cc_session(string $requested): array
     }
 
     delete_sidecar($requested);
+    delete_pending_tool($requested);
 
     return ['ok' => true, 'message' => "Killed {$requested}"];
 }
@@ -1206,6 +1447,11 @@ function answer_prompt(string $name, int $option): array
     if ($enterResult['exit'] !== 0) {
         return ['ok' => false, 'message' => "Failed to send response: " . trim($enterResult['stderr'])];
     }
+
+    // The pending-tool file (see read_pending_tool()) only ever describes
+    // whatever's currently blocking - once this app itself has just
+    // submitted the answer, it's guaranteed stale for any future prompt.
+    delete_pending_tool($name);
 
     return ['ok' => true, 'message' => "Sent option {$option} to {$name}"];
 }
@@ -1271,6 +1517,8 @@ function answer_prompt_with_text(string $name, int $option, string $text): array
         return ['ok' => false, 'message' => 'Reply sent but failed to submit: ' . trim($enterResult['stderr'])];
     }
 
+    delete_pending_tool($name);
+
     return ['ok' => true, 'message' => "Sent free-text reply to {$name}"];
 }
 
@@ -1308,6 +1556,29 @@ function navigate_prompt(string $name, string $direction): array
     }
 
     return ['ok' => true, 'message' => "Sent {$key} to {$name}"];
+}
+
+/**
+ * Interrupts whatever Claude is currently doing (mid-generation or
+ * mid-tool-call), same as pressing Escape while attached - the "stop"
+ * button. No pane-content check first (unlike navigate_prompt()/
+ * set_mode(), which validate against a specific expected state): Escape
+ * is a safe no-op if nothing is actually running, so there's nothing to
+ * reject up front beyond "is this a real managed session at all".
+ */
+function send_escape(string $name): array
+{
+    if (!in_array($name, array_column(list_cc_tmux_sessions(), 'name'), true)) {
+        return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
+    }
+
+    $result = tmux_run(['send-keys', '-t', $name, 'Escape']);
+
+    if ($result['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Failed to send Escape: ' . trim($result['stderr'])];
+    }
+
+    return ['ok' => true, 'message' => "Sent Escape to {$name}"];
 }
 
 /**
@@ -1580,11 +1851,103 @@ function enrich_quota_resets(array $quota, int $now): array
 }
 
 /**
+ * Claude Code's own status line already shows both rate-limit percentages
+ * this app cares about, e.g. "... | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40%
+ * (5d 8h) ..." - "5h" is the rolling 5-hour window (labeled "session" to
+ * match claude-quota's own key), "7d" the weekly one (labeled "week_all").
+ * Verified live 2026-08-02 against claude-quota's own real scrape at
+ * nearly the same moment: matching percentages (51% / ~41%). Only
+ * "ctx" (context-window usage, not account quota - deliberately not
+ * parsed here) is guaranteed present from the very first prompt; "5h"/"7d"
+ * only appear once Claude Code has actually made an API call in that
+ * pane, so a fresh welcome-screen pane with nothing sent yet won't match.
+ *
+ * @return array{session:array{pct:int,resets:string},week_all:array{pct:int,resets:string}}|null
+ */
+function parse_quota_from_pane(string $paneContent): ?array
+{
+    if (preg_match('/5h:\s*(\d+)%\s*\(([^)]+)\)/u', $paneContent, $sessionMatch) !== 1) {
+        return null;
+    }
+
+    if (preg_match('/7d:\s*(\d+)%\s*\(([^)]+)\)/u', $paneContent, $weekMatch) !== 1) {
+        return null;
+    }
+
+    return [
+        'session' => ['pct' => (int)$sessionMatch[1], 'resets' => trim($sessionMatch[2])],
+        'week_all' => ['pct' => (int)$weekMatch[1], 'resets' => trim($weekMatch[2])],
+    ];
+}
+
+/**
+ * Parses a short duration like "1h 53m" or "5d 8h" - exactly the shape
+ * Claude Code's status line shows next to each percentage (see
+ * parse_quota_from_pane()) - into seconds. Distinct from
+ * parse_resets_at(), which parses a full clock-time-plus-timezone string
+ * instead (what claude-quota's slower /usage-panel scrape produces).
+ */
+function parse_footer_duration(string $duration): ?int
+{
+    if (preg_match('/^(?:(\d+)d)?\s*(?:(\d+)h)?\s*(?:(\d+)m)?$/u', trim($duration), $m) !== 1) {
+        return null;
+    }
+
+    $seconds = ((int)($m[1] ?? 0)) * 86400 + ((int)($m[2] ?? 0)) * 3600 + ((int)($m[3] ?? 0)) * 60;
+
+    return $seconds > 0 ? $seconds : null;
+}
+
+/**
+ * Tries every currently-live managed tmux session's pane for the
+ * status-line quota shape (see parse_quota_from_pane()) and returns the
+ * first one found - a single capture-pane call per live session, no
+ * scraping subprocess, so this is near-instant compared to
+ * run_claude_quota() below. Rate limits are account-wide, not per-session,
+ * so it doesn't matter which live session's pane happens to answer first.
+ * Returns null if no live session's pane currently shows quota (no
+ * sessions running at all, or every one is still on its pre-first-message
+ * welcome screen) - callers should fall back to run_claude_quota()'s
+ * cached reading in that case.
+ *
+ * @return array{quota:array, fetched_at:int}|null
+ */
+function quota_from_live_pane(): ?array
+{
+    foreach (list_cc_tmux_sessions() as $tmuxSession) {
+        $parsed = parse_quota_from_pane(tmux_capture_pane($tmuxSession['name']));
+
+        if ($parsed === null) {
+            continue;
+        }
+
+        $now = time();
+        $quota = $parsed;
+
+        foreach ($quota as $key => $bucket) {
+            $seconds = parse_footer_duration($bucket['resets']);
+
+            if ($seconds !== null) {
+                $quota[$key]['resets_at'] = $now + $seconds;
+            }
+        }
+
+        $quota['captured_at'] = date('c', $now);
+
+        return ['quota' => $quota, 'fetched_at' => $now];
+    }
+
+    return null;
+}
+
+/**
  * Runs the claude-quota script (a wrapper that scrapes Claude Code's own
  * /usage panel via a detached screen session - see the script itself for
  * the mechanism). This is slow, 10-40s, since it drives a real TUI, so it
  * must only ever be called in the background (see trigger_background_quota_refresh()),
- * never inline while a request is waiting.
+ * never inline while a request is waiting. Only still reached (via
+ * get_quota()) when no live session's pane already shows quota (see
+ * quota_from_live_pane()) - e.g. no sessions currently running at all.
  *
  * @return array{ok:bool, quota?:array, message?:string}
  */
@@ -1752,6 +2115,19 @@ function trigger_background_quota_refresh(): bool
  */
 function get_quota(): array
 {
+    $live = quota_from_live_pane();
+
+    if ($live !== null) {
+        return [
+            'ok' => true,
+            'quota' => $live['quota'],
+            'fetched_at' => $live['fetched_at'],
+            'cached' => false,
+            'stale' => false,
+            'refreshing' => false,
+        ];
+    }
+
     $ttl = quota_cache_ttl_seconds();
     $cache = read_quota_cache();
     $now = time();
@@ -1830,6 +2206,9 @@ function dispatch_action(array $request): array
 
         case 'navigate_prompt':
             return navigate_prompt((string)($request['session'] ?? ''), (string)($request['direction'] ?? ''));
+
+        case 'send_escape':
+            return send_escape((string)($request['session'] ?? ''));
 
         case 'send_message':
             return send_message((string)($request['session'] ?? ''), (string)($request['text'] ?? ''));

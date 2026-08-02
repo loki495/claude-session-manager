@@ -14,6 +14,10 @@ const CANNED_SESSION_NAME = 'cc-20260101-1200';
 const CANNED_BLOCKED_SESSION_NAME = 'cc-20260101-1300';
 const CANNED_BARE_PID = 54321;
 const CANNED_CLAUDE_SESSION_ID = '11111111-2222-4333-8444-555555555555';
+// A real, tiny, valid 1x1 PNG (not a placeholder string) - lets the UI
+// smoke test's headless browser actually decode/render it, not just check
+// an <img> tag exists in the markup.
+const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 const CANNED_LAST_MESSAGE = [
     'role' => 'assistant',
@@ -98,7 +102,7 @@ $response = match ($action) {
                 ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:00Z', 'blocks' => [['kind' => 'text', 'text' => 'Fix the login redirect bug']], 'line' => 2],
                 ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:05Z', 'blocks' => [['kind' => 'text', 'text' => 'Looking into it now.']], 'line' => 3],
                 ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:10Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'Bash(pwd)']], 'line' => 4],
-                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:15Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'done']], 'line' => 5],
+                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:15Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'done', 'image' => ['media_type' => 'image/png', 'data' => CANNED_TEST_IMAGE_BASE64]]], 'line' => 5],
             ],
             'next_before' => 1,
             'has_more' => true,
@@ -122,6 +126,9 @@ $response = match ($action) {
         : ['ok' => false, 'message' => 'Message cannot be empty'],
     'set_mode' => ($request['session'] ?? null) === CANNED_SESSION_NAME && in_array($request['mode'] ?? null, ['manual', 'accept edits', 'plan', 'auto'], true)
         ? ['ok' => true, 'message' => 'Set mode for ' . CANNED_SESSION_NAME . ' to ' . $request['mode']]
+        : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
+    'send_escape' => ($request['session'] ?? null) === CANNED_SESSION_NAME
+        ? ['ok' => true, 'message' => 'Sent Escape to ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
     'cleanup' => ['ok' => true, 'killed' => [CANNED_SESSION_NAME], 'failed' => []],
     'check_session_hook' => ['ok' => true, 'installed' => true],

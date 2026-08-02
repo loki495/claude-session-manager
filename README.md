@@ -223,14 +223,19 @@ socket, and everything will fail with "Cannot reach host agent."
    in `~/www`).
 
 5. The dashboard checks on every load whether Claude Code's `SessionStart`
-   hook is registered in `~/.claude/settings.json`, and shows a banner with
-   an "Install hook" button if it isn't. Click it — this calls
-   `install_session_hook()` in `host-agent/lib/Sessions.php`, which merges
-   the hook entry into your existing settings.json without touching
-   anything else already there. Without this hook, a tracked session's
+   and `PreToolUse` hooks are both registered in `~/.claude/settings.json`,
+   and shows a banner with an "Install hooks" button if either is missing.
+   Click it — this calls `install_session_hook()` in
+   `host-agent/lib/Sessions.php`, which merges whichever hook entries are
+   missing into your existing settings.json without touching anything else
+   already there (safe to click even if only one of the two ever went
+   missing). Without the `SessionStart` hook, a tracked session's
    transcript view silently goes stale forever after its first `/clear`,
    `/compact`, `--resume`, or `--fork-session` — see "Why the SessionStart
-   hook exists" below.
+   hook exists" below. Without the `PreToolUse` hook, a blocked
+   permission prompt's preview falls back to whatever tmux's rendered pane
+   has room to show, which can come out truncated for a long command or a
+   large file — see "Why the PreToolUse hook exists" below.
 
 ## Why the SessionStart hook exists
 
@@ -260,6 +265,44 @@ This only takes effect going forward: a session that already rotated
 before the hook was installed needs a one-time manual sidecar rebind (or
 its next natural `/clear`/`/compact`) to catch up.
 
+## Why the PreToolUse hook exists
+
+A blocked permission prompt's "preview" (the command being run, the file
+being written) is normally scraped straight from `tmux capture-pane` —
+just whatever's currently rendered in the pane. That has two independent
+size limits stacked on top of each other: the pane's own height/width
+(see `TMUX_PANE_WIDTH`/`TMUX_PANE_HEIGHT` below — a headless tmux session
+has no attached client to inherit a real terminal size from, so it
+defaults to tmux's own 80x24, nowhere near enough for a large `Write` or a
+multi-line script to render in full), and `parse_blocking_prompt()`'s own
+context-window scan on top of whatever *did* render. Both are best-effort
+reconstructions of something that was never meant to be machine-read in
+the first place.
+
+`host-agent/hooks/pre_tool_use.php`, registered as Claude Code's
+`PreToolUse` hook (fires immediately before every tool call, including
+ones that never end up needing approval — before any permission prompt is
+shown), sidesteps both limits by recording the tool call's `tool_name`
+and full, untruncated `tool_input` JSON straight from the hook's own
+stdin, no terminal rendering involved. `build_session_entry()` prefers
+this recorded data over the pane-scraped context whenever a blocking
+prompt is currently detected *and* the recorded tool name matches the
+pane's own "● ToolName(...)" marker line (a cheap sanity check against
+showing a stale or mismatched previous tool call's data — see
+`augment_prompt_with_pending_tool()`). The hook writes nothing to stdout
+and always exits `0`, which Claude Code treats as "no opinion" — it never
+approves, denies, or otherwise affects the real permission decision, only
+observes it.
+
+Same `CSM_SESSION_NAME` mechanism as the `SessionStart` hook above: a
+plain `claude` session started by hand outside this app has no
+`CSM_SESSION_NAME` and the hook is a no-op for it. The recorded pending-
+tool file is cleared once this app itself submits an answer to the prompt
+(`answer_prompt()`/`answer_prompt_with_text()`) or the session is killed;
+it's otherwise just overwritten by the next tool call, so a stale leftover
+from answering outside this app (e.g. attaching directly over tmux) only
+ever lingers until the *next* tool call fires the hook again.
+
 ## Updating the host agent
 
 `host-agent/agent.php` and `host-agent/lib/Sessions.php` run directly off
@@ -284,6 +327,8 @@ existed:
 | `HOME_ROOT`                  | `/home/andres`                                | Upper bound the folder browser can't escape |
 | `TMUX_SOCKET`                | `/tmp/tmux-1000/default`                      | tmux socket this agent drives (`-S`)        |
 | `SIDECAR_DIR`                | `/run/user/1000/csm-sessions`                 | Per-session workdir/spawned_at metadata     |
+| `TMUX_PANE_WIDTH`            | `200`                                         | Initial pane width (`-x`) for new sessions  |
+| `TMUX_PANE_HEIGHT`           | `150`                                         | Initial pane height (`-y`) for new sessions |
 | `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                                 | Inactivity threshold for "Kill inactive"    |
 | `CLAUDE_QUOTA_BIN`           | `/home/andres/dotfiles/bin/claude-quota`      | Script that scrapes the `/usage` panel      |
 | `QUOTA_CACHE_FILE`           | `/run/user/1000/csm-agent-quota-cache.json`   | Where the last successful reading is cached |
