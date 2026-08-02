@@ -181,11 +181,35 @@ Tier 3 - bigger or investigative items:
   lifecycle (dies silently after ~1-2 weeks or after 3 "silent" pushes, no
   error signal) - needs a "resubscribe on every app open" habit in the
   frontend to self-heal. Not yet implemented.
-- session.php: subagent reports (Task/Agent tool_use + its result) should be
-  parsed/rendered as their own distinct entry type, not folded in as a plain
-  user/assistant entry - own color, collapsed by default, ideally a one-line
-  summary (agent type/description) rather than the raw dumped transcript
-  content.
+- RESOLVED: subagent reports as their own entry kind - done 2026-08-02. The
+  real tool name is "Agent" (verified live against a real captured transcript
+  - not "Task"), with input {description, prompt, subagent_type,
+  run_in_background}. Two real findings baked into the fix: (1) the
+  matching tool_result's content always carries a SECOND text block of pure
+  internal bookkeeping ("agentId: xxx ... <usage>...</usage>") that the
+  Agent tool's own instructions say must never be shown to the user -
+  previously joined straight into the displayed text as if it were more of
+  the real output; now stripped (is_subagent_metadata_text() in
+  Transcript.php). (2) the tool_result has no agent-type info anywhere in
+  its own content - it only exists on the outer JSONL line's
+  toolUseResult.agentType field, so parse_transcript_line() now threads it
+  onto the block itself; the tool_use side gets it more simply, straight off
+  its own input.subagent_type. New "Subagent call"/"Subagent report" entry
+  kinds (fuchsia, entry_color_kind() in session.php, both PHP and JS) with a
+  clean "<subagent_type>: <description>" summary (summarize_agent_tool_use())
+  instead of a noisy raw param dump of the full prompt text. Also folded into
+  the existing hide-tool-calls/hide-tool-details entry-collapse markers, so
+  toggling those off hides subagent entries too, same as plain tool
+  calls/results. Live-verified against a real subagent call end-to-end:
+  correct fuchsia color/labels, confirmed zero "agentId:"/"<usage>" leakage
+  anywhere on the real rendered page, and confirmed both toggles correctly
+  hide the subagent entries.
+- session.php: the sidebar's top-right status icon (sidebar-toggle-btn/
+  sidebar-notify-dot) should distinguish severity, not just "something needs
+  you": yellow if at least one OTHER session is blocked/needs input, green
+  (not yellow) if none are blocked but at least one has finished/gone idle,
+  cleared entirely once that specific session is actually visited (not just
+  on any poll/dismiss).
 - Research: now that this app has a PreToolUse hook (see the pending-tool
   full-command-preview feature), survey whether other Claude Code hook events
   (PostToolUse, Notification, UserPromptSubmit, etc) could replace/improve any

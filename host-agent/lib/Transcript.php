@@ -143,6 +143,45 @@ function summarize_ask_user_question(array $input): ?string
     return $parts !== [] ? implode('; ', $parts) : null;
 }
 
+/**
+ * A subagent launch (Claude Code's own "Agent" tool - verified live
+ * 2026-08-02 against a real captured tool_use, not "Task" as the tool's
+ * informal name might suggest) has real primary-arg candidates
+ * (description, prompt) that already work fine individually via
+ * tool_use_primary_arg_keys(), but showing both plus subagent_type and
+ * run_in_background as separate "key: value" lines is noisy for
+ * something a human just wants to read as "what agent, doing what" at a
+ * glance. Returns "<subagent_type>: <description>" instead, or null if
+ * neither is present (falls through to the generic param-dump).
+ *
+ * @param array<string, mixed> $input
+ */
+function summarize_agent_tool_use(array $input): ?string
+{
+    $subagentType = is_string($input['subagent_type'] ?? null) ? $input['subagent_type'] : null;
+    $description = is_string($input['description'] ?? null) ? $input['description'] : null;
+
+    if ($subagentType === null && $description === null) {
+        return null;
+    }
+
+    return trim(($subagentType !== null ? "{$subagentType}: " : '') . ($description ?? ''));
+}
+
+/**
+ * The Agent tool's own tool_result always appends a second text block of
+ * pure internal bookkeeping (an agentId to resume the subagent, token/
+ * duration usage) that the tool's own instructions explicitly say must
+ * never be shown to or quoted in a user-facing reply - verified live
+ * 2026-08-02 against a real captured subagent result, not guessed. Kept
+ * out of the rendered text entirely rather than joined in as if it were
+ * more of the subagent's actual output.
+ */
+function is_subagent_metadata_text(string $text): bool
+{
+    return preg_match('/^agentId:\s*\S+.*<usage>/s', $text) === 1;
+}
+
 // Matches collapsible_summary()'s own single-line threshold (the
 // downstream render_collapsible_block()/renderCollapsibleBlock() rule
 // that skips the expand affordance entirely for trivial content) - the
@@ -250,6 +289,14 @@ function summarize_tool_use(array $block): string
         }
     }
 
+    if ($name === 'Agent') {
+        $summary = summarize_agent_tool_use($input);
+
+        if ($summary !== null) {
+            return format_tool_use_summary($displayName, [$summary]);
+        }
+    }
+
     return format_tool_use_summary($displayName, tool_use_param_lines($input));
 }
 
@@ -263,7 +310,22 @@ function summarize_content_block(array $block): array
 
     return match ($type) {
         'text' => ['kind' => 'text', 'text' => (string)($block['text'] ?? '')],
-        'tool_use' => ['kind' => 'tool_use', 'text' => summarize_tool_use($block)],
+        'tool_use' => array_filter(
+            [
+                'kind' => 'tool_use',
+                'text' => summarize_tool_use($block),
+                // Lets session.php color/collapse a subagent launch as its
+                // own distinct kind instead of a generic tool call - see
+                // entry_color_kind() there. Read straight off this block's
+                // own input (available directly, unlike the matching
+                // tool_result's agent_type below, which needs the outer
+                // JSONL line's toolUseResult field instead).
+                'agent_type' => (string)($block['name'] ?? '') === 'Agent' && is_array($block['input'] ?? null) && is_string($block['input']['subagent_type'] ?? null)
+                    ? $block['input']['subagent_type']
+                    : null,
+            ],
+            static fn(mixed $v): bool => $v !== null
+        ),
         'tool_result' => array_filter(
             [
                 'kind' => 'tool_result',
@@ -298,7 +360,13 @@ function transcript_tool_result_text(mixed $content): string
 
     foreach ($content as $item) {
         if (is_array($item) && ($item['type'] ?? null) === 'text') {
-            $parts[] = (string)($item['text'] ?? '');
+            $text = (string)($item['text'] ?? '');
+
+            if (is_subagent_metadata_text($text)) {
+                continue;
+            }
+
+            $parts[] = $text;
         }
     }
 
@@ -409,9 +477,23 @@ function parse_transcript_line(string $line): ?array
         return null;
     }
 
+    // A subagent's tool_result has no direct access to what kind of agent
+    // it came from (unlike the matching tool_use block, which reads its
+    // own input.subagent_type directly) - Claude Code records that
+    // separately on the outer JSONL line's toolUseResult field instead, so
+    // it's threaded onto the tool_result block from here rather than from
+    // summarize_content_block(), which only ever sees one content block
+    // in isolation.
+    $toolUseResult = $decoded['toolUseResult'] ?? null;
+    $agentType = is_array($toolUseResult) && is_string($toolUseResult['agentType'] ?? null) ? $toolUseResult['agentType'] : null;
+
     foreach ($blocks as &$block) {
         if (strlen($block['text']) > TRANSCRIPT_BLOCK_HARD_CAP_LENGTH) {
             $block['text'] = substr($block['text'], 0, TRANSCRIPT_BLOCK_HARD_CAP_LENGTH) . "\n… (truncated)";
+        }
+
+        if ($agentType !== null && $block['kind'] === 'tool_result') {
+            $block['agent_type'] = $agentType;
         }
     }
     unset($block);

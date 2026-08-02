@@ -208,6 +208,7 @@ function entry_color_kind(array $entry): string
     $hasText = false;
     $hasToolUse = false;
     $hasToolResult = false;
+    $isSubagent = false;
 
     foreach ($blocks as $block) {
         match ($block['kind'] ?? null) {
@@ -216,6 +217,19 @@ function entry_color_kind(array $entry): string
             'tool_result' => $hasToolResult = true,
             default => null,
         };
+
+        if (($block['agent_type'] ?? null) !== null) {
+            $isSubagent = true;
+        }
+    }
+
+    // A subagent launch/report (Claude Code's "Agent" tool - see
+    // agent_type in Transcript.php's summarize_content_block()/
+    // parse_transcript_line()) gets its own kind, ahead of the generic
+    // tool_use/tool_result check below, so it reads as a distinct "this
+    // is a subagent" thing rather than just another tool call.
+    if (!$hasText && $isSubagent) {
+        return $hasToolUse ? 'subagent_call' : 'subagent_result';
     }
 
     if (!$hasText && $hasToolUse) {
@@ -247,6 +261,10 @@ function entry_color_classes(string $kind): array
         'assistant' => ['border' => 'border-emerald-800/60', 'bg' => 'bg-emerald-950/40', 'label' => 'text-emerald-300'],
         'tool_use' => ['border' => 'border-sky-800/60', 'bg' => 'bg-sky-950/40', 'label' => 'text-sky-300'],
         'tool_result' => ['border' => 'border-violet-800/60', 'bg' => 'bg-violet-950/40', 'label' => 'text-violet-300'],
+        // Shared between call and report - same "this is subagent stuff"
+        // color for both, told apart by role label alone, same as every
+        // other kind here.
+        'subagent_call', 'subagent_result' => ['border' => 'border-fuchsia-800/60', 'bg' => 'bg-fuchsia-950/40', 'label' => 'text-fuchsia-300'],
         default => ['border' => 'border-slate-800', 'bg' => 'bg-slate-900/50', 'label' => 'text-slate-400'],
     };
 }
@@ -265,6 +283,8 @@ function render_transcript_entry(array $entry): string
     $roleLabel = match ($colorKind) {
         'tool_use' => 'Tool call',
         'tool_result' => 'Tool output',
+        'subagent_call' => 'Subagent call',
+        'subagent_result' => 'Subagent report',
         default => htmlspecialchars(ucfirst((string)$role), ENT_QUOTES),
     };
     $parsedTimestamp = is_string($entry['timestamp'] ?? null) ? strtotime($entry['timestamp']) : false;
@@ -290,9 +310,9 @@ function render_transcript_entry(array $entry): string
     $extraClass = '';
 
     if (!$hasImage) {
-        if ($colorKind === 'tool_result') {
+        if ($colorKind === 'tool_result' || $colorKind === 'subagent_result') {
             $extraClass = ' entry-tool-result-only';
-        } elseif ($colorKind === 'tool_use') {
+        } elseif ($colorKind === 'tool_use' || $colorKind === 'subagent_call') {
             $extraClass = ' entry-tool-use-only';
         }
     }
@@ -1027,6 +1047,15 @@ function render_transcript_entry(array $entry): string
     var hasText = blocks.some(function (b) { return b.kind === 'text'; });
     var hasToolUse = blocks.some(function (b) { return b.kind === 'tool_use'; });
     var hasToolResult = blocks.some(function (b) { return b.kind === 'tool_result'; });
+    var isSubagent = blocks.some(function (b) { return b.agent_type != null; });
+
+    // See entry_color_kind() in session.php (PHP) for why this check comes
+    // before the generic tool_use/tool_result one below - a subagent
+    // launch/report should read as its own distinct thing, not just
+    // another tool call.
+    if (!hasText && isSubagent) {
+      return hasToolUse ? 'subagent_call' : 'subagent_result';
+    }
 
     if (!hasText && hasToolUse) {
       return 'tool_use';
@@ -1055,6 +1084,9 @@ function render_transcript_entry(array $entry): string
         return { border: 'border-sky-800/60', bg: 'bg-sky-950/40', label: 'text-sky-300' };
       case 'tool_result':
         return { border: 'border-violet-800/60', bg: 'bg-violet-950/40', label: 'text-violet-300' };
+      case 'subagent_call':
+      case 'subagent_result':
+        return { border: 'border-fuchsia-800/60', bg: 'bg-fuchsia-950/40', label: 'text-fuchsia-300' };
       default:
         return { border: 'border-slate-800', bg: 'bg-slate-900/50', label: 'text-slate-400' };
     }
@@ -1067,6 +1099,8 @@ function render_transcript_entry(array $entry): string
     // user/assistant role, to match how it's actually colored.
     var roleLabel = colorKind === 'tool_use' ? 'Tool call'
       : colorKind === 'tool_result' ? 'Tool output'
+      : colorKind === 'subagent_call' ? 'Subagent call'
+      : colorKind === 'subagent_result' ? 'Subagent report'
       : (ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System'));
     var parsedMs = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
     var timestamp = !isNaN(parsedMs) ? escapeHtml(relativeTimeLabel(Math.floor(parsedMs / 1000))) : '';
@@ -1080,9 +1114,9 @@ function render_transcript_entry(array $entry): string
     var extraClass = '';
 
     if (!hasImage) {
-      if (colorKind === 'tool_result') {
+      if (colorKind === 'tool_result' || colorKind === 'subagent_result') {
         extraClass = ' entry-tool-result-only';
-      } else if (colorKind === 'tool_use') {
+      } else if (colorKind === 'tool_use' || colorKind === 'subagent_call') {
         extraClass = ' entry-tool-use-only';
       }
     }

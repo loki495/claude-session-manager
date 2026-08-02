@@ -308,6 +308,20 @@ try {
     assert_contains('function markNewContent(', $result['body'], 'GET /session.php: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
     assert_contains('>Tool output<', $result['body'], 'GET /session.php: the canned tool_result entry ("done") is labeled "Tool output", not "User"');
     assert_contains('>Tool call<', $result['body'], 'GET /session.php: the canned tool_use entry ("Bash(pwd)") is labeled "Tool call", not "Assistant"');
+    assert_contains('>Subagent call<', $result['body'], 'GET /session.php: the canned Agent tool_use entry is labeled "Subagent call", not "Tool call"');
+    assert_contains('>Subagent report<', $result['body'], 'GET /session.php: the canned Agent tool_result entry is labeled "Subagent report", not "Tool output"');
+    assert_contains('general-purpose: Investigate the login bug', $result['body'], 'GET /session.php: the subagent call summary shows subagent_type + description, not a raw param dump');
+    assert_contains('Found it: the redirect URL was hardcoded.', $result['body'], 'GET /session.php: the subagent report shows its real output');
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Investigate the login bug/s', $result['body'], $subagentCallMatch) === 1
+            && str_contains($subagentCallMatch[1], 'border-fuchsia-800/60'),
+        'GET /session.php: the subagent call entry uses the fuchsia color, distinct from a plain tool call'
+    );
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?redirect URL was hardcoded/s', $result['body'], $subagentResultMatch) === 1
+            && str_contains($subagentResultMatch[1], 'border-fuchsia-800/60'),
+        'GET /session.php: the subagent report entry uses the fuchsia color too'
+    );
     assert_true(
         preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Bash\(pwd\)/s', $result['body'], $toolUseEntryMatch) === 1
             && strpos($toolUseEntryMatch[1], 'entry-tool-result-only') === false,
@@ -396,7 +410,7 @@ try {
     assert_equal(200, $result['status'], 'GET /session_history.php: 200');
     $historyBody = json_decode($result['body'], true);
     assert_true(is_array($historyBody) && ($historyBody['ok'] ?? false), 'GET /session_history.php: response decodes as ok=true JSON');
-    assert_equal(4, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
+    assert_equal(6, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
 
     // --- session.php: compose bar present for a real session ---
     $result = curl_request('GET', "{$baseUrl}/session.php?session=cc-20260101-1200");

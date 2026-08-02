@@ -118,6 +118,76 @@ assert_equal(
     'summarize_tool_use: AskUserQuestion with an empty/unrecognized questions shape falls back to showing the raw param'
 );
 
+// --- summarize_tool_use()/summarize_agent_tool_use(): a subagent launch
+// (Claude Code's "Agent" tool - real name verified live 2026-08-02, not
+// "Task") shows "<subagent_type>: <description>" instead of dumping
+// description/prompt/subagent_type/run_in_background as separate params -
+// the full prompt text especially would otherwise be noisy/unreadable. ---
+assert_equal(
+    'tool: Agent - general-purpose: Reply with pineapple',
+    summarize_tool_use(['name' => 'Agent', 'input' => ['description' => 'Reply with pineapple', 'prompt' => 'Reply with exactly the single word: pineapple. Do nothing else.', 'subagent_type' => 'general-purpose', 'run_in_background' => false]]),
+    'summarize_tool_use: Agent shows subagent_type + description, not every param'
+);
+assert_equal(
+    'tool: Agent - Reply with pineapple',
+    summarize_tool_use(['name' => 'Agent', 'input' => ['description' => 'Reply with pineapple']]),
+    'summarize_tool_use: Agent with only description (no subagent_type) still shows something readable'
+);
+assert_equal(
+    'tool: Agent - general-purpose:',
+    summarize_tool_use(['name' => 'Agent', 'input' => ['subagent_type' => 'general-purpose']]),
+    'summarize_tool_use: Agent with only subagent_type (no description) still shows something readable'
+);
+assert_true(
+    str_starts_with(summarize_tool_use(['name' => 'Agent', 'input' => ['foo' => 'bar']]), 'tool: Agent - foo: bar'),
+    'summarize_tool_use: Agent with neither description nor subagent_type falls back to the generic param dump'
+);
+
+// --- parse_transcript_line(): a real captured Agent tool_use gets an
+// agent_type field (read straight from its own input.subagent_type) so
+// session.php can color/collapse it as a distinct "subagent" entry kind
+// instead of a generic tool call - see entry_color_kind(). ---
+$agentToolUseLine = parse_transcript_line(json_encode([
+    'type' => 'assistant',
+    'message' => ['role' => 'assistant', 'content' => [[
+        'type' => 'tool_use',
+        'name' => 'Agent',
+        'input' => ['description' => 'Reply with pineapple', 'prompt' => 'Reply with exactly the single word: pineapple. Do nothing else.', 'subagent_type' => 'general-purpose', 'run_in_background' => false],
+    ]]],
+]));
+assert_equal('tool: Agent - general-purpose: Reply with pineapple', $agentToolUseLine['blocks'][0]['text'] ?? null, 'parse_transcript_line: Agent tool_use gets the clean subagent summary');
+assert_equal('general-purpose', $agentToolUseLine['blocks'][0]['agent_type'] ?? null, 'parse_transcript_line: Agent tool_use block carries agent_type from its own input');
+
+$nonAgentToolUseLine = parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}');
+assert_true(!array_key_exists('agent_type', $nonAgentToolUseLine['blocks'][0]), 'parse_transcript_line: a plain (non-Agent) tool_use never gets an agent_type field');
+
+// --- parse_transcript_line(): the Agent tool's own tool_result - real
+// shape captured live 2026-08-02 against an actual subagent call. Two
+// real findings baked in: (1) the second text block ("agentId: ...
+// <usage>...</usage>") is pure internal bookkeeping the tool's own
+// instructions say must never be shown - stripped from the rendered text
+// entirely, not joined in as if it were more of the real output. (2) the
+// agent_type this block gets comes from the OUTER JSONL line's
+// toolUseResult.agentType field, not from anything inside the tool_result
+// content itself, which has no agent-type info of its own. ---
+$agentToolResultLine = parse_transcript_line(json_encode([
+    'type' => 'user',
+    'message' => ['role' => 'user', 'content' => [[
+        'type' => 'tool_result',
+        'tool_use_id' => 'toolu_01C8mWxDwmtpqW39rfHT28WV',
+        'content' => [
+            ['type' => 'text', 'text' => 'pineapple'],
+            ['type' => 'text', 'text' => "agentId: aba497819de523c24 (use SendMessage with to: 'aba497819de523c24', summary: '<5-10 word recap>' to continue this agent)\n<usage>subagent_tokens: 26059\ntool_uses: 0\nduration_ms: 2018</usage>"],
+        ],
+    ]]],
+    'toolUseResult' => ['status' => 'completed', 'agentId' => 'aba497819de523c24', 'agentType' => 'general-purpose'],
+]));
+assert_equal('pineapple', $agentToolResultLine['blocks'][0]['text'] ?? null, 'parse_transcript_line: Agent tool_result text is just the real output, the internal agentId/usage metadata block is stripped');
+assert_equal('general-purpose', $agentToolResultLine['blocks'][0]['agent_type'] ?? null, 'parse_transcript_line: Agent tool_result gets agent_type from the outer toolUseResult field');
+
+$nonAgentToolResultLine = parse_transcript_line('{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}]}}');
+assert_true(!array_key_exists('agent_type', $nonAgentToolResultLine['blocks'][0]), 'parse_transcript_line: a plain (non-subagent) tool_result never gets an agent_type field');
+
 $toolUseWithCommand = parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}');
 assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls -la, description: List files']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it, not just "Bash"');
 

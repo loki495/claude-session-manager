@@ -105,6 +105,11 @@ $response = match ($action) {
                 ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:05Z', 'blocks' => [['kind' => 'text', 'text' => 'Looking into it now.']], 'line' => 3],
                 ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:10Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'Bash(pwd)']], 'line' => 4],
                 ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:15Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'done', 'image' => ['media_type' => 'image/png', 'data' => CANNED_TEST_IMAGE_BASE64]]], 'line' => 5],
+                // Real shape captured live 2026-08-02 against an actual
+                // subagent call - see agent_type in Transcript.php's
+                // parse_transcript_line()/summarize_content_block().
+                ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:20Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Agent - general-purpose: Investigate the login bug', 'agent_type' => 'general-purpose']], 'line' => 6],
+                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:25Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Found it: the redirect URL was hardcoded.', 'agent_type' => 'general-purpose']], 'line' => 7],
             ],
             'next_before' => 1,
             'has_more' => true,
