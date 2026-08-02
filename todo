@@ -23,17 +23,40 @@ Tier 2 - self-contained features/fixes:
   does (hides tool_result blocks via the hide-tool-details CSS class; tool_use blocks
   are unaffected) before renaming, since the current name may already be accurate for
   half of what people expect it to do.
-- session.php: add a checkbox to the sidebar to show/hide tool CALLS (tool_use
-  blocks), separate from the existing "Show tool usage details" toggle which
-  only ever affects tool_result blocks - tool_use blocks currently always show
-  regardless of that setting.
-- session.php/index.php: default the polling-interval selector to 3s instead
-  of 15s, for both new sessions and the dashboard.
-- Make sure this app can handle multiple questions properly - Andres flagged
-  this without further detail; likely about AskUserQuestion's multi-question
-  tab-bar shape (see multi_question/navigate_prompt() in Sessions.php) needing
-  broader verification/testing, but needs clarification on exactly what's not
-  working before diving in.
+- RESOLVED: checkbox to show/hide tool calls - done 2026-08-02. New
+  "Show tool calls" sidebar toggle, mirroring the existing "Show tool usage
+  details" one exactly (own body class hide-tool-calls, own localStorage key
+  csm-show-tool-calls, defaults to checked/shown). Required a matching
+  entry-tool-use-only marker (entry_color_kind()==='tool_use' && no image) so
+  a tool_use-only entry disappears entirely once hidden, not just its block -
+  same reasoning as the pre-existing entry-tool-result-only marker, which
+  render_transcript_entry()/renderEntry() now compute together in one place
+  instead of two separate checks. Live-verified against a real throwaway
+  session with an actual Bash tool_use entry: toggling off hid both the block
+  and the whole entry, toggling persisted correctly across a page reload.
+- RESOLVED: default polling interval changed 15s -> 3s - done 2026-08-02, both
+  session.php and index.php (the `selected` option + the JS fallback used when
+  nothing's in localStorage yet). A previously-visited browser with 15s already
+  saved to localStorage is unaffected either way, by design.
+- RESOLVED: multi-question AskUserQuestion handling - done 2026-08-02. Root
+  cause found without needing clarification: navigate_prompt() (Left/Right
+  arrow-key send) and prompt_multi_question detection already existed in the
+  backend, but NOTHING in the frontend ever called or displayed either one -
+  grep across src/ turned up zero references. A multi-question prompt could
+  only ever be answered on whatever tab happened to already be showing;
+  reaching any other question required attaching to tmux by hand and pressing
+  arrow keys directly, defeating the point of a phone-based remote-control
+  app. Fixed: new session_navigate.php endpoint, Prev/Next buttons rendered
+  in blocked_prompt_options_html() (AgentClient.php, shared by both pages)
+  whenever prompt_multi_question is true, wired up in both session.php and
+  index.php (blocked_prompt_rich_html() renders on both). Live-verified
+  end-to-end on both pages against a real AskUserQuestion call with two
+  genuine questions: clicking Next actually sent the Right arrow key,
+  confirmed via a direct tmux capture-pane read that the pane moved from
+  "What color do you like?" to "What animal do you like?" (session.php) and
+  from "Tea or coffee?" to "Book or movie?" (index.php), with the rendered
+  option buttons correctly updating to match whichever tab was now current
+  each time (Cat/Dog, not still Red/Blue).
 - session.php: audit renderStaticInfo()/renderThinkingIndicator()/renderModeToggle()
   for the same "rebuilds on every poll even when nothing changed" issue already fixed
   in renderBlockedSection() - renderModeToggle() in particular rebuilds a <select>,

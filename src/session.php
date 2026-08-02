@@ -270,14 +270,14 @@ function render_transcript_entry(array $entry): string
     $parsedTimestamp = is_string($entry['timestamp'] ?? null) ? strtotime($entry['timestamp']) : false;
     $timestamp = $parsedTimestamp !== false ? htmlspecialchars(relative_time($parsedTimestamp), ENT_QUOTES) : '';
     $colors = entry_color_classes($colorKind);
-    // Hides the WHOLE entry (not just the now-hidden tool_result block)
-    // once the "Show tool usage details" toggle turns off, since there'd
-    // be nothing left to show otherwise (a bare role-label-only bubble).
-    // tool_use isn't included: those blocks stay visible regardless of the
-    // toggle, so an entry containing one always has real content left -
-    // and neither is a tool_result carrying an image, for the same reason
-    // (found live: this was missing on the first pass, so an entry with a
-    // screenshot still vanished entirely instead of just its text).
+    // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
+    // block) once the matching "Show tool usage details"/"Show tool calls"
+    // toggle turns off, since there'd be nothing left to show otherwise (a
+    // bare role-label-only bubble). Neither marker applies to an entry
+    // carrying an image, regardless of its kind (found live: this was
+    // missing on the first pass for entry-tool-result-only, so an entry
+    // with a screenshot still vanished entirely instead of just its text) -
+    // an image is always worth keeping visible on its own.
     $hasImage = false;
 
     foreach ($entry['blocks'] as $block) {
@@ -287,7 +287,15 @@ function render_transcript_entry(array $entry): string
         }
     }
 
-    $extraClass = ($colorKind === 'tool_result' && !$hasImage) ? ' entry-tool-result-only' : '';
+    $extraClass = '';
+
+    if (!$hasImage) {
+        if ($colorKind === 'tool_result') {
+            $extraClass = ' entry-tool-result-only';
+        } elseif ($colorKind === 'tool_use') {
+            $extraClass = ' entry-tool-use-only';
+        }
+    }
 
     $blocksHtml = implode('', array_map('render_transcript_block', $entry['blocks']));
 
@@ -316,10 +324,17 @@ function render_transcript_entry(array $entry): string
      entry-tool-result-only in render_transcript_entry()/renderEntry()) has
      nothing left to show once the rule above hides its content - without
      this it's a superfluous empty "User" bubble (role label + timestamp,
-     no body). tool_use isn't included in this: those blocks stay visible
-     regardless of the toggle, so an entry containing one always has real
-     content left to show. */
+     no body). */
   body.hide-tool-details .entry-tool-result-only { display: none; }
+  /* Toggled via the separate "Show tool calls" sidebar setting - tool_use
+     blocks (the call itself, e.g. "Bash(...)") are unaffected by the
+     hide-tool-details rule above, which only ever targets tool_result (the
+     output), so this needs its own class + rule pair, same pattern. */
+  body.hide-tool-calls .tool-use-block { display: none; }
+  /* Same reasoning as entry-tool-result-only above, mirrored for entries
+     whose ONLY blocks are tool_use (marked at render time, see
+     entry-tool-use-only in render_transcript_entry()/renderEntry()). */
+  body.hide-tool-calls .entry-tool-use-only { display: none; }
   /* Marks where newly-polled entries start (see markNewContent() in the
      <script> below) - opacity transition only, no layout-affecting
      property, so the fade-out never causes a scroll jump right as the user
@@ -353,10 +368,10 @@ function render_transcript_entry(array $entry): string
       <select id="poll-interval-select" aria-label="Polling interval"
         class="text-xs font-medium pl-1.5 pr-5 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-400">
         <option value="1000">1s</option>
-        <option value="3000">3s</option>
+        <option value="3000" selected>3s</option>
         <option value="5000">5s</option>
         <option value="10000">10s</option>
-        <option value="15000" selected>15s</option>
+        <option value="15000">15s</option>
       </select>
       <button type="button" id="sidebar-toggle-btn" aria-label="Show other sessions"
         class="relative text-slate-400 active:text-slate-200 -mr-2 px-2 py-1 text-lg leading-none">
@@ -386,6 +401,10 @@ function render_transcript_entry(array $entry): string
     <label class="flex items-center gap-2 text-sm text-slate-300">
       <input type="checkbox" id="show-tool-details-toggle" class="rounded border-slate-600 bg-slate-800">
       Show tool usage details
+    </label>
+    <label class="flex items-center gap-2 text-sm text-slate-300">
+      <input type="checkbox" id="show-tool-calls-toggle" class="rounded border-slate-600 bg-slate-800" checked>
+      Show tool calls
     </label>
   </div>
   <?php if ($found): ?>
@@ -625,6 +644,40 @@ function render_transcript_entry(array $entry): string
     });
   }
 
+  // Setting: whether tool_use blocks (the tool CALL itself - "Bash(...)",
+  // "Write(...)", etc.) show in the transcript at all - separate from
+  // SHOW_TOOL_DETAILS_KEY above, which only ever affects tool_result
+  // blocks (the output). Same body-level-class + CSS-rule pattern.
+  var SHOW_TOOL_CALLS_KEY = 'csm-show-tool-calls';
+
+  function shouldShowToolCalls() {
+    try {
+      return window.localStorage.getItem(SHOW_TOOL_CALLS_KEY) !== '0';
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function applyShowToolCalls(show) {
+    document.body.classList.toggle('hide-tool-calls', !show);
+  }
+
+  var showToolCallsToggle = document.getElementById('show-tool-calls-toggle');
+
+  if (showToolCallsToggle) {
+    var showToolCalls = shouldShowToolCalls();
+    showToolCallsToggle.checked = showToolCalls;
+    applyShowToolCalls(showToolCalls);
+
+    showToolCallsToggle.addEventListener('change', function () {
+      applyShowToolCalls(showToolCallsToggle.checked);
+
+      try {
+        window.localStorage.setItem(SHOW_TOOL_CALLS_KEY, showToolCallsToggle.checked ? '1' : '0');
+      } catch (e) {}
+    });
+  }
+
   // Lets the toggle button itself signal "something needs you" without
   // opening the drawer - any other session that's blocked (waiting on a
   // prompt) or just sitting idle (not blocked, not working) counts.
@@ -793,16 +846,15 @@ function render_transcript_entry(array $entry): string
   var SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
   // Polling interval: user-selectable (dropdown in the sticky header, 1/3/5/
-  // 10/15s), persisted per-browser. Defaults to 15s ("regular use") - faster
-  // is opt-in, not forced on everyone, since it's extra load on the socket.
+  // 10/15s), persisted per-browser. Defaults to 3s.
   var POLL_INTERVAL_STORAGE_KEY = 'csm-poll-interval-ms';
   var POLL_INTERVAL_ALLOWED_MS = [1000, 3000, 5000, 10000, 15000];
   var pollIntervalMs = (function () {
     try {
       var stored = parseInt(window.localStorage.getItem(POLL_INTERVAL_STORAGE_KEY), 10);
-      return POLL_INTERVAL_ALLOWED_MS.indexOf(stored) !== -1 ? stored : 15000;
+      return POLL_INTERVAL_ALLOWED_MS.indexOf(stored) !== -1 ? stored : 3000;
     } catch (e) {
-      return 15000;
+      return 3000;
     }
   })();
 
@@ -1020,12 +1072,20 @@ function render_transcript_entry(array $entry): string
     var timestamp = !isNaN(parsedMs) ? escapeHtml(relativeTimeLabel(Math.floor(parsedMs / 1000))) : '';
     var blocksHtml = (entry.blocks || []).map(renderBlock).join('');
     var colors = entryColorClasses(colorKind);
-    // Hides the WHOLE entry (not just the now-hidden tool_result block)
-    // once the "Show tool usage details" toggle turns off - see the PHP
-    // comment in render_transcript_entry() for why, including why a
-    // tool_result carrying an image is excluded too.
+    // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
+    // block) once the matching toggle turns off - see the PHP comment in
+    // render_transcript_entry() for why, including why an entry carrying
+    // an image is excluded either way.
     var hasImage = (entry.blocks || []).some(function (b) { return !!b.image; });
-    var extraClass = (colorKind === 'tool_result' && !hasImage) ? ' entry-tool-result-only' : '';
+    var extraClass = '';
+
+    if (!hasImage) {
+      if (colorKind === 'tool_result') {
+        extraClass = ' entry-tool-result-only';
+      } else if (colorKind === 'tool_use') {
+        extraClass = ' entry-tool-use-only';
+      }
+    }
 
     var div = document.createElement('div');
     div.className = 'rounded-lg border ' + colors.border + ' ' + colors.bg + ' px-3 py-2' + extraClass;
@@ -1265,6 +1325,14 @@ function render_transcript_entry(array $entry): string
       var optionsHtml = '';
       var hasFreeText = false;
 
+      // See blocked_prompt_options_html() in AgentClient.php (PHP) for why
+      // - a multi-question AskUserQuestion prompt needs Prev/Next buttons
+      // to reach any question besides whichever tab currently happens to
+      // be showing.
+      if (detail.prompt_multi_question) {
+        optionsHtml += '<button type="button" class="nav-prompt-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-direction="left" aria-label="Previous question">&larr;</button>';
+      }
+
       detail.prompt_options.forEach(function (opt) {
         var label = escapeHtml(opt.label);
 
@@ -1284,6 +1352,10 @@ function render_transcript_entry(array $entry): string
           + opt.number + '. ' + label
           + '</button></form>';
       });
+
+      if (detail.prompt_multi_question) {
+        optionsHtml += '<button type="button" class="nav-prompt-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-direction="right" aria-label="Next question">&rarr;</button>';
+      }
 
       html += '<div class="prompt-options-wrapper mt-2" data-session="' + escapeHtml(sessionName) + '" data-csrf-token="' + escapeHtml(csrfToken) + '">'
         + '<div class="flex flex-wrap gap-2">' + optionsHtml + '</div>';
@@ -1532,6 +1604,46 @@ function render_transcript_entry(array $entry): string
 
       if (sendBtn) {
         submitFreetextReply(sendBtn.closest('.freetext-reply'));
+        return;
+      }
+
+      var navBtn = e.target.closest('.nav-prompt-btn');
+
+      if (navBtn) {
+        var navWrapper = navBtn.closest('.prompt-options-wrapper');
+        navBtn.disabled = true;
+
+        fetch('/session_navigate.php', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            session: navWrapper.dataset.session,
+            csrf_token: navWrapper.dataset.csrfToken,
+            direction: navBtn.dataset.direction
+          }).toString()
+        })
+          .then(function (r) { return parseJsonResponse(r, 'navigate-prompt'); })
+          .then(function (data) {
+            navBtn.disabled = false;
+
+            if (!data || !data.ok) {
+              alert((data && data.message) || 'Failed to navigate to the other question.');
+              return;
+            }
+
+            // The pane state has moved to the other tab, but this card
+            // still shows the one just left - forces the very next poll
+            // to actually rebuild instead of skipping as "unchanged" (see
+            // the key comparison above), so the new tab's question/options
+            // show up on the next cycle rather than waiting for something
+            // else to invalidate the cache first.
+            lastRenderedBlockedKey = undefined;
+          })
+          .catch(function () {
+            navBtn.disabled = false;
+            alert('Network error - could not navigate to the other question.');
+          });
       }
     });
 

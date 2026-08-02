@@ -95,6 +95,7 @@ try {
     // wins rather than just happening to not be exercised by the fixture.
     assert_equal(1, substr_count($result['body'], 'Thinking&hellip;'), 'GET /: thinking indicator shown exactly once - for the working, non-blocked session, not the working-but-blocked one');
     assert_contains('id="poll-interval-select"', $result['body'], 'GET /: dashboard polling-interval dropdown present in the header');
+    assert_contains('value="3000" selected', $result['body'], 'GET /: dashboard polling-interval dropdown defaults to 3s');
     assert_contains('id="session-count-text"', $result['body'], 'GET /: session-count text is a targetable element (updated live by the poll)');
     assert_contains('id="sessions-container"', $result['body'], 'GET /: session list lives inside a targetable container (swapped in place by the poll)');
     assert_contains('id="bare-container"', $result['body'], 'GET /: bare-process list lives inside a targetable container (swapped in place by the poll)');
@@ -274,6 +275,9 @@ try {
     );
     assert_contains('class="freetext-reply hidden', $result['body'], 'GET /session.php: the free-text reply box is present but hidden by default');
     assert_contains('freetext-reply-textarea', $result['body'], 'GET /session.php: the free-text reply textarea is present');
+    assert_contains('class="nav-prompt-btn', $result['body'], 'GET /session.php: multi-question prompt renders Prev/Next navigation buttons');
+    assert_contains('data-direction="left"', $result['body'], 'GET /session.php: Prev button targets the left direction');
+    assert_contains('data-direction="right"', $result['body'], 'GET /session.php: Next button targets the right direction');
     assert_contains('rm -rf /tmp/canned-example', $result['body'], 'GET /session.php: prompt_context (the actual command being approved) is shown, not just the bare question');
     assert_true(
         preg_match('/<details[^>]*>\s*<summary[^>]*>\s*Bash command/', $result['body']) === 1,
@@ -289,12 +293,16 @@ try {
     assert_contains('id="sidebar-notify-dot"', $result['body'], 'GET /session.php: sidebar notification dot present');
     assert_contains('id="confirm-before-answer-toggle"', $result['body'], 'GET /session.php: confirm-before-answering setting checkbox present in the sidebar');
     assert_contains('id="poll-interval-select"', $result['body'], 'GET /session.php: polling-interval dropdown present in the sticky header');
-    assert_contains('value="15000" selected', $result['body'], 'GET /session.php: polling-interval dropdown defaults to 15s');
+    assert_contains('value="3000" selected', $result['body'], 'GET /session.php: polling-interval dropdown defaults to 3s');
     assert_contains('id="show-tool-details-toggle"', $result['body'], 'GET /session.php: show-tool-details setting checkbox present in the sidebar');
     assert_contains('class="tool-detail"', $result['body'], 'GET /session.php: tool_result blocks are tagged hideable by the show/hide toggle');
-    assert_contains('class="tool-use-block"', $result['body'], 'GET /session.php: tool_use blocks get their own (never-hidden) class, kept separate from tool-detail');
-    assert_contains('body.hide-tool-details .tool-detail', $result['body'], 'GET /session.php: the hide-tool-details CSS rule only targets tool_result (tool_use is untagged, shown in full instead)');
+    assert_contains('class="tool-use-block"', $result['body'], 'GET /session.php: tool_use blocks get their own class, kept separate from tool-detail');
+    assert_contains('body.hide-tool-details .tool-detail', $result['body'], 'GET /session.php: the hide-tool-details CSS rule only targets tool_result (tool_use is a separate toggle)');
     assert_contains('body.hide-tool-details .entry-tool-result-only', $result['body'], 'GET /session.php: a second hide-tool-details rule hides whole entries left with nothing but a hidden tool_result');
+    assert_contains('id="show-tool-calls-toggle"', $result['body'], 'GET /session.php: show-tool-calls setting checkbox present in the sidebar');
+    assert_contains('id="show-tool-calls-toggle" class="rounded border-slate-600 bg-slate-800" checked', $result['body'], 'GET /session.php: show-tool-calls checkbox is checked (shown) by default');
+    assert_contains('body.hide-tool-calls .tool-use-block', $result['body'], 'GET /session.php: the hide-tool-calls CSS rule targets tool_use blocks');
+    assert_contains('body.hide-tool-calls .entry-tool-use-only', $result['body'], 'GET /session.php: a second hide-tool-calls rule hides whole entries left with nothing but a hidden tool_use');
     assert_contains('.new-content-divider.fading', $result['body'], 'GET /session.php: the new-content divider fade rule is shipped');
     assert_contains('.new-content-highlight.fading', $result['body'], 'GET /session.php: the new-content highlight fade rule is shipped (two-class pattern, not a plain classList.remove, so `transition` survives the fade)');
     assert_contains('function markNewContent(', $result['body'], 'GET /session.php: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
@@ -303,7 +311,11 @@ try {
     assert_true(
         preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Bash\(pwd\)/s', $result['body'], $toolUseEntryMatch) === 1
             && strpos($toolUseEntryMatch[1], 'entry-tool-result-only') === false,
-        'GET /session.php: the canned tool_use entry ("Bash(pwd)") is NOT marked entry-tool-result-only - it has real content, so it must never be hidden'
+        'GET /session.php: the canned tool_use entry ("Bash(pwd)") is NOT marked entry-tool-result-only - that marker is only for tool_result entries'
+    );
+    assert_true(
+        isset($toolUseEntryMatch[1]) && strpos($toolUseEntryMatch[1], 'entry-tool-use-only') !== false,
+        'GET /session.php: the canned tool_use entry ("Bash(pwd)") IS marked entry-tool-use-only - it has no other content, so hiding tool calls must hide the whole entry too'
     );
     // The canned "done" tool_result entry carries an image (a screenshot,
     // in practice) - found live: it was still getting entry-tool-result-only
@@ -314,6 +326,10 @@ try {
         preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?<img src="data:image\/png;base64,' . preg_quote(CANNED_TEST_IMAGE_BASE64, '/') . '"[^>]*class="transcript-image/s', $result['body'], $imageEntryMatch) === 1
             && strpos($imageEntryMatch[1], 'entry-tool-result-only') === false,
         'GET /session.php: a tool_result entry carrying an image is NOT marked entry-tool-result-only - the image must always stay visible, so the whole entry must never be hidden'
+    );
+    assert_true(
+        isset($imageEntryMatch[1]) && strpos($imageEntryMatch[1], 'entry-tool-use-only') === false,
+        'GET /session.php: a tool_result entry carrying an image is NOT marked entry-tool-use-only either - it is not a tool_use entry at all'
     );
     assert_contains('id="sidebar-list"', $result['body'], 'GET /session.php: sidebar (other sessions) drawer present');
     assert_true(
@@ -489,6 +505,31 @@ try {
     ], $cookieJar);
     $escapeRejectBody = json_decode($result['body'], true);
     assert_equal(false, $escapeRejectBody['ok'] ?? null, 'POST /session_escape.php: canned agent rejects an unrecognized session');
+
+    // --- session_navigate.php: GET not allowed ---
+    $result = curl_request('GET', "{$baseUrl}/session_navigate.php?session=cc-20260101-1200&direction=left");
+    assert_equal(405, $result['status'], 'GET /session_navigate.php: 405 (POST required)');
+
+    // --- session_navigate.php: CSRF enforced ---
+    $result = curl_request('POST', "{$baseUrl}/session_navigate.php", [
+        '-d', 'session=cc-20260101-1200&direction=left&csrf_token=not-the-real-token',
+    ]);
+    assert_equal(403, $result['status'], 'POST /session_navigate.php with a wrong csrf_token: 403');
+
+    // --- session_navigate.php: valid CSRF -> canned agent accepts it, returns JSON ---
+    $result = curl_request('POST', "{$baseUrl}/session_navigate.php", [
+        '-d', 'session=' . urlencode('cc-20260101-1200') . '&direction=right&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    assert_equal(200, $result['status'], 'POST /session_navigate.php with valid CSRF: 200 (JSON, not a redirect)');
+    $navigateBody = json_decode($result['body'], true);
+    assert_true(is_array($navigateBody) && ($navigateBody['ok'] ?? false), 'POST /session_navigate.php: canned agent accepts the navigate request, response decodes as ok=true JSON');
+
+    // --- session_navigate.php: canned agent rejects a session not showing a multi-question prompt ---
+    $result = curl_request('POST', "{$baseUrl}/session_navigate.php", [
+        '-d', 'session=' . urlencode('cc-not-a-real-session') . '&direction=right&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $navigateRejectBody = json_decode($result['body'], true);
+    assert_equal(false, $navigateRejectBody['ok'] ?? null, 'POST /session_navigate.php: canned agent rejects an unrecognized session');
 
     // --- cross-origin POST rejected ---
     $result = curl_request('POST', "{$baseUrl}/", [

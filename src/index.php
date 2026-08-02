@@ -114,10 +114,10 @@ $csrfToken = csrf_token();
     <select id="poll-interval-select" aria-label="Polling interval"
       class="shrink-0 text-xs font-medium pl-1.5 pr-5 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-400">
       <option value="1000">1s</option>
-      <option value="3000">3s</option>
+      <option value="3000" selected>3s</option>
       <option value="5000">5s</option>
       <option value="10000">10s</option>
-      <option value="15000" selected>15s</option>
+      <option value="15000">15s</option>
     </select>
   </header>
 
@@ -343,6 +343,41 @@ document.addEventListener('click', function (e) {
 
   if (sendBtn) {
     submitFreetextReply(sendBtn.closest('.freetext-reply'));
+    return;
+  }
+
+  var navBtn = e.target.closest('.nav-prompt-btn');
+
+  if (navBtn) {
+    var navWrapper = navBtn.closest('.prompt-options-wrapper');
+    navBtn.disabled = true;
+
+    fetch('/session_navigate.php', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        session: navWrapper.dataset.session,
+        csrf_token: navWrapper.dataset.csrfToken,
+        direction: navBtn.dataset.direction
+      }).toString()
+    })
+      .then(function (r) { return parseJsonResponse(r, 'dashboard-navigate-prompt'); })
+      .then(function (data) {
+        navBtn.disabled = false;
+
+        if (!data || !data.ok) {
+          alert((data && data.message) || 'Failed to navigate to the other question.');
+        }
+        // No optimistic swap here (unlike the answer-prompt/freetext
+        // handlers above) - the dashboard's own live poll (sessions_fragment.php)
+        // picks up the other tab's question/options on its own within a
+        // few seconds, same as any other blocked-prompt state change.
+      })
+      .catch(function () {
+        navBtn.disabled = false;
+        alert('Network error - could not navigate to the other question.');
+      });
   }
 });
 
@@ -571,9 +606,9 @@ document.addEventListener('keydown', function (e) {
   var pollIntervalMs = (function () {
     try {
       var stored = parseInt(window.localStorage.getItem(POLL_INTERVAL_STORAGE_KEY), 10);
-      return POLL_INTERVAL_ALLOWED_MS.indexOf(stored) !== -1 ? stored : 15000;
+      return POLL_INTERVAL_ALLOWED_MS.indexOf(stored) !== -1 ? stored : 3000;
     } catch (e) {
-      return 15000;
+      return 3000;
     }
   })();
 

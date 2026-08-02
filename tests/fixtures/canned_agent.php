@@ -58,6 +58,7 @@ $response = match ($action) {
             'resume_hint' => 'tmux -S /fake/socket attach -t ' . CANNED_BLOCKED_SESSION_NAME,
             'prompt_context' => "Bash command\n\n  rm -rf /tmp/dashboard-example\n  Remove old temp files",
             'prompt_options' => [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => 'No']],
+            'prompt_multi_question' => true,
             'prompt_is_folder_trust' => false,
             'last_message' => ['role' => 'assistant', 'timestamp' => '2026-01-01T13:04:00Z', 'blocks' => [['kind' => 'text', 'text' => 'Found some old temp files worth cleaning up.']]],
         ]],
@@ -84,6 +85,7 @@ $response = match ($action) {
             'resume_hint' => 'tmux -S /fake/socket attach -t ' . CANNED_SESSION_NAME,
             'prompt_context' => "Bash command\n\n  rm -rf /tmp/canned-example\n  Clean up the canned example directory",
             'prompt_options' => [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => 'No'], ['number' => 3, 'label' => 'Type something.']],
+            'prompt_multi_question' => true,
             'current_mode' => null,
             'claude_session_id' => CANNED_CLAUDE_SESSION_ID,
             'has_transcript' => true,
@@ -130,6 +132,9 @@ $response = match ($action) {
     'send_escape' => ($request['session'] ?? null) === CANNED_SESSION_NAME
         ? ['ok' => true, 'message' => 'Sent Escape to ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
+    'navigate_prompt' => in_array($request['session'] ?? null, [CANNED_SESSION_NAME, CANNED_BLOCKED_SESSION_NAME], true) && in_array($request['direction'] ?? null, ['left', 'right'], true)
+        ? ['ok' => true, 'message' => 'Sent ' . ucfirst((string)$request['direction']) . ' to ' . $request['session']]
+        : ['ok' => false, 'message' => 'Rejected: this session is not currently showing a multi-question prompt'],
     'cleanup' => ['ok' => true, 'killed' => [CANNED_SESSION_NAME], 'failed' => []],
     'check_session_hook' => ['ok' => true, 'installed' => true],
     'install_session_hook' => ['ok' => true, 'installed' => true],
