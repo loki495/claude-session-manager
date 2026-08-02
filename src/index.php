@@ -4,7 +4,6 @@ declare(strict_types=1);
 require __DIR__ . '/lib/AgentClient.php';
 require __DIR__ . '/lib/Auth.php';
 
-require_basic_auth();
 start_app_session();
 
 /* ---------- handle actions (POST) ---------- */
@@ -57,6 +56,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             break;
 
+        case 'install_hook':
+            $result = agent_call(['action' => 'install_session_hook']);
+            $ok = (bool)($result['ok'] ?? false);
+            $message = $ok
+                ? 'Session-rotation hook installed in ~/.claude/settings.json.'
+                : (string)($result['message'] ?? 'Failed to install hook');
+            break;
+
         default:
             $ok = false;
             $message = 'Unknown action';
@@ -73,6 +80,12 @@ $listResult = agent_call(['action' => 'list']);
 $agentReachable = (bool)($listResult['ok'] ?? false);
 $sessions = $agentReachable ? ($listResult['sessions'] ?? []) : [];
 $bare = $agentReachable ? ($listResult['bare'] ?? []) : [];
+
+// Only checked when the agent is reachable at all - no point surfacing a
+// second, redundant warning about host state we already can't see.
+$hookResult = $agentReachable ? agent_call(['action' => 'check_session_hook']) : ['ok' => false];
+$hookCheckOk = (bool)($hookResult['ok'] ?? false);
+$hookInstalled = (bool)($hookResult['installed'] ?? false);
 
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
@@ -109,6 +122,25 @@ $csrfToken = csrf_token();
   <?php if ($flashMsg !== null && $flashMsg !== ''): ?>
     <div class="mb-4 rounded-lg px-4 py-3 text-sm <?= $flashOk ? 'bg-emerald-900/50 text-emerald-200 border border-emerald-700' : 'bg-red-900/50 text-red-200 border border-red-700' ?>">
       <?= htmlspecialchars($flashMsg, ENT_QUOTES) ?>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($agentReachable && $hookCheckOk && !$hookInstalled): ?>
+    <div class="mb-4 rounded-lg px-4 py-3 text-sm bg-amber-900/40 text-amber-200 border border-amber-700/60">
+      <p class="font-medium">Session-rotation hook isn't installed.</p>
+      <p class="mt-1 text-amber-300/90">Without it, a session's transcript view goes stale forever after a <code>/clear</code>, <code>/compact</code>, or resume - Claude Code starts a new transcript file this app can't discover on its own.</p>
+      <form method="post" action="/" class="mt-2">
+        <input type="hidden" name="action" value="install_hook">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
+        <button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2">
+          Install hook
+        </button>
+      </form>
+    </div>
+  <?php elseif ($agentReachable && !$hookCheckOk): ?>
+    <div class="mb-4 rounded-lg px-4 py-3 text-sm bg-amber-900/40 text-amber-200 border border-amber-700/60">
+      <p class="font-medium">Could not check the session-rotation hook.</p>
+      <p class="mt-1 text-amber-300/90"><?= htmlspecialchars((string)($hookResult['message'] ?? 'Unknown error'), ENT_QUOTES) ?></p>
     </div>
   <?php endif; ?>
 
@@ -149,8 +181,8 @@ $csrfToken = csrf_token();
   <?php elseif ($agentReachable): ?>
     <ul class="flex flex-col gap-3">
       <?php foreach ($sessions as $s): ?>
-        <li class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 flex items-center justify-between gap-3">
-          <div class="min-w-0">
+        <li class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
             <div class="text-sm truncate">
               <a href="/session.php?session=<?= urlencode($s['name']) ?>" class="hover:underline"><?= htmlspecialchars($s['title'] ?? $s['name'], ENT_QUOTES) ?></a>
             </div>
@@ -169,7 +201,20 @@ $csrfToken = csrf_token();
                 <span class="text-slate-500">detached</span>
               <?php endif; ?>
             </div>
-            <?= blocked_prompt_panel_html($s) ?>
+            <?php if (!empty($s['blocked_reason']) && !empty($s['prompt_is_folder_trust'])): ?>
+              <?= blocked_prompt_panel_html($s) ?>
+            <?php elseif (!empty($s['blocked_reason'])): ?>
+              <?= blocked_prompt_rich_html($s, $csrfToken, true) ?>
+            <?php else: ?>
+              <?= last_message_preview_html($s['last_message'] ?? null, 'mt-1') ?>
+            <?php endif; ?>
+            <div class="mt-1">
+              <button type="button" class="show-recent-btn text-xs font-medium text-indigo-400 active:text-indigo-300"
+                data-session="<?= htmlspecialchars($s['name'], ENT_QUOTES) ?>" data-loaded="0">
+                Show last 3 messages
+              </button>
+              <div class="recent-messages hidden mt-1 flex flex-col gap-1"></div>
+            </div>
           </div>
           <form method="post" action="/" onsubmit="return confirm('Kill session <?= htmlspecialchars($s['name'], ENT_QUOTES) ?>?');">
             <input type="hidden" name="action" value="kill">
@@ -223,9 +268,7 @@ $csrfToken = csrf_token();
 
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
     <div class="max-w-2xl mx-auto flex items-start justify-between gap-3">
-      <div id="quota-info" class="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0 text-xl font-medium" aria-live="polite">
-        <span class="text-slate-500">Loading quota&hellip;</span>
-      </div>
+      <?= quota_footer_html() ?>
       <a href="/"
         class="min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
         Refresh
@@ -235,6 +278,220 @@ $csrfToken = csrf_token();
 
 </div>
 <script>
+// Answer-prompt buttons (see blocked_prompt_rich_html() in AgentClient.php)
+// use data-confirm-label the same way session.php's do - one delegated
+// listener here instead of inline onsubmit, since these forms are
+// rendered per-row and their count varies with how many sessions are
+// currently blocked. AJAX, not a real form submission - answering a
+// prompt shouldn't reload the whole dashboard. There's no live poll here
+// yet (see the "poll for updates" todo item) to pick up the session's
+// new state, so a successful answer just swaps the buttons for a quick
+// confirmation note rather than fully re-syncing the row.
+// Shared with session.php's sidebar checkbox (same localStorage key) -
+// this page has no sidebar of its own to host the toggle, but still
+// respects whatever the user set there.
+var CONFIRM_BEFORE_ANSWER_KEY = 'csm-confirm-before-answer';
+
+function shouldConfirmBeforeAnswer() {
+  try {
+    return window.localStorage.getItem(CONFIRM_BEFORE_ANSWER_KEY) !== '0';
+  } catch (e) {
+    return true;
+  }
+}
+
+// Mirrors parseJsonResponse() in session.php - reads the raw response text
+// and only then tries to parse it, so a parse failure can report the
+// actual status code and a body snippet right in the alert, not just a
+// bare "something went wrong".
+function parseJsonResponse(r, label) {
+  return r.text().then(function (text) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return { ok: false, message: 'Unexpected response [' + label + '] (status ' + r.status + '): ' + text.slice(0, 200) };
+    }
+  });
+}
+
+document.addEventListener('submit', function (e) {
+  var form = e.target.closest('form[data-confirm-label]');
+
+  if (!form) {
+    return;
+  }
+
+  e.preventDefault();
+
+  if (shouldConfirmBeforeAnswer() && !confirm('Send "' + form.dataset.confirmLabel + '" to this session?')) {
+    return;
+  }
+
+  var container = form.closest('.prompt-options-wrapper') || form.parentElement;
+  var buttons = container ? container.querySelectorAll('button') : [];
+  buttons.forEach(function (b) { b.disabled = true; });
+
+  fetch('/answer_prompt.php', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(new FormData(form)).toString()
+  })
+    .then(function (r) { return parseJsonResponse(r, 'dashboard-answer-prompt'); })
+    .then(function (data) {
+      if (data && data.ok) {
+        if (container) {
+          container.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - refresh to see the result</span>';
+        }
+      } else {
+        alert((data && data.message) || 'Failed to send answer.');
+        buttons.forEach(function (b) { b.disabled = false; });
+      }
+    })
+    .catch(function () {
+      alert('Network error - answer not sent.');
+      buttons.forEach(function (b) { b.disabled = false; });
+    });
+});
+
+// --- free-text reply (the "Type something." option) - see session.php's
+// matching handler; skips the confirm() dialog since revealing the
+// textarea is already a deliberate step. No live poll on this page yet,
+// so a successful send swaps the same way the plain-option case above does.
+function submitFreetextReply(replyDiv) {
+  var wrapper = replyDiv.closest('.prompt-options-wrapper');
+  var textarea = replyDiv.querySelector('.freetext-reply-textarea');
+  var sendBtn = replyDiv.querySelector('.freetext-reply-send-btn');
+  var text = textarea.value;
+
+  if (text.trim() === '') {
+    return;
+  }
+
+  textarea.disabled = true;
+  sendBtn.disabled = true;
+
+  fetch('/answer_prompt.php', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      session: wrapper.dataset.session,
+      csrf_token: wrapper.dataset.csrfToken,
+      option: replyDiv.dataset.option,
+      text: text
+    }).toString()
+  })
+    .then(function (r) { return parseJsonResponse(r, 'dashboard-answer-prompt-freetext'); })
+    .then(function (data) {
+      if (data && data.ok) {
+        wrapper.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - refresh to see the result</span>';
+      } else {
+        alert((data && data.message) || 'Failed to send reply.');
+        textarea.disabled = false;
+        sendBtn.disabled = false;
+      }
+    })
+    .catch(function () {
+      alert('Network error - reply not sent.');
+      textarea.disabled = false;
+      sendBtn.disabled = false;
+    });
+}
+
+document.addEventListener('click', function (e) {
+  var revealBtn = e.target.closest('.reveal-freetext-btn');
+
+  if (revealBtn) {
+    var replyDiv = revealBtn.closest('.prompt-options-wrapper').querySelector('.freetext-reply');
+    replyDiv.dataset.option = revealBtn.dataset.option;
+    replyDiv.classList.toggle('hidden');
+
+    if (!replyDiv.classList.contains('hidden')) {
+      replyDiv.querySelector('.freetext-reply-textarea').focus();
+    }
+
+    return;
+  }
+
+  var sendBtn = e.target.closest('.freetext-reply-send-btn');
+
+  if (sendBtn) {
+    submitFreetextReply(sendBtn.closest('.freetext-reply'));
+  }
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('freetext-reply-textarea')) {
+    e.preventDefault();
+    submitFreetextReply(e.target.closest('.freetext-reply'));
+  }
+});
+
+// "Show last 3 messages" toggle, one per session row. Lazy-loaded on
+// first click (via session_history.php, the same endpoint session.php's
+// "load more" uses) and cached in the DOM after that - toggling again
+// just shows/hides rather than re-fetching.
+(function () {
+  var ROLE_LABELS = { user: 'User', assistant: 'Assistant', system: 'System' };
+
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function renderRecentEntry(entry) {
+    var roleLabel = ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System');
+    var text = (entry.blocks && entry.blocks[0] && entry.blocks[0].text) || '';
+
+    var p = document.createElement('p');
+    p.className = 'text-xs text-slate-400 whitespace-pre-wrap break-words';
+    p.innerHTML = '<span class="font-medium">' + roleLabel + ':</span> ' + escapeHtml(text);
+    return p;
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.show-recent-btn');
+
+    if (!btn) {
+      return;
+    }
+
+    var container = btn.nextElementSibling;
+
+    if (btn.dataset.loaded === '1') {
+      container.classList.toggle('hidden');
+      btn.textContent = container.classList.contains('hidden') ? 'Show last 3 messages' : 'Hide recent messages';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+
+    fetch('/session_history.php?session=' + encodeURIComponent(btn.dataset.session) + '&limit=3', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+
+        if (!data || !data.ok || !data.entries || data.entries.length === 0) {
+          btn.textContent = (data && data.message) || 'No messages to show.';
+          return;
+        }
+
+        container.innerHTML = '';
+        data.entries.forEach(function (entry) { container.appendChild(renderRecentEntry(entry)); });
+        container.classList.remove('hidden');
+        btn.dataset.loaded = '1';
+        btn.textContent = 'Hide recent messages';
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Network error - try again';
+      });
+  });
+})();
+
 (function () {
   var details = document.getElementById('new-session-details');
   var summary = document.getElementById('new-session-summary');
@@ -316,125 +573,6 @@ $csrfToken = csrf_token();
       load('');
     }
   });
-})();
-
-(function () {
-  var el = document.getElementById('quota-info');
-
-  function pctColorClass(pct) {
-    if (pct >= 90) return 'text-red-400';
-    if (pct >= 70) return 'text-amber-400';
-    return 'text-slate-300';
-  }
-
-  function label(key) {
-    if (key === 'session') return 'Session';
-    if (key === 'week_all') return 'Week';
-    return key.replace(/^week_/, '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }) + ' (week)';
-  }
-
-  // No leading zeros by construction (Math.floor results are used bare).
-  function formatDuration(seconds, kind) {
-    if (seconds <= 0) return 'now';
-
-    if (kind === 'session') {
-      var h = Math.floor(seconds / 3600);
-      var m = Math.floor((seconds % 3600) / 60);
-      return h > 0 ? (h + 'h ' + m + 'm') : (m + 'm');
-    }
-
-    var d = Math.floor(seconds / 86400);
-    var wh = Math.floor((seconds % 86400) / 3600);
-    return d > 0 ? (d + 'd ' + wh + 'h') : (wh + 'h');
-  }
-
-  function showUnavailable(data) {
-    el.title = '';
-    el.innerHTML = '';
-    var line = document.createElement('span');
-    line.className = 'text-slate-600';
-    line.textContent = 'Quota unavailable' + (data && data.message ? ': ' + data.message : '');
-    el.appendChild(line);
-  }
-
-  function render(data) {
-    if (!data || !data.quota) {
-      showUnavailable(data);
-      return;
-    }
-
-    var q = data.quota;
-    var order = ['session', 'week_all'].concat(Object.keys(q).filter(function (k) {
-      return k.indexOf('week_') === 0 && k !== 'week_all';
-    }).sort());
-
-    var nowSeconds = Math.floor(Date.now() / 1000);
-    var lines = [];
-
-    order.forEach(function (key) {
-      var bar = q[key];
-      if (!bar || typeof bar.pct !== 'number') return;
-
-      var text = label(key) + ' ' + bar.pct + '%';
-
-      if (typeof bar.resets_at === 'number') {
-        var kind = key === 'session' ? 'session' : 'week';
-        text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind);
-      }
-
-      lines.push({ text: text, pct: bar.pct });
-    });
-
-    if (lines.length === 0) {
-      showUnavailable(data);
-      return;
-    }
-
-    var metaParts = [];
-    if (data.cached) metaParts.push(data.stale ? 'cached, stale' : 'cached');
-    if (data.refreshing) metaParts.push('refreshing in background…');
-
-    el.title = q.captured_at ? 'Captured ' + q.captured_at : '';
-    el.innerHTML = '';
-
-    // A left border marks every item after the first when there's room for
-    // them to sit on one row (sm: and up). On mobile, where each bucket
-    // stacks onto its own line, that border/padding is dropped so the text
-    // lines up flush left instead of looking indented.
-    lines.forEach(function (line, i) {
-      var item = document.createElement('span');
-      item.className = pctColorClass(line.pct) + (i > 0 ? ' sm:pl-3 sm:border-l sm:border-slate-700' : '');
-      item.textContent = line.text;
-      el.appendChild(item);
-    });
-
-    if (metaParts.length > 0) {
-      var meta = document.createElement('span');
-      meta.className = 'text-sm font-normal text-slate-400';
-      meta.textContent = '(' + metaParts.join(' · ') + ')';
-      el.appendChild(meta);
-    }
-  }
-
-  var loading = false;
-
-  function load() {
-    if (loading) return; // a slow request is still out there - don't pile another on top of it
-    loading = true;
-
-    fetch('/quota.php', { credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
-      .then(render)
-      .catch(function () {
-        showUnavailable(null);
-      })
-      .finally(function () {
-        loading = false;
-      });
-  }
-
-  load();
-  setInterval(load, 60000);
 })();
 </script>
 </body>

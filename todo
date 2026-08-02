@@ -1,13 +1,181 @@
-- Mobile: sticky quota footer text is too large / takes up too much screen space on a
-  phone. Shrink the text, and ideally make the footer user-minimizable (collapse/expand).
-- session.php: add a sidebar showing the status of every other session (title,
-  blocked/active state, etc.), so you can jump between sessions or answer a blocked
-  prompt on another session without leaving the current one. Could piggyback on the
-  same visibility-gated poll that already refreshes this page's own info/history.
-- index.php (home page): show each session's last message, plus a toggle to expand
-  the last 2-3 messages inline, so you can gauge a session's status without clicking
-  into session.php. Reuse session_history.php (small limit) rather than adding a new
-  endpoint. Extend this to "Other claude processes" (bare) rows too, not just
-  cc-*-managed ones - note: bare processes have no claude_session_id recorded (only
-  create_cc_session() writes one to a sidecar), so this needs its own way to locate
-  their transcript, e.g. newest-modified .jsonl under the project dir for that cwd.
+Work queue (in this order, per Andres - new items get appended at the end unless he
+says otherwise). Reordered 2026-08-02.
+
+Tier 1 - quick wins (small, isolated changes):
+
+- RESOLVED: session.php polling looked "stuck" on mobile (iOS Safari specifically)
+  even at a 1s interval, with updates arriving in bursts and a manual refresh not
+  helping either - root cause found and fixed 2026-08-02, confirmed live. Two
+  layered issues, in order of how the investigation went:
+  (1) A session's sidecar recorded claude_session_id once at spawn and never
+  updated it, so after /clear/compact/resume/fork the app kept reading an
+  abandoned transcript file forever - fixed via a SessionStart hook, see the
+  Tier 3 item below for the full writeup.
+  (2) Even once reading the right file, start_app_session() (called by
+  session_detail.php/session_history.php/sessions_list.php/quota.php to keep a
+  polling tab's CSRF token alive) sets PHP's session-cache-limiter headers
+  (Cache-Control: private, max-age=60) - fine for session.php's own HTML page
+  (that's deliberately short, see the bfcache fix below), wrong on these JSON
+  polling endpoints: it let a browser legally serve a stale cached response to
+  the exact same fetch() URL for up to 60s, no matter how fast the page polled -
+  and a plain refresh didn't help either, since the reload's own fetch() calls
+  hit that same cache entry. iOS Safari does this in practice (confirmed via
+  curl showing the leaked header, then fixed); other browsers may or may not,
+  depending how aggressively they cache fetch() GETs. Fixed by each of those 4
+  endpoints sending its own Cache-Control: no-store right after
+  start_app_session(), overriding the session limiter's header.
+
+- host-agent/lib/Transcript.php (summarize_tool_use()): reformat tool_use/MCP call
+  summaries away from "ToolName(arg)" - drop the parentheses, use a structured
+  "tool: X / Params: / - Y / - Z" listing (all params, not just the one primary
+  arg currently shown), collapsing to a single line with no expand/collapse
+  affordance if the whole thing fits on one line (same as the existing trivial-block
+  rule for render_collapsible_block()).
+- session.php: Andres reports history/prompt bubble text overflows somewhere -
+  needs more specifics (which bubble/block type, screenshot if possible) to
+  narrow down.
+- session.php: mystery solved - the "type custom answer" box wasn't actually
+  closing/losing its draft on a poll (already confirmed preserved), but the
+  textarea loses focus when renderBlockedSection() rebuilds the DOM, so typing
+  continuously gets silently interrupted and needs a re-tap/re-click to resume -
+  that's what read as "closing". Fix: after the rebuild-and-restore in
+  renderBlockedSection(), if the freetext textarea had focus before the rebuild,
+  re-focus the new one (and restore cursor position) rather than just its value.
+- session.php: Andres reports command/prompt-answer text now appears centered
+  instead of left-aligned after the no-wrap/scroll change (see below) shipped.
+  Checked live: computed text-align is "start" (left) all the way up the ancestor
+  chain (<pre>/<details>/wrapping divs) for both the transcript-history path and
+  the blocked-prompt-card path, in Chromium via Playwright - could not reproduce.
+  Possibly the SAME stale-page-cache bug already fixed below (Andres's browser
+  could have been looking at HTML/JS from before some earlier fix) - worth a fresh
+  look now that a genuinely fresh load is confirmed working, before assuming it's a
+  genuine mobile-Safari-specific rendering quirk.
+- RESOLVED: "unexpected response" alert when answering a prompt or sending a
+  compose message, worst on the iOS "Add to Home Screen" launch (no refresh
+  gesture, can stay resumed in the same JS session for hours). Two real bugs
+  found and fixed together: (1) session.php et al sent Cache-Control:
+  private, max-age=10800 (PHP's 180-minute session default), so a browser
+  could serve a 3-hour-stale copy of the page on a plain navigation - fixed
+  via session_cache_expire(1) in Auth.php's start_app_session(), pinning
+  max-age to 1 minute while still avoiding Cache-Control: no-store (preserves
+  the original bfcache fix for the Home Assistant iOS webview embed). (2) The
+  4 read-only polling endpoints (session_detail.php, session_history.php,
+  sessions_list.php, quota.php) never called start_app_session(), so a tab
+  left open just watching (never sending/answering) could silently outlive
+  PHP's session GC - the resulting stale-CSRF-token POST came back 403 with a
+  plain-text body ("Rejected: missing or invalid CSRF token."), which
+  fetch().then(r => r.json()) can't parse, surfacing as a bare "Unexpected
+  response" with no indication it was actually a CSRF/session issue. Fixed by
+  having all 4 join the session too, keeping it alive for as long as the page
+  is open and polling. Also improved the error message itself either way
+  (parseJsonResponse() in session.php/index.php reports the real status code
+  + a body snippet instead of a bare "Unexpected response"). Confirmed fixed
+  live: Andres deleted and re-added the iOS home-screen icon (forcing a fresh
+  load past the stale disk cache) and it now works.
+- session.php: pull quota info from the tmux session itself and refresh it on every
+  poll, instead of the current custom script/endpoint (quota.php) which is a bit slow.
+- session.php: in the compose textarea (and free-text reply box), flip Enter/Shift+Enter
+  - plain Enter should insert a newline, only the Send button should submit. Currently
+  the opposite (Enter submits, Shift+Enter newlines).
+Tier 2 - self-contained features/fixes:
+
+- session.php: give history entries different background/text colors per role -
+  user, agent (assistant), and tool - instead of all bubbles looking the same.
+- session.php: optimistic UI for both compose messages and prompt answers - append the
+  sent compose message (or the chosen/typed prompt answer) to the history list right
+  after sending, dimmed/pending until the next poll confirms it's really landed, rather
+  than waiting for the poll to show it. For prompt answers specifically: also dim the
+  blocked-prompt card and disable its buttons/textarea immediately on submit (already
+  partly done - buttons/textarea get disabled during the request, but not dimmed, and
+  the card itself doesn't reflect "answered, waiting to confirm" state).
+- session.php: add a "Close session" action (kills the session, with a confirmation
+  step) to the sidebar drawer's menu.
+- index.php (home page): poll for updated messages/prompts and dynamically update
+  in place, like session.php's visibility-gated poll does (currently manual-refresh
+  only).
+- index.php: the "show last 3 messages" toggle should render above the blocked-prompt
+  card, not below/after it, and should only include text messages from the agent
+  (assistant role, kind='text' blocks) - no tool_use, tool_result, or user messages.
+- Audit both pages for any long unbroken string (URLs, paths, tokens, etc.) that could
+  widen the viewport horizontally - most text already uses truncate/break-all/
+  break-words, but sweep for gaps rather than assuming full coverage.
+
+Tier 3 - bigger or investigative items:
+
+- RESOLVED (likely): Andres's own replies (typed directly into a real Claude Code
+  session, not this app's compose box) not showing up on session.php - root cause
+  found and fixed 2026-08-02: Claude Code rotates to a brand-new session-id
+  transcript file on /clear, /compact, --resume, or --fork-session while staying
+  in the same tmux pane, but a session's sidecar (host-agent/lib/Sessions.php)
+  recorded claude_session_id exactly once at spawn and never updated it - so the
+  app kept reading an abandoned, no-longer-growing transcript forever after any
+  of those (confirmed live against this very conversation's own tmux session).
+  Fixed by registering Claude Code's own SessionStart hook
+  (host-agent/hooks/session_start.php, installed in ~/.claude/settings.json,
+  symlinked into ~/dotfiles) to rebind the sidecar's claude_session_id live on
+  every session start/clear/compact/resume/fork, plus a dashboard banner+button
+  (check_session_hook/install_session_hook actions) if that hook is ever missing
+  (e.g. after a fresh machine setup). Caveat: only fixes it going forward - a
+  session that already rotated before the hook existed needs a one-time manual
+  write_sidecar() rebind (or its next natural /clear/compact) to pick this up.
+- session.php: show images inline in the transcript wherever Claude shows any (e.g.
+  image tool_result blocks / attachments), instead of just a text/tool summary line.
+- index.php: make the whole session-row "card" a link to its transcript page,
+  except for known interactive bits (Kill button, show-last-3 toggle, blocked-prompt
+  option buttons, etc.) which should keep working normally without navigating away.
+- index.php: unify the "sessions" (cc-* tmux, app-tracked) and "Other claude
+  processes" (bare) lists into one - discussed 2026-08-02, deferred (Andres chose
+  to keep going on the hook work already in flight rather than tackle this now).
+  The SessionStart hook (see above) fires for every claude session on the box
+  now, not just ones this app spawned, which makes this newly tractable:
+  generalize the hook to register a sidecar for ANY claude session running
+  inside a tmux pane - key it off the pane's own tmux session name (via `tmux
+  display-message`), not just the app-set CSM_SESSION_NAME env var, which only
+  app-spawned sessions have - then fold those into the main list with full
+  features (transcript, compose, answer-prompt, mode toggle all work via tmux
+  send-keys/capture-pane regardless of who started the pane). Hard boundary: a
+  claude process with NO tmux pane at all (bare terminal/SSH, no wrapper) can
+  never get send-keys/capture-pane support - at most a read-only transcript
+  link - so a small residual "unmanageable" category likely still remains
+  after this.
+- Research: use reptyr to close the "no tmux pane at all" gap in the item just
+  above, instead of leaving it a permanent residual "unmanageable" category.
+  reptyr hijacks a running process's controlling terminal via ptrace and moves
+  it to a new pty without killing/restarting it - so a bare claude process
+  started in a plain terminal/SSH session (no tmux) could be adopted into a
+  fresh tracked tmux pane after the fact, then picked up by the generalized
+  SessionStart-hook sidecar registration from the item above like any other
+  tmux-paned session. Andres's own starting-point sketch (needs review/
+  hardening before use, not vetted yet - e.g. the sudo reptyr requirement,
+  ptrace_scope implications, and whether this is safe to expose as a one-click
+  dashboard action versus a manual host-side escape hatch):
+    #!/bin/bash
+    if [ "$1" != "--pid" ] || [ -z "$2" ]; then
+        echo "Usage: tmuxify --pid <PID>"
+        exit 1
+    fi
+    PID=$2
+    if ! kill -0 "$PID" 2>/dev/null; then
+        echo "Error: Process ID $PID does not exist."
+        exit 1
+    fi
+    PROC_NAME=$(ps -p "$PID" -o comm= | tr -d '[:space:]')
+    SESSION_NAME="tmuxify_${PROC_NAME}_${PID}"
+    echo "Targeting process: $PROC_NAME (PID: $PID)"
+    # Stop/background the process, then sever shell ownership so it survives
+    # this terminal exiting (TSTP+CONT simulates Ctrl+Z then 'bg').
+    kill -TSTP "$PID" 2>/dev/null
+    kill -CONT "$PID" 2>/dev/null
+    disown "$PID" 2>/dev/null
+    tmux new-session -d -s "$SESSION_NAME"
+    # sudo is used here because ptrace restrictions usually block non-root hijacking.
+    tmux send-keys -t "$SESSION_NAME" "sudo reptyr $PID" C-m
+    echo "Success! Process $PID moved to tmux session: $SESSION_NAME"
+    sleep 1
+    exec tmux attach-session -t "$SESSION_NAME"
+- Research: investigate whether subagent calls (Agent/Task tool invocations) are
+  retrievable from a session's own JSONL transcript, or only exist in a separate
+  sub-transcript file - and more generally, survey what other info sits in these
+  JSONL files that this app doesn't currently surface (sidechain/isSidechain
+  entries, agent_id/agent_type fields, file-history-snapshot diffs, etc.) that
+  might be worth rendering on session.php.

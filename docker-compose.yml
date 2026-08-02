@@ -23,9 +23,13 @@ services:
         CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/html"]
     restart: unless-stopped
     environment:
-      BASIC_AUTH_USER: ${BASIC_AUTH_USER}
-      BASIC_AUTH_PASS: ${BASIC_AUTH_PASS}
       CSM_AGENT_SOCKET: /run/csm-agent.sock
+      # php -S is single-threaded by default, so session.php's 3 parallel poll
+      # requests (history/info/sidebar) were queuing behind each other instead
+      # of actually running concurrently - measured ~165ms serialized vs an
+      # expected ~60-80ms in parallel. This pre-forks worker processes so they
+      # don't share one PHP thread. Supported since PHP 7.4.
+      PHP_CLI_SERVER_WORKERS: 4
     volumes:
       # Code is mounted, not copied into the image, so edits show up on the
       # next request with no rebuild/restart needed.

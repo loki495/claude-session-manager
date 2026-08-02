@@ -9,9 +9,6 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
-
-require_basic_auth();
 
 header('Content-Type: application/json');
 echo json_encode(agent_call(['action' => 'browse_dir', 'path' => (string)($_GET['path'] ?? '')]));

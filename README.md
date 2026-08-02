@@ -146,11 +146,11 @@ claude-session-manager/
 ├── .gitignore
 ├── README.md
 ├── src/                    # bind-mounted into the container at /var/www/html
-│   ├── index.php           # Basic Auth, action handling, HTML/Tailwind UI
+│   ├── index.php           # action handling, HTML/Tailwind UI
 │   ├── quota.php           # GET-only JSON endpoint, polled by the footer's fetch()
 │   └── lib/
 │       ├── AgentClient.php  # talks to the host agent over a UNIX socket
-│       └── Auth.php         # Basic Auth + same-origin check, shared by every entry point
+│       └── Auth.php         # same-origin check + CSRF token, shared by every entry point
 ├── host-agent/             # installed natively on the HOST, not in Docker
 │   ├── agent.php            # per-connection entry point (systemd socket activation)
 │   ├── quota_refresh.php    # standalone entry point for a background quota scrape
@@ -200,7 +200,6 @@ socket, and everything will fail with "Cannot reach host agent."
    the fix if not — on this box it's already enabled).
 
 2. `cp .env.example .env` and fill in:
-   - `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` — required, gates the whole app.
    - `APP_GID` — must match the group that owns the agent socket
      (`SocketGroup=andres` in `host-agent/systemd/csm-agent.socket`, gid
      1001 on this box — check with `id andres`). `APP_UID` no longer needs
@@ -222,6 +221,44 @@ socket, and everything will fail with "Cannot reach host agent."
    `http://csm.dev.local.test/` (via Traefik, if your DNS/hosts resolve
    `*.dev.local.test` to this box, matching the pattern used by other sites
    in `~/www`).
+
+5. The dashboard checks on every load whether Claude Code's `SessionStart`
+   hook is registered in `~/.claude/settings.json`, and shows a banner with
+   an "Install hook" button if it isn't. Click it — this calls
+   `install_session_hook()` in `host-agent/lib/Sessions.php`, which merges
+   the hook entry into your existing settings.json without touching
+   anything else already there. Without this hook, a tracked session's
+   transcript view silently goes stale forever after its first `/clear`,
+   `/compact`, `--resume`, or `--fork-session` — see "Why the SessionStart
+   hook exists" below.
+
+## Why the SessionStart hook exists
+
+Claude Code rotates to a brand-new session-id transcript file (a new UUID
+under `~/.claude/projects/<cwd>/`) on `/clear`, `/compact` (auto or
+manual), `--resume`, or `--fork-session` — all while staying in the same
+tmux pane/process. This app's sidecar (`SIDECAR_DIR`, one JSON file per
+tracked session) records that session-id exactly once, at spawn
+(`create_cc_session()` in `host-agent/lib/Sessions.php`), and has no other
+way to learn it changed. Without the hook, any of those events leaves the
+sidecar pointing at an abandoned, no-longer-growing transcript file
+forever after — not a polling-speed problem, the file the app is reading
+has genuinely stopped receiving new lines.
+
+`host-agent/hooks/session_start.php`, registered as Claude Code's
+`SessionStart` hook (fires on every session start, matcher `*` so it
+covers `startup`/`resume`/`clear`/`compact`/`fork`), fixes this by
+rebinding the sidecar's `claude_session_id` live every time it fires.
+`create_cc_session()` passes `CSM_SESSION_NAME=<session name>` as a tmux
+pane environment variable (`tmux new-session -e ...`) specifically so the
+hook — inherited into that pane's `claude` process and anything it spawns
+— can tell which sidecar (if any) belongs to it; a plain `claude` session
+started by hand outside this app has no `CSM_SESSION_NAME` and the hook
+is a no-op for it.
+
+This only takes effect going forward: a session that already rotated
+before the hook was installed needs a one-time manual sidecar rebind (or
+its next natural `/clear`/`/compact`) to catch up.
 
 ## Updating the host agent
 
@@ -285,7 +322,8 @@ instead — see "Running tests" below.
 
 ## Network binding caveat (read this too)
 
-This app is intentionally **not** meant to be reachable from the public
+There is **no login** — the network binding *is* the access control. This
+app is intentionally **not** meant to be reachable from the public
 internet — it can create and kill tmux sessions on your dev box.
 
 - `docker-compose.yml` publishes the port as
@@ -293,29 +331,24 @@ internet — it can create and kill tmux sessions on your dev box.
   machine's actual **LAN IP** (e.g. `192.168.1.50`), never `0.0.0.0`. If you
   leave it at the default `127.0.0.1`, it's only reachable from the host
   itself (e.g. via an SSH tunnel).
-- The Traefik labels are included for consistency with other sites in
-  `~/www`, but note: on this machine, `~/www/traefik/docker-compose.yml`
-  publishes Traefik's own entrypoint as `"80:80"` — i.e. bound to **all**
-  interfaces, not just LAN. That means reaching this app via
-  `http://csm.dev.local.test/` through Traefik is *not* itself
-  interface-restricted; Basic Auth is the actual gate in that path. If you
-  want a hard interface restriction, either:
-  - access it via the direct `BIND_ADDR:APP_PORT` route instead of Traefik, or
-  - add a host firewall rule (e.g. `iptables`/`ufw`/`nftables`) restricting
-    inbound `80`/`8080` (Traefik) or `APP_PORT` to your LAN subnet.
-- Either way, Basic Auth is required on every request and is not optional.
+- **Don't reach this app through Traefik.** The Traefik labels are included
+  for consistency with other sites in `~/www`, but on this machine,
+  `~/www/traefik/docker-compose.yml` publishes Traefik's own entrypoint as
+  `"80:80"` — i.e. bound to **all** interfaces, not just LAN. With no
+  Basic Auth left to gate that path, `http://csm.dev.local.test/` through
+  Traefik would be reachable from anywhere the host's port 80 is reachable,
+  not just the LAN. Always use the direct `BIND_ADDR:APP_PORT` route.
+- If you also want a hard interface restriction as defense in depth, add a
+  host firewall rule (e.g. `iptables`/`ufw`/`nftables`) restricting inbound
+  `APP_PORT` to your LAN subnet.
 
 ## Home screen bookmark
 
 On a phone on the same LAN:
 
-1. Open `http://<BIND_ADDR>:<APP_PORT>/` (or the Traefik host, if reachable)
-   in the browser, enter the Basic Auth credentials once.
+1. Open `http://<BIND_ADDR>:<APP_PORT>/` in the browser.
 2. Use "Add to Home Screen" (Safari: Share → Add to Home Screen; Chrome:
    ⋮ menu → Add to Home Screen).
-3. Basic Auth credentials are cached per-browser-session by most mobile
-   browsers, but you may be re-prompted after the browser fully restarts —
-   this is expected and not a bug.
 
 ## Running tests
 
@@ -365,8 +398,9 @@ end to end via curl (plus the optional headless-browser tier above).
 
 ## Security summary
 
-- Whole app gated behind HTTP Basic Auth, credentials from environment
-  variables only (never hardcoded).
+- No login — access control is the network binding (see "Network binding
+  caveat" above). Set `BIND_ADDR` to a real LAN IP, never `0.0.0.0`, and
+  don't route to this app through Traefik.
 - No free-text fields except the optional custom working-directory path
   for New Session, which is passed as a `proc_open()` array argument (never
   through a shell) and only ever used as a `tmux -c` target — it can change
@@ -374,9 +408,8 @@ end to end via curl (plus the optional headless-browser tier above).
 - Every POST (`new`/`kill`/`kill_bare`/`cleanup`) is guarded twice: a
   same-origin check (`Origin`/`Referer` vs `Host`) and a session-bound CSRF
   token embedded as a hidden field in every form and checked with
-  `hash_equals()`. Basic Auth is still the real access control; these just
-  stop a stray cross-site form post from a page loaded in the same
-  authenticated browser.
+  `hash_equals()` — these stop a stray cross-site form post from a browser
+  that can reach the app.
 - The commands the app can cause to run are: a fixed `new-session`
   invocation, `kill-session` against a server-verified whitelist (either a
   tracked `cc-*` session or, for a "bare" process, whatever tmux session its

@@ -80,6 +80,32 @@ function quota_timeout_seconds(): int
 }
 
 /**
+ * This app's own checkout root - hardcoded default matches every other
+ * host-specific path in this file (e.g. claude_bin()); overridable via env
+ * for tests, same convention.
+ */
+function csm_repo_root(): string
+{
+    return csm_config('CSM_REPO_ROOT', '/home/andres/www/claude-session-manager');
+}
+
+function claude_settings_path(): string
+{
+    return home_root() . '/.claude/settings.json';
+}
+
+/**
+ * The exact `command` string this app's SessionStart hook entry is
+ * registered under - both session_start_hook_present() and
+ * install_session_hook() key off this same string, so "is it already
+ * there" and "what do we add" can never drift apart.
+ */
+function session_start_hook_command(): string
+{
+    return 'php ' . csm_repo_root() . '/host-agent/hooks/session_start.php';
+}
+
+/**
  * @param string[] $cmd
  * @return array{exit:int,stdout:string,stderr:string}
  */
@@ -185,11 +211,12 @@ function tmux_session_panes(string $session): array
     $result = tmux_run(['list-panes', '-t', $session, '-s', '-F', '#{pane_pid}|#{pane_title}']);
 
     if ($result['exit'] !== 0) {
-        return ['pids' => [], 'title' => null];
+        return ['pids' => [], 'title' => null, 'working' => false];
     }
 
     $pids = [];
     $title = null;
+    $working = false;
 
     foreach (explode("\n", trim($result['stdout'])) as $line) {
         if ($line === '') {
@@ -201,10 +228,11 @@ function tmux_session_panes(string $session): array
 
         if ($title === null) {
             $title = clean_pane_title($paneTitle);
+            $working = pane_title_is_working($paneTitle);
         }
     }
 
-    return ['pids' => $pids, 'title' => $title];
+    return ['pids' => $pids, 'title' => $title, 'working' => $working];
 }
 
 /**
@@ -225,6 +253,53 @@ function clean_pane_title(string $title): ?string
 }
 
 /**
+ * True while Claude Code is actively working (thinking, streaming text,
+ * running a tool) - the same animated braille spinner clean_pane_title()
+ * strips off is the live "is it doing something right now" signal, so a
+ * caller that needs the presence rather than the cleaned title reads it
+ * here instead of re-deriving it from the raw title itself.
+ */
+function pane_title_is_working(string $title): bool
+{
+    return preg_match('/^[\x{2800}-\x{28FF}]+\s*/u', $title) === 1;
+}
+
+/**
+ * Every mode Claude Code's own Shift+Tab cycle visits, in the exact order
+ * it cycles through them, mapped to the exact phrase it prints in its
+ * bottom status line for each - all confirmed live against a real running
+ * session, not guessed. Three say "<mode> mode on"; "accept edits" is its
+ * own inconsistency and just says "accept edits on" (no "mode") - caught
+ * by testing against a real capture rather than a hand-written one, which
+ * a plausible-looking regex-guess would have silently missed.
+ */
+const CLAUDE_CODE_MODE_STATUS_PHRASES = [
+    'manual' => 'manual mode on',
+    'accept edits' => 'accept edits on',
+    'plan' => 'plan mode on',
+    'auto' => 'auto mode on',
+];
+
+/**
+ * Reads the current permission mode straight from Claude Code's own
+ * bottom status line (e.g. "⏸ manual mode on · ← for agents" or "⏵⏵ auto
+ * mode on (shift+tab to cycle) · ← for agents") - there's no other way to
+ * learn it live short of parsing the same status bar a human would read.
+ * Returns null if the session isn't currently showing that line at all
+ * (e.g. it's showing a blocking prompt instead).
+ */
+function parse_current_mode(string $paneContent): ?string
+{
+    foreach (CLAUDE_CODE_MODE_STATUS_PHRASES as $mode => $phrase) {
+        if (str_contains($paneContent, $phrase)) {
+            return $mode;
+        }
+    }
+
+    return null;
+}
+
+/**
  * The current, visible content of a tmux pane - used to detect an
  * interactive prompt Claude Code is waiting on (see
  * detect_blocking_prompt()) that a headless tmux session will otherwise
@@ -232,7 +307,11 @@ function clean_pane_title(string $title): ?string
  */
 function tmux_capture_pane(string $session): string
 {
-    $result = tmux_run(['capture-pane', '-t', $session, '-p']);
+    // -J rejoins any line the terminal soft-wrapped across multiple pane
+    // rows back into one - without it, a long command (a common case for
+    // the permission-prompt text this feeds into parse_blocking_prompt())
+    // comes back split mid-word at the wrap point instead of intact.
+    $result = tmux_run(['capture-pane', '-t', $session, '-p', '-J']);
 
     return $result['exit'] === 0 ? $result['stdout'] : '';
 }
@@ -286,15 +365,20 @@ function is_decorative_pane_line(string $line): bool
  * non-blank context line, and only to a generic label if there's truly
  * nothing above the choice list at all.
  *
- * @return array{question:string, context:string, options: array<int, array{number:int, label:string}>}|null
+ * @return array{question:string, context:string, options: array<int, array{number:int, label:string}>, multi_question:bool, is_folder_trust:bool}|null
  */
 function parse_blocking_prompt(string $paneContent): ?array
 {
     $lines = explode("\n", $paneContent);
     $choiceIndex = null;
 
-    foreach ($lines as $i => $line) {
-        if (preg_match('/^\s*❯\s*\d+[.)]/u', $line) === 1) {
+    // Scans from the bottom: the ❯ cursor only ever appears on one line
+    // per active choice list, but if the pane's visible screen still
+    // holds an earlier, already-resolved list above the current one, the
+    // most recent one - furthest down - is the one actually still
+    // waiting on input.
+    for ($i = count($lines) - 1; $i >= 0; $i--) {
+        if (preg_match('/^\s*❯\s*\d+[.)]/u', $lines[$i]) === 1) {
             $choiceIndex = $i;
             break;
         }
@@ -318,41 +402,106 @@ function parse_blocking_prompt(string $paneContent): ?array
 
     $context = preg_replace('/\n{3,}/', "\n\n", implode("\n", $contextLines)) ?? implode("\n", $contextLines);
 
+    // The question label groups $contextLines into paragraphs (consecutive
+    // non-blank lines, joined with spaces) before picking one, rather than
+    // searching line-by-line - real prompts wrap a single sentence across
+    // several physical terminal lines (verified against a live capture of
+    // the trust dialog: the "?" lands mid-line, with the rest of the
+    // sentence continuing on the next one), so a per-line search would
+    // either miss the question or truncate it mid-sentence. $context above
+    // still preserves the original, unmerged line breaks for the full
+    // verbatim display.
+    $paragraphs = [];
+    $current = [];
+
+    foreach ($contextLines as $line) {
+        if (trim($line) === '') {
+            if ($current !== []) {
+                $paragraphs[] = trim(implode(' ', $current));
+                $current = [];
+            }
+
+            continue;
+        }
+
+        $current[] = trim($line);
+    }
+
+    if ($current !== []) {
+        $paragraphs[] = trim(implode(' ', $current));
+    }
+
     $question = null;
 
-    for ($i = count($contextLines) - 1; $i >= 0 && $question === null; $i--) {
-        $line = trim($contextLines[$i]);
-        $qPos = $line !== '' ? strpos($line, '?') : false;
-
-        if ($qPos !== false) {
-            $question = substr($line, 0, $qPos + 1);
+    for ($i = count($paragraphs) - 1; $i >= 0; $i--) {
+        if (str_contains($paragraphs[$i], '?')) {
+            $question = $paragraphs[$i];
+            break;
         }
     }
 
-    if ($question === null) {
-        for ($i = count($contextLines) - 1; $i >= 0 && $question === null; $i--) {
-            $line = trim($contextLines[$i]);
-
-            if ($line !== '') {
-                $question = $line;
-            }
-        }
+    if ($question === null && $paragraphs !== []) {
+        $question = end($paragraphs);
     }
 
+    // Walks until the first blank line, not the first non-matching one -
+    // a multi-question AskUserQuestion prompt (verified against a real,
+    // live capture) interleaves each numbered option with its own
+    // indented description line, plus a purely decorative divider before
+    // a trailing "Chat about this" option. Neither of those matches the
+    // option pattern, but neither should end the list early either - only
+    // a genuine blank line (the real end of the choice block in every
+    // captured prompt shape so far) does.
     $options = [];
 
     for ($i = $choiceIndex; $i < count($lines); $i++) {
-        if (preg_match('/^\s*❯?\s*(\d+)[.)]\s*(.+?)\s*$/u', $lines[$i], $m) !== 1) {
+        if (trim($lines[$i]) === '') {
             break;
         }
 
-        $options[] = ['number' => (int)$m[1], 'label' => $m[2]];
+        if (preg_match('/^\s*❯?\s*(\d+)[.)]\s*(.+?)\s*$/u', $lines[$i], $m) === 1) {
+            $options[] = ['number' => (int)$m[1], 'label' => $m[2]];
+        }
+    }
+
+    // A multi-question AskUserQuestion call renders as a tab bar - one tab
+    // per question plus a trailing "Submit" tab, cycled with the Left/Right
+    // arrow keys (verified live) - rather than one linear prompt. Detected
+    // so the frontend can offer prev/next-question navigation alongside
+    // the normal numbered-option buttons for whichever tab is showing.
+    $multiQuestion = false;
+
+    foreach ($contextLines as $line) {
+        if (str_contains($line, '←') && str_contains($line, '→') && str_contains($line, 'Submit')) {
+            $multiQuestion = true;
+            break;
+        }
+    }
+
+    // The initial per-folder trust check is the one prompt where declining
+    // exits the whole session outright, rather than just declining one
+    // action - every other prompt shape's "no" option just moves on. That
+    // makes an "exit" option a reliable, wording-independent signal for
+    // "this is the trust dialog specifically" (verified against a live
+    // capture: its options are "Yes, I trust this folder" / "No, exit").
+    // Used to keep the dashboard's per-row treatment to the plain
+    // attach-and-look tip for this one case, while other prompts get the
+    // richer context+buttons treatment there too.
+    $isFolderTrust = false;
+
+    foreach ($options as $opt) {
+        if (stripos($opt['label'], 'exit') !== false) {
+            $isFolderTrust = true;
+            break;
+        }
     }
 
     return [
         'question' => $question ?? 'Waiting on an interactive prompt (permission or trust dialog)',
         'context' => $context,
         'options' => $options,
+        'multi_question' => $multiQuestion,
+        'is_folder_trust' => $isFolderTrust,
     ];
 }
 
@@ -615,7 +764,7 @@ function prune_orphaned_sidecars(array $liveSessionNames): void
  * @param array{name:string, activity:int, attached:bool} $tmuxSession
  * @param array<int, array{pid:int, cwd:?string, started_at:?int}> $claudeProcs
  * @param array<int, int> $ppidMap
- * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:?string, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, claude_session_id:?string}
+ * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:?string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, current_mode:?string, claude_session_id:?string, last_message:?array}
  */
 function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppidMap): array
 {
@@ -632,7 +781,9 @@ function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppid
     }
 
     $sidecar = read_sidecar($tmuxSession['name']);
-    $prompt = parse_blocking_prompt(tmux_capture_pane($tmuxSession['name']));
+    $paneContent = tmux_capture_pane($tmuxSession['name']);
+    $prompt = parse_blocking_prompt($paneContent);
+    $claudeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
 
     return [
         'name' => $tmuxSession['name'],
@@ -642,12 +793,50 @@ function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppid
         'workdir' => $sidecar['workdir'] ?? null,
         'spawned_by_csm' => $sidecar !== null,
         'title' => $panes['title'],
+        'working' => $panes['working'],
         'blocked_reason' => $prompt['question'] ?? null,
         'resume_hint' => $prompt !== null ? tmux_attach_hint($tmuxSession['name']) : null,
         'prompt_context' => $prompt['context'] ?? null,
         'prompt_options' => $prompt['options'] ?? [],
-        'claude_session_id' => is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null,
+        'prompt_multi_question' => $prompt['multi_question'] ?? false,
+        'prompt_is_folder_trust' => $prompt['is_folder_trust'] ?? false,
+        'current_mode' => parse_current_mode($paneContent),
+        'claude_session_id' => $claudeSessionId,
+        'last_message' => session_last_message($claudeSessionId),
     ];
+}
+
+/**
+ * The single most recent transcript entry - used for the dashboard's
+ * per-row preview, and to give a blocked prompt's card the message that
+ * led up to it. That's worth doing specifically for the blocked case
+ * because the pending tool_use itself usually ISN'T in the transcript
+ * yet (Claude Code only writes it once it's approved and actually runs -
+ * see prompt_context in parse_blocking_prompt() for the live-pane
+ * alternative), but the assistant's own preceding explanation almost
+ * always already is, written as its own separate line just before.
+ *
+ * @return array{role:?string, timestamp:?string, blocks:array<int, array{kind:string, text:string}>}|null
+ */
+function session_last_message(?string $claudeSessionId): ?array
+{
+    if ($claudeSessionId === null) {
+        return null;
+    }
+
+    $path = find_transcript_path($claudeSessionId);
+
+    if ($path === null) {
+        return null;
+    }
+
+    $page = read_transcript_page($path, null, 1);
+
+    if (!($page['ok'] ?? false) || empty($page['entries'])) {
+        return null;
+    }
+
+    return $page['entries'][0];
 }
 
 /**
@@ -748,6 +937,138 @@ function session_history(string $name, ?int $before, int $limit): array
 }
 
 /**
+ * PHP's JSON_PRETTY_PRINT always uses 4-space indent with no way to
+ * configure it - re-indented to 2 spaces here to match how
+ * ~/.claude/settings.json already looks (and how Claude Code itself
+ * writes it), so installing the hook doesn't reformat every other line
+ * in a file that isn't otherwise ours to restyle.
+ */
+function reindent_json_pretty(string $json): string
+{
+    $lines = explode("\n", $json);
+
+    foreach ($lines as &$line) {
+        if (preg_match('/^( +)/', $line, $m) === 1) {
+            $line = str_repeat(' ', intdiv(strlen($m[1]), 2)) . substr($line, strlen($m[1]));
+        }
+    }
+
+    return implode("\n", $lines);
+}
+
+/**
+ * True if ~/.claude/settings.json already has a SessionStart hook entry
+ * running our exact hook script (see session_start_hook_command()) -
+ * checked by command string, not just "a SessionStart hook exists", so a
+ * user's own unrelated SessionStart hooks are never mistaken for ours.
+ *
+ * @param array<string, mixed> $settings
+ */
+function session_start_hook_present(array $settings): bool
+{
+    $command = session_start_hook_command();
+    $entries = $settings['hooks']['SessionStart'] ?? [];
+
+    if (!is_array($entries)) {
+        return false;
+    }
+
+    foreach ($entries as $matcherGroup) {
+        $hooks = is_array($matcherGroup) ? ($matcherGroup['hooks'] ?? []) : [];
+
+        foreach ((is_array($hooks) ? $hooks : []) as $hook) {
+            if (is_array($hook) && ($hook['command'] ?? null) === $command) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Reads ~/.claude/settings.json (if any) and reports whether the
+ * SessionStart hook (see host-agent/hooks/session_start.php) is already
+ * registered - a missing file is a normal, expected "not set up yet"
+ * state, not an error; a file that exists but fails to parse as JSON is
+ * an error, since installing on top of it risks Claude Code refusing to
+ * start (or install_session_hook() below refusing to touch it at all).
+ *
+ * @return array{ok:bool, installed:bool, message?:string}
+ */
+function check_session_hook(): array
+{
+    $raw = @file_get_contents(claude_settings_path());
+
+    if ($raw === false) {
+        return ['ok' => true, 'installed' => false];
+    }
+
+    $settings = json_decode($raw, true);
+
+    if (!is_array($settings)) {
+        return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON'];
+    }
+
+    return ['ok' => true, 'installed' => session_start_hook_present($settings)];
+}
+
+/**
+ * Adds this app's SessionStart hook entry to ~/.claude/settings.json,
+ * creating the file if it doesn't exist yet. Never overwrites an existing
+ * file that fails to parse - a blind reset-to-empty-then-write would
+ * silently discard every other hook/setting Andres already has configured
+ * there. Idempotent: a no-op (still ok:true) if the hook is already
+ * present, so this is safe to call from a "just make sure it's there"
+ * dashboard button without a separate check first.
+ *
+ * @return array{ok:bool, installed:bool, message?:string}
+ */
+function install_session_hook(): array
+{
+    $path = claude_settings_path();
+    $raw = @file_get_contents($path);
+    $settings = [];
+
+    if ($raw !== false) {
+        $settings = json_decode($raw, true);
+
+        if (!is_array($settings)) {
+            return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON - fix or add the SessionStart hook manually, see README'];
+        }
+    }
+
+    if (session_start_hook_present($settings)) {
+        return ['ok' => true, 'installed' => true];
+    }
+
+    $settings['hooks'] ??= [];
+    $settings['hooks']['SessionStart'] ??= [];
+    $settings['hooks']['SessionStart'][] = [
+        'matcher' => '*',
+        'hooks' => [
+            ['type' => 'command', 'command' => session_start_hook_command()],
+        ],
+    ];
+
+    $encoded = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+    if ($encoded === false) {
+        return ['ok' => false, 'installed' => false, 'message' => 'Failed to encode updated settings'];
+    }
+
+    if (!is_dir(dirname($path))) {
+        @mkdir(dirname($path), 0700, true);
+    }
+
+    if (@file_put_contents($path, reindent_json_pretty($encoded) . "\n") === false) {
+        return ['ok' => false, 'installed' => false, 'message' => 'Could not write ~/.claude/settings.json'];
+    }
+
+    return ['ok' => true, 'installed' => true];
+}
+
+/**
  * A random (v4) UUID, RFC 4122 §4.4 - used as the --session-id passed to
  * `claude` at launch, so this app controls the id up front instead of
  * having to discover whatever Claude Code would have picked on its own.
@@ -777,8 +1098,15 @@ function create_cc_session(string $workdir): array
     $claudeSessionId = generate_uuid_v4();
 
     $result = tmux_run([
+        // CSM_SESSION_NAME is how the SessionStart hook (see
+        // host-agent/hooks/session_start.php) tells this pane's claude
+        // process apart from any other on the box, so it knows which
+        // sidecar to rebind when Claude Code rotates to a new session-id
+        // transcript (/clear, /compact, --resume, --fork-session) without
+        // this tmux pane itself ever restarting.
         'new-session', '-d', '-s', $name,
         '-c', $workdir,
+        '-e', "CSM_SESSION_NAME={$name}",
         claude_bin(), '--session-id', $claudeSessionId,
     ]);
 
@@ -860,13 +1188,217 @@ function answer_prompt(string $name, int $option): array
         return ['ok' => false, 'message' => 'Rejected: that option is not currently offered by this prompt'];
     }
 
-    $result = tmux_run(['send-keys', '-t', $name, (string)$option, 'Enter']);
+    // Sent as two separate keys, not one send-keys call - verified live that
+    // for an AskUserQuestion-style prompt, the digit only moves the on-screen
+    // cursor (it doesn't auto-confirm), so an Enter sent in the same instant
+    // can race ahead and confirm whatever was *previously* highlighted
+    // instead. See TMUX_KEY_STEP_DELAY_USEC.
+    $digitResult = tmux_run(['send-keys', '-t', $name, (string)$option]);
 
-    if ($result['exit'] !== 0) {
-        return ['ok' => false, 'message' => "Failed to send response: " . trim($result['stderr'])];
+    if ($digitResult['exit'] !== 0) {
+        return ['ok' => false, 'message' => "Failed to send response: " . trim($digitResult['stderr'])];
+    }
+
+    usleep(TMUX_KEY_STEP_DELAY_USEC);
+
+    $enterResult = tmux_run(['send-keys', '-t', $name, 'Enter']);
+
+    if ($enterResult['exit'] !== 0) {
+        return ['ok' => false, 'message' => "Failed to send response: " . trim($enterResult['stderr'])];
     }
 
     return ['ok' => true, 'message' => "Sent option {$option} to {$name}"];
+}
+
+/**
+ * Answers a prompt's free-text option (Claude Code's AskUserQuestion
+ * always offers one labeled "Type something.") with custom typed text,
+ * instead of just the bare numbered choice. Verified live: selecting
+ * that option by digit (without Enter) turns it into an inline text
+ * field right there in the option list - typing replaces its label live,
+ * and Enter submits whatever was typed. Declining to type anything
+ * before pressing Enter is treated as skipping the question entirely,
+ * which is why $text is required here and rejected empty, unlike
+ * answer_prompt()'s plain numbered choice.
+ *
+ * @return array{ok:bool, message:string}
+ */
+function answer_prompt_with_text(string $name, int $option, string $text): array
+{
+    if (trim($text) === '') {
+        return ['ok' => false, 'message' => 'Reply cannot be empty'];
+    }
+
+    if (!in_array($name, array_column(list_cc_tmux_sessions(), 'name'), true)) {
+        return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
+    }
+
+    $prompt = parse_blocking_prompt(tmux_capture_pane($name));
+
+    if ($prompt === null) {
+        return ['ok' => false, 'message' => 'Rejected: this session is not currently waiting on a prompt'];
+    }
+
+    if (!in_array($option, array_column($prompt['options'], 'number'), true)) {
+        return ['ok' => false, 'message' => 'Rejected: that option is not currently offered by this prompt'];
+    }
+
+    $digitResult = tmux_run(['send-keys', '-t', $name, (string)$option]);
+
+    if ($digitResult['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Failed to select the free-text option: ' . trim($digitResult['stderr'])];
+    }
+
+    usleep(TMUX_KEY_STEP_DELAY_USEC);
+
+    $set = tmux_run(['set-buffer', '--', $text]);
+
+    if ($set['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Failed to stage reply: ' . trim($set['stderr'])];
+    }
+
+    $paste = tmux_run(['paste-buffer', '-t', $name]);
+
+    if ($paste['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Failed to send reply: ' . trim($paste['stderr'])];
+    }
+
+    usleep(TMUX_KEY_STEP_DELAY_USEC);
+
+    $enterResult = tmux_run(['send-keys', '-t', $name, 'Enter']);
+
+    if ($enterResult['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Reply sent but failed to submit: ' . trim($enterResult['stderr'])];
+    }
+
+    return ['ok' => true, 'message' => "Sent free-text reply to {$name}"];
+}
+
+/**
+ * Moves between tabs in a multi-question AskUserQuestion prompt (Left =
+ * previous question, Right = next / toward Submit) - the arrow-key
+ * navigation a human would use while attached, sent the same way
+ * answer_prompt() sends a numbered choice. Re-validates that the session
+ * is still live and still actually showing a multi-question prompt right
+ * before sending, same discipline as answer_prompt().
+ *
+ * @return array{ok:bool, message:string}
+ */
+function navigate_prompt(string $name, string $direction): array
+{
+    if (!in_array($direction, ['left', 'right'], true)) {
+        return ['ok' => false, 'message' => 'Rejected: invalid direction'];
+    }
+
+    if (!in_array($name, array_column(list_cc_tmux_sessions(), 'name'), true)) {
+        return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
+    }
+
+    $prompt = parse_blocking_prompt(tmux_capture_pane($name));
+
+    if ($prompt === null || empty($prompt['multi_question'])) {
+        return ['ok' => false, 'message' => 'Rejected: this session is not currently showing a multi-question prompt'];
+    }
+
+    $key = $direction === 'left' ? 'Left' : 'Right';
+    $result = tmux_run(['send-keys', '-t', $name, $key]);
+
+    if ($result['exit'] !== 0) {
+        return ['ok' => false, 'message' => "Failed to navigate: " . trim($result['stderr'])];
+    }
+
+    return ['ok' => true, 'message' => "Sent {$key} to {$name}"];
+}
+
+/**
+ * A 300ms gap between rapid, related keypresses sent to a live Claude
+ * Code pane - not cosmetic, verified live twice over: (1) 3 BTab presses
+ * with no gap between them landed 2 steps short (a key got dropped), 300ms
+ * between each was reliable every time; (2) selecting an AskUserQuestion
+ * option by digit moves the on-screen cursor but doesn't confirm it - a
+ * same-instant follow-up Enter can still be processed against the *old*
+ * cursor position, confirming the wrong option, unless there's a real
+ * gap first. Used by set_mode() (between BTab presses) and answer_prompt()
+ * (between the digit and the Enter that confirms it).
+ */
+const TMUX_KEY_STEP_DELAY_USEC = 300000;
+
+function set_mode(string $name, string $targetMode): array
+{
+    if (!array_key_exists($targetMode, CLAUDE_CODE_MODE_STATUS_PHRASES)) {
+        return ['ok' => false, 'message' => 'Rejected: not a recognized mode'];
+    }
+
+    if (!in_array($name, array_column(list_cc_tmux_sessions(), 'name'), true)) {
+        return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
+    }
+
+    $currentMode = parse_current_mode(tmux_capture_pane($name));
+
+    if ($currentMode === null) {
+        return ['ok' => false, 'message' => 'Rejected: current mode is not readable right now (a prompt may be covering the status line)'];
+    }
+
+    $modes = array_keys(CLAUDE_CODE_MODE_STATUS_PHRASES);
+    $steps = (array_search($targetMode, $modes, true) - array_search($currentMode, $modes, true) + count($modes)) % count($modes);
+
+    for ($i = 0; $i < $steps; $i++) {
+        if ($i > 0) {
+            usleep(TMUX_KEY_STEP_DELAY_USEC);
+        }
+
+        $result = tmux_run(['send-keys', '-t', $name, 'BTab']);
+
+        if ($result['exit'] !== 0) {
+            return ['ok' => false, 'message' => 'Failed to set mode: ' . trim($result['stderr'])];
+        }
+    }
+
+    return ['ok' => true, 'message' => "Set mode for {$name} to {$targetMode}"];
+}
+
+/**
+ * Sends a free-text message to a session, exactly as if a human had
+ * typed it while attached, then pressed Enter to submit - the actual,
+ * intended point of this whole app (remote-controlling a session, same
+ * as attaching from the iOS app). Uses a tmux paste-buffer, not
+ * send-keys with the raw text as a "key": send-keys treats embedded
+ * newlines in a multi-line message as individual Enter keypresses, each
+ * prematurely submitting whatever's been typed so far, where a real
+ * terminal paste delivers the whole block as one unit (verified live)
+ * and only the explicit trailing Enter submits it.
+ *
+ * @return array{ok:bool, message:string}
+ */
+function send_message(string $name, string $text): array
+{
+    if (trim($text) === '') {
+        return ['ok' => false, 'message' => 'Message cannot be empty'];
+    }
+
+    if (!in_array($name, array_column(list_cc_tmux_sessions(), 'name'), true)) {
+        return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
+    }
+
+    $set = tmux_run(['set-buffer', '--', $text]);
+
+    if ($set['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Failed to stage message: ' . trim($set['stderr'])];
+    }
+
+    $paste = tmux_run(['paste-buffer', '-t', $name]);
+
+    if ($paste['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Failed to send message: ' . trim($paste['stderr'])];
+    }
+
+    $enter = tmux_run(['send-keys', '-t', $name, 'Enter']);
+
+    if ($enter['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'Message sent but failed to submit: ' . trim($enter['stderr'])];
+    }
+
+    return ['ok' => true, 'message' => "Sent message to {$name}"];
 }
 
 /**
@@ -1293,6 +1825,18 @@ function dispatch_action(array $request): array
         case 'answer_prompt':
             return answer_prompt((string)($request['session'] ?? ''), (int)($request['option'] ?? 0));
 
+        case 'answer_prompt_with_text':
+            return answer_prompt_with_text((string)($request['session'] ?? ''), (int)($request['option'] ?? 0), (string)($request['text'] ?? ''));
+
+        case 'navigate_prompt':
+            return navigate_prompt((string)($request['session'] ?? ''), (string)($request['direction'] ?? ''));
+
+        case 'send_message':
+            return send_message((string)($request['session'] ?? ''), (string)($request['text'] ?? ''));
+
+        case 'set_mode':
+            return set_mode((string)($request['session'] ?? ''), (string)($request['mode'] ?? ''));
+
         case 'cleanup':
             return cleanup_inactive_sessions();
 
@@ -1301,6 +1845,12 @@ function dispatch_action(array $request): array
 
         case 'quota':
             return get_quota();
+
+        case 'check_session_hook':
+            return check_session_hook();
+
+        case 'install_session_hook':
+            return install_session_hook();
 
         default:
             return ['ok' => false, 'message' => 'Unknown action'];

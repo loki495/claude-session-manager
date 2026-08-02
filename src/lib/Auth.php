@@ -2,42 +2,17 @@
 declare(strict_types=1);
 
 /**
- * Shared by every entry point under src/ (index.php, quota.php, ...) so
- * there's exactly one place enforcing Basic Auth - never copy-paste this
- * check into a new endpoint.
+ * Shared by every entry point under src/ (index.php, quota.php, ...).
+ * There is no login: access control is the network binding
+ * (BIND_ADDR/APP_PORT to a LAN-only interface - see README). These
+ * CSRF guards just block a stray cross-site form post from a browser
+ * that can reach the app.
  */
-
-function require_basic_auth(): void
-{
-    $expectedUser = getenv('BASIC_AUTH_USER');
-    $expectedPass = getenv('BASIC_AUTH_PASS');
-
-    if ($expectedUser === false || $expectedPass === false || $expectedUser === '' || $expectedPass === '') {
-        http_response_code(500);
-        header('Content-Type: text/plain');
-        echo "Server misconfigured: BASIC_AUTH_USER / BASIC_AUTH_PASS are not set.";
-        exit;
-    }
-
-    $providedUser = $_SERVER['PHP_AUTH_USER'] ?? '';
-    $providedPass = $_SERVER['PHP_AUTH_PW'] ?? '';
-
-    $ok = hash_equals($expectedUser, $providedUser) && hash_equals($expectedPass, $providedPass);
-
-    if (!$ok) {
-        header('WWW-Authenticate: Basic realm="Claude Session Manager"');
-        http_response_code(401);
-        echo "Authentication required.";
-        exit;
-    }
-}
 
 /* ---------- CSRF guards ---------- */
 /* Two independent layers, both required on every state-changing POST:
    same_origin_or_no_origin() (a same-origin check, no token involved) plus
-   the session-bound token pair below. Basic Auth is the real access
-   control; these just block a stray cross-site form post from a page
-   loaded in the same authenticated browser. */
+   the session-bound token pair below. */
 
 function same_origin_or_no_origin(): bool
 {
@@ -61,10 +36,29 @@ function same_origin_or_no_origin(): bool
  * messages - session_start() itself is idempotent-safe to call more than
  * once (a second call is a silent no-op), but callers should still only
  * need to call this once per request, near the top before any output.
+ *
+ * Uses the 'private_no_expire' cache limiter instead of PHP's default
+ * 'nocache' - the default sends Cache-Control: no-store plus an
+ * already-past Expires date, which webview-based embeds (e.g. Home
+ * Assistant's iframe "Webpage" card, backed by WKWebView on iOS) can't
+ * place in their back-forward cache; resuming/reloading such a page then
+ * surfaces as an expired-page error instead of a normal refetch.
+ * private_no_expire still keeps the response out of shared/public caches
+ * (correct, since it carries a CSRF token and flash state) without that
+ * combination.
+ *
+ * session_cache_expire(1) pins the resulting max-age to 1 minute, not
+ * PHP's 180-minute default - found live that the default let a browser
+ * serve a 3-hour-stale copy of session.php (old HTML/JS) on a plain
+ * navigation after a code change, no reload needed to trigger it. A short
+ * max-age keeps normal navigations fresh while still avoiding no-store,
+ * so the bfcache fix above still holds.
  */
 function start_app_session(): void
 {
     if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_cache_expire(1);
+        session_cache_limiter('private_no_expire');
         session_start();
     }
 }

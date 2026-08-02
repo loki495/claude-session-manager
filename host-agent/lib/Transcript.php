@@ -53,7 +53,125 @@ function find_transcript_path(string $claudeSessionId): ?string
     return $matches[0] ?? null;
 }
 
-const TRANSCRIPT_BLOCK_PREVIEW_LENGTH = 2000;
+// A hard safety cap, not a display preview length - the UI already collapses
+// blocks by default (see render_collapsible_block() in AgentClient.php), so
+// this only exists to stop a truly pathological single block (e.g. a huge
+// file dump) from bloating the page. Expanding a block should show it in
+// full for any normal-sized command/tool output.
+const TRANSCRIPT_BLOCK_HARD_CAP_LENGTH = 50000;
+
+/**
+ * Field names (checked in this order) that hold a tool_use's single most
+ * useful argument to show for the tool actually invoked, e.g. `command`
+ * for Bash, `file_path` for Read/Edit/Write, `pattern` for Grep/Glob -
+ * mirrors the "ToolName(argument)" convention Claude Code's own TUI uses
+ * (verified against a real capture: "Bash(echo ... > /tmp/...)"). `element`
+ * covers MCP browser-automation tools (verified against a real capture of
+ * an MCP Playwright browser_click call: {"element": "...", "target": "..."}).
+ *
+ * @return string[]
+ */
+function tool_use_primary_arg_keys(): array
+{
+    return ['command', 'file_path', 'pattern', 'query', 'url', 'path', 'prompt', 'element', 'description'];
+}
+
+/**
+ * MCP tool names come through as "mcp__<server>__<tool>" - reformatted to
+ * "server.tool" (e.g. "mcp__playwright__browser_click" ->
+ * "playwright.browser_click"), matching how the server groups its tools,
+ * without the noisy double-underscore prefix. Returns the name unchanged
+ * for anything that isn't MCP-shaped.
+ */
+function humanize_tool_name(string $name): string
+{
+    if (preg_match('/^mcp__([^_]+(?:_[^_]+)*)__(.+)$/', $name, $m) === 1) {
+        return $m[1] . '.' . $m[2];
+    }
+
+    return $name;
+}
+
+/**
+ * AskUserQuestion's input has no single scalar "primary" argument (it's a
+ * nested questions/options structure), so it would otherwise fall through
+ * to summarize_tool_use()'s raw-JSON-dump fallback - unreadable, and often
+ * cut off mid-structure by the block-length hard cap. This turns it into
+ * "question (option / option); question2 (...)" instead, matching what a
+ * human actually wants to see: what was asked and what the choices were.
+ *
+ * @param array<string, mixed> $input
+ */
+function summarize_ask_user_question(array $input): ?string
+{
+    $questions = $input['questions'] ?? null;
+
+    if (!is_array($questions) || $questions === []) {
+        return null;
+    }
+
+    $parts = [];
+
+    foreach ($questions as $q) {
+        if (!is_array($q)) {
+            continue;
+        }
+
+        $question = is_string($q['question'] ?? null) ? $q['question'] : '';
+        $options = is_array($q['options'] ?? null) ? $q['options'] : [];
+        $labels = [];
+
+        foreach ($options as $opt) {
+            if (is_array($opt) && is_string($opt['label'] ?? null) && $opt['label'] !== '') {
+                $labels[] = $opt['label'];
+            }
+        }
+
+        if ($question === '' && $labels === []) {
+            continue;
+        }
+
+        $parts[] = trim($question . ($labels !== [] ? ' (' . implode(' / ', $labels) . ')' : ''));
+    }
+
+    return $parts !== [] ? implode('; ', $parts) : null;
+}
+
+/**
+ * "ToolName(detail)" - not just the bare tool name, so a Bash entry shows
+ * the actual command run, an Edit shows the file touched, etc., instead
+ * of requiring a click into `tool_result` to guess what happened. Falls
+ * back to a compact JSON dump of the input for tools with no known
+ * single-argument shape, and to the bare name if there's no input at all.
+ */
+function summarize_tool_use(array $block): string
+{
+    $name = (string)($block['name'] ?? 'tool');
+    $displayName = humanize_tool_name($name);
+    $input = $block['input'] ?? null;
+
+    if (!is_array($input) || $input === []) {
+        return $displayName;
+    }
+
+    if ($name === 'AskUserQuestion') {
+        $summary = summarize_ask_user_question($input);
+
+        if ($summary !== null) {
+            return $displayName . ': ' . $summary;
+        }
+    }
+
+    foreach (tool_use_primary_arg_keys() as $key) {
+        if (isset($input[$key]) && is_scalar($input[$key]) && (string)$input[$key] !== '') {
+            return $displayName . '(' . (string)$input[$key] . ')';
+        }
+    }
+
+    $json = json_encode($input);
+
+    return $json !== false && $json !== '{}' ? $displayName . '(' . $json . ')' : $displayName;
+}
 
 /**
  * @param array<string, mixed> $block
@@ -65,8 +183,7 @@ function summarize_content_block(array $block): array
 
     return match ($type) {
         'text' => ['kind' => 'text', 'text' => (string)($block['text'] ?? '')],
-        'thinking' => ['kind' => 'thinking', 'text' => (string)($block['thinking'] ?? '')],
-        'tool_use' => ['kind' => 'tool_use', 'text' => (string)($block['name'] ?? 'tool')],
+        'tool_use' => ['kind' => 'tool_use', 'text' => summarize_tool_use($block)],
         'tool_result' => ['kind' => 'tool_result', 'text' => transcript_tool_result_text($block['content'] ?? null)],
         default => ['kind' => $type !== '' ? $type : 'unknown', 'text' => ''],
     };
@@ -131,19 +248,26 @@ function parse_transcript_line(string $line): ?array
         $blocks[] = ['kind' => 'text', 'text' => $content];
     } elseif (is_array($content)) {
         foreach ($content as $block) {
-            if (is_array($block)) {
+            if (is_array($block) && ($block['type'] ?? null) !== 'thinking') {
                 $blocks[] = summarize_content_block($block);
             }
         }
     }
 
+    // Thinking is never persisted as a chat entry, even a hidden one - a
+    // message that was *only* thinking (no text/tool_use alongside it, the
+    // common case: Claude Code writes it as its own separate JSONL line)
+    // ends up with zero blocks here and is treated the same as a
+    // meta-only line, not an empty bubble with a role header and nothing
+    // in it. The live "is it thinking right now" state is a separate,
+    // transient signal - see pane_title_is_working() in Sessions.php.
     if ($blocks === []) {
         return null;
     }
 
     foreach ($blocks as &$block) {
-        if (strlen($block['text']) > TRANSCRIPT_BLOCK_PREVIEW_LENGTH) {
-            $block['text'] = substr($block['text'], 0, TRANSCRIPT_BLOCK_PREVIEW_LENGTH) . "\n… (truncated)";
+        if (strlen($block['text']) > TRANSCRIPT_BLOCK_HARD_CAP_LENGTH) {
+            $block['text'] = substr($block['text'], 0, TRANSCRIPT_BLOCK_HARD_CAP_LENGTH) . "\n… (truncated)";
         }
     }
     unset($block);
