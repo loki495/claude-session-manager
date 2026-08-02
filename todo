@@ -267,6 +267,13 @@ Tier 2 - self-contained features/fixes:
   blocks), separate from the existing "Show tool usage details" toggle which
   only ever affects tool_result blocks - tool_use blocks currently always show
   regardless of that setting.
+- session.php/index.php: default the polling-interval selector to 3s instead
+  of 15s, for both new sessions and the dashboard.
+- Make sure this app can handle multiple questions properly - Andres flagged
+  this without further detail; likely about AskUserQuestion's multi-question
+  tab-bar shape (see multi_question/navigate_prompt() in Sessions.php) needing
+  broader verification/testing, but needs clarification on exactly what's not
+  working before diving in.
 - RESOLVED: filename-first-line for single-file tool summaries - done 2026-08-02.
   Turned out mostly already true: tool_use_primary_arg_keys() already recognized
   `file_path` as a primary arg, so Read/Edit/Write/MultiEdit already led with the
@@ -482,12 +489,36 @@ Tier 3 - bigger or investigative items:
   user/assistant entry - own color, collapsed by default, ideally a one-line
   summary (agent type/description) rather than the raw dumped transcript
   content.
+- INVESTIGATED, REVERTED: using a Stop hook to make session_last_message()
+  show a fresh reply instantly instead of waiting on the transcript-file poll
+  - built, tested (~35 new assertions), and live-verified end-to-end
+  2026-08-02, then backed out the same day once real timing measurements
+  contradicted the premise. Confirmed via a tight-interval (10ms) monitor
+  script against two separate real throwaway sessions: Claude Code writes
+  the transcript file ~0.6-0.7s after a turn completes, but the Stop hook
+  itself doesn't fire until ~1.7-2s LATER than that (likely internal
+  bookkeeping/hook-subprocess overhead on Claude Code's side) - the exact
+  opposite of the assumed ordering. Since session_last_message() already
+  reads the transcript fresh on every call (no caching to be stale against),
+  the transcript is always the freshest source available by the time any
+  poll happens - the hook had nothing left to contribute, just a third
+  registered hook (one more process spawn per turn) for zero measured
+  benefit. Reverted: host-agent/hooks/stop.php, the stop-event sidecar
+  storage, session_last_message()'s freshness-merge logic, and the Stop
+  entry from install_session_hook()/check_session_hook() (which stayed
+  data-driven off app_hooks_status() rather than reverting that part too -
+  a real, independent cleanup worth keeping even at 2 hooks). Real lesson
+  for the next hook idea: verify actual firing order/latency against a real
+  session BEFORE building on top of an assumption about it, the same
+  rigor already used for confirming PreToolUse's payload shape.
 - Research: now that this app has a PreToolUse hook (see the pending-tool
   full-command-preview feature, 2026-08-02), survey whether other Claude
-  Code hook events (PostToolUse, Stop, Notification, UserPromptSubmit, etc)
-  could replace/improve any of the pane-scraping this app currently does -
-  e.g. detecting "done thinking"/idle state, or catching a tool result
-  right as it lands instead of waiting for the next transcript poll.
+  Code hook events (PostToolUse, Notification, UserPromptSubmit, etc) could
+  replace/improve any of the pane-scraping this app currently does - e.g.
+  catching a tool result right as it lands instead of waiting for the next
+  transcript poll. Stop specifically is now known NOT to help with this
+  (see the investigated-and-reverted item above) - worth ruling it out of
+  any future version of this research too, not just PostToolUse/Notification.
 - Investigate: Andres reports messages he typed sometimes disappear from
   session.php after navigating to another page and back to the session.
   Needs more detail to reproduce - which messages (his own compose sends,

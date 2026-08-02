@@ -892,23 +892,37 @@ function delete_sidecar(string $sessionName): void
 }
 
 /**
+ * Suffixes (beyond plain "sessionName.json") every other kind of
+ * session-keyed sidecar file uses - see pending_tool_path(). Kept as one
+ * list so prune_orphaned_sidecars() only has one place to update when a
+ * new sidecar kind is added.
+ */
+const SIDECAR_FILE_SUFFIXES = ['.pending-tool'];
+
+/**
  * A session can die on its own (crash, host reboot, bad cwd) without ever
- * going through kill_cc_session(), leaving its sidecar file behind on
+ * going through kill_cc_session(), leaving its sidecar file(s) behind on
  * tmpfs. Since this runs on every listing anyway, prune anything whose
  * session no longer exists rather than letting them accumulate.
  *
- * Globs both plain sidecars (sessionName.json) and pending-tool files
- * (sessionName.pending-tool.json, see pending_tool_path()) in one pass -
- * the ".pending-tool" suffix is stripped back off before the liveness
- * check so a live session's own pending-tool file is never mistaken for
- * an orphan just because its filename doesn't equal a session name
- * verbatim.
+ * Globs every sidecar kind (plain sessionName.json, plus each suffixed
+ * kind in SIDECAR_FILE_SUFFIXES) in one pass - the suffix is stripped
+ * back off before the liveness check so a live session's own pending-tool
+ * file is never mistaken for an orphan just because its filename doesn't
+ * equal a session name verbatim.
  */
 function prune_orphaned_sidecars(array $liveSessionNames): void
 {
     foreach (glob(sidecar_dir() . '/*.json') ?: [] as $path) {
         $base = basename($path, '.json');
-        $name = str_ends_with($base, '.pending-tool') ? substr($base, 0, -strlen('.pending-tool')) : $base;
+        $name = $base;
+
+        foreach (SIDECAR_FILE_SUFFIXES as $suffix) {
+            if (str_ends_with($base, $suffix)) {
+                $name = substr($base, 0, -strlen($suffix));
+                break;
+            }
+        }
 
         if (!in_array($name, $liveSessionNames, true)) {
             @unlink($path);
@@ -1210,10 +1224,27 @@ function pre_tool_use_hook_present(array $settings): bool
 }
 
 /**
- * Reads ~/.claude/settings.json (if any) and reports whether both of this
- * app's hooks - SessionStart (host-agent/hooks/session_start.php) and
- * PreToolUse (host-agent/hooks/pre_tool_use.php) - are already registered.
- * A missing file is a normal, expected "not set up yet" state, not an
+ * Every hook event + command this app installs - check_session_hook()/
+ * install_session_hook() are entirely data-driven off this list, so
+ * adding a new hook only ever needs one line added here (plus the new
+ * script itself and its own *_hook_command()/*_hook_present() pair, kept
+ * as real named functions rather than folded into this list too, since
+ * tests and other call sites reference them directly by name).
+ *
+ * @return array<int, array{event:string, command:string, present:bool}>
+ */
+function app_hooks_status(array $settings): array
+{
+    return [
+        ['event' => 'SessionStart', 'command' => session_start_hook_command(), 'present' => session_start_hook_present($settings)],
+        ['event' => 'PreToolUse', 'command' => pre_tool_use_hook_command(), 'present' => pre_tool_use_hook_present($settings)],
+    ];
+}
+
+/**
+ * Reads ~/.claude/settings.json (if any) and reports whether every one of
+ * this app's hooks (see app_hooks_status()) is already registered. A
+ * missing file is a normal, expected "not set up yet" state, not an
  * error; a file that exists but fails to parse as JSON is an error, since
  * installing on top of it risks Claude Code refusing to start (or
  * install_session_hook() below refusing to touch it at all).
@@ -1234,18 +1265,27 @@ function check_session_hook(): array
         return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON'];
     }
 
-    return ['ok' => true, 'installed' => session_start_hook_present($settings) && pre_tool_use_hook_present($settings)];
+    $allPresent = true;
+
+    foreach (app_hooks_status($settings) as $hook) {
+        if (!$hook['present']) {
+            $allPresent = false;
+            break;
+        }
+    }
+
+    return ['ok' => true, 'installed' => $allPresent];
 }
 
 /**
- * Adds this app's SessionStart and PreToolUse hook entries to
- * ~/.claude/settings.json, creating the file if it doesn't exist yet.
- * Never overwrites an existing file that fails to parse - a blind
- * reset-to-empty-then-write would silently discard every other
- * hook/setting Andres already has configured there. Idempotent per hook:
- * each is only added if not already present, so this is safe to call from
- * a "just make sure it's there" dashboard button without a separate check
- * first, and safe to re-run after only one of the two was ever installed.
+ * Adds every missing app_hooks_status() entry to ~/.claude/settings.json,
+ * creating the file if it doesn't exist yet. Never overwrites an existing
+ * file that fails to parse - a blind reset-to-empty-then-write would
+ * silently discard every other hook/setting Andres already has configured
+ * there. Idempotent per hook: each is only added if not already present,
+ * so this is safe to call from a "just make sure it's there" dashboard
+ * button without a separate check first, and safe to re-run after only
+ * some of them were ever installed.
  *
  * @return array{ok:bool, installed:bool, message?:string}
  */
@@ -1263,28 +1303,20 @@ function install_session_hook(): array
         }
     }
 
-    if (session_start_hook_present($settings) && pre_tool_use_hook_present($settings)) {
+    $missing = array_filter(app_hooks_status($settings), fn(array $hook): bool => !$hook['present']);
+
+    if ($missing === []) {
         return ['ok' => true, 'installed' => true];
     }
 
     $settings['hooks'] ??= [];
 
-    if (!session_start_hook_present($settings)) {
-        $settings['hooks']['SessionStart'] ??= [];
-        $settings['hooks']['SessionStart'][] = [
+    foreach ($missing as $hook) {
+        $settings['hooks'][$hook['event']] ??= [];
+        $settings['hooks'][$hook['event']][] = [
             'matcher' => '*',
             'hooks' => [
-                ['type' => 'command', 'command' => session_start_hook_command()],
-            ],
-        ];
-    }
-
-    if (!pre_tool_use_hook_present($settings)) {
-        $settings['hooks']['PreToolUse'] ??= [];
-        $settings['hooks']['PreToolUse'][] = [
-            'matcher' => '*',
-            'hooks' => [
-                ['type' => 'command', 'command' => pre_tool_use_hook_command()],
+                ['type' => 'command', 'command' => $hook['command']],
             ],
         ];
     }
