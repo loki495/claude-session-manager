@@ -3,258 +3,18 @@ says otherwise). Reordered 2026-08-02.
 
 Tier 1 - quick wins (small, isolated changes):
 
-- RESOLVED: session.php polling looked "stuck" on mobile (iOS Safari specifically)
-  even at a 1s interval, with updates arriving in bursts and a manual refresh not
-  helping either - root cause found and fixed 2026-08-02, confirmed live. Two
-  layered issues, in order of how the investigation went:
-  (1) A session's sidecar recorded claude_session_id once at spawn and never
-  updated it, so after /clear/compact/resume/fork the app kept reading an
-  abandoned transcript file forever - fixed via a SessionStart hook, see the
-  Tier 3 item below for the full writeup.
-  (2) Even once reading the right file, start_app_session() (called by
-  session_detail.php/session_history.php/sessions_list.php/quota.php to keep a
-  polling tab's CSRF token alive) sets PHP's session-cache-limiter headers
-  (Cache-Control: private, max-age=60) - fine for session.php's own HTML page
-  (that's deliberately short, see the bfcache fix below), wrong on these JSON
-  polling endpoints: it let a browser legally serve a stale cached response to
-  the exact same fetch() URL for up to 60s, no matter how fast the page polled -
-  and a plain refresh didn't help either, since the reload's own fetch() calls
-  hit that same cache entry. iOS Safari does this in practice (confirmed via
-  curl showing the leaked header, then fixed); other browsers may or may not,
-  depending how aggressively they cache fetch() GETs. Fixed by each of those 4
-  endpoints sending its own Cache-Control: no-store right after
-  start_app_session(), overriding the session limiter's header.
-
-- RESOLVED: history/prompt bubble text overflow - found and fixed 2026-08-02.
-  A real assistant text block in the live homie session (cc-20260802-0522)
-  contained "FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE" (51 chars, no
-  spaces) - text-kind blocks rendered with whitespace-pre-wrap but no
-  break-words, so a token with no natural break point can't wrap and widens
-  the whole page horizontally instead. Confirmed live via Playwright at a
-  mobile viewport (390px): scrollWidth was 446px before the fix, exactly 390px
-  after. Fixed by adding break-words to the text-block <p> (and the unknown-
-  kind fallback <p>) in both render_transcript_block() (PHP) and renderBlock()
-  (JS), plus the blocked-prompt card's "Waiting on input: ..." line in
-  AgentClient.php/session.php's renderBlockedSection() for the same reason.
-  The broader "audit both pages" item below is still open - this fixed the
-  two spots actually hit by a real example, not a full sweep.
-- RESOLVED: renderBlockedSection() poll-rebuild family of bugs - textarea losing
-  focus mid-typing, the page scrolling back to the top while typing, an expanded
-  command's own scroll position resetting (read as "only the last few lines are
-  visible"), a manually-opened <details> snapping shut. Fixed 2026-08-02, and not
-  by trying to carefully preserve each piece of state across every rebuild (tried
-  that first for the focus/scroll case specifically, worked but felt like patching
-  symptoms one at a time as Andres kept finding more of them) - the actual root
-  cause was rebuilding the section's DOM on every single poll even when the
-  blocked-prompt data hadn't changed at all, which is the common case for however
-  many polls a prompt sits unanswered. renderBlockedSection() now keys off
-  [blocked_reason, prompt_context, prompt_options] and skips the rebuild entirely
-  when unchanged from what's already rendered - nothing needs preserving if the
-  DOM was never touched. The old preserve-and-restore logic (freetext draft/focus/
-  cursor, <details> open state + its <pre>'s own scrollTop, page scrollY) is kept
-  as a safety net for the one rebuild that can't be avoided (typically just the
-  first poll after page load, landing on the same prompt the server already
-  rendered), just rarely exercised now. Confirmed live via Playwright: scrolled a
-  long command's <pre> to the middle and the page to a mid-scroll position, then
-  waited out 3 real poll cycles against unchanged data - both scroll positions and
-  the <details> open state were still byte-identical after.
-- RESOLVED: "stop Claude mid-response" button - done 2026-08-02. New send_escape()
-  host-agent action (mirrors navigate_prompt()'s plain send-keys pattern) + new
-  session_escape.php endpoint + a "Stop" button next to the thinking-indicator
-  dots (only shown while working). Verified live against a real throwaway session
-  (created via create_cc_session(), given a long-form writing task, killed after):
-  sent Escape mid-generation, working flipped from true to false within ~1s, and
-  the pane showed "Interrupted · What should Claude do instead?" with the
-  in-progress text literally cut off mid-word - confirmed to actually interrupt,
-  not just a display-layer no-op.
-- RESOLVED: truncated command on a pending prompt - found and fixed 2026-08-02.
-  parse_blocking_prompt() in Sessions.php used a fixed BLOCKING_PROMPT_CONTEXT_
-  WINDOW of 15 pane lines above the choice cursor as the ONLY boundary for how
-  much context to show - fine for short prompts, but a command/file-content
-  preview taller than that (a multi-line script, a large file being written) had
-  its earlier lines silently cut off with no visible sign anything was missing.
-  Fixed by finding the real top of the block via Claude Code's own "● " tool-
-  invocation marker line (scanning up from the cursor for the nearest one)
-  instead - exactly as tall as the actual content, whether 3 lines or 300. The
-  fixed window is now only a fallback for the one real prompt shape with no such
-  marker (the initial per-folder trust dialog). Verified against a synthetic
-  20-line command (deliberately taller than the old window) built from the same
-  real-capture format already used elsewhere in the test suite - both its first
-  and last lines now come through.
-  Live-verified 2026-08-02 against a real throwaway session, with a genuinely
-  important caveat found in the process: a real 25-line Write-tool file preview
-  STILL came through truncated (starting at line 13) - but this time the ● marker
-  fix isn't at fault. Checked tmux capture-pane directly (both the normal call
-  and with -S -50 pulling extra scrollback) and got byte-identical output either
-  way - lines 1-12 aren't sitting in scrollback waiting to be captured, they were
-  never rendered at all. Claude Code's own TUI adapts what it draws to the pane's
-  actual height, so a preview taller than the pane simply has its earlier lines
-  never printed in the first place - not a parsing/truncation bug on this app's
-  side at all, a hard limit of the pane's current row count. A real fix would
-  need the pane itself to be taller (e.g. sizing new sessions with a bigger
-  default height at creation) - added as its own follow-up item below, separate
-  from this one (which fixed the actual originally-reported bug: an arbitrary
-  small window truncating content that WAS available in the capture).
-- RESOLVED: tmux panes for new sessions needed a taller default height so long
-  tool-permission previews (a big Write, a long Bash script) didn't get cut off
-  by Claude Code's own TUI adapting to a too-short pane - fixed 2026-08-02 via
-  TMUX_PANE_WIDTH/TMUX_PANE_HEIGHT (200x150, configurable) passed as -x/-y on
-  new-session. Superseded as the primary fix by the PreToolUse hook below
-  (structured, never truncated regardless of pane size), but kept as a
-  reasonable fallback for whatever pane-scraping still happens outside a
-  blocked-prompt preview. Live-verified together: a real 25-line Write prompt
-  rendered in full in the pane AND came through structured via the hook.
-- RESOLVED: "Close session" action in the sidebar drawer - done 2026-08-02. A form
-  at the bottom of the drawer (below Settings), same POST-to-/ kill mechanism and
-  confirm() step as index.php's existing Kill button, styled the same way.
-- RESOLVED: tap-anywhere-to-collapse - done 2026-08-02 (first pass had the
-  expanded case backwards - taps inside the expanded content were excluded from
-  toggling instead of collapsing it, fixed same day). <summary> elements now get
-  block+w-full+text-left (so the whole row is a real click target regardless of
-  where the actual text glyphs render), plus a delegated click handler covering
-  the rest of the <details> box - collapsed OR expanded, tapping anywhere toggles
-  it, including inside the expanded <pre>. Excludes taps that land on <summary>
-  itself (avoids double-toggling the native behavior) or that land while a real
-  text selection is active (so tap-to-dismiss-a-selection doesn't also collapse
-  the block) - normal scroll-drag gestures are unaffected either way, since a
-  plain click event doesn't fire for those to begin with. Verified live: tapping
-  the far-right edge of a short collapsed summary (well past its actual text)
-  opens it; tapping inside the expanded content collapses it back; tapping inside
-  expanded content WITH an active selection leaves it open; tapping the summary
-  itself still toggles correctly either way.
-- RESOLVED: images shown inline - done 2026-08-02, tweaked same day after
-  feedback. Real captured shape checked first (a browser-automation screenshot
-  tool result): a tool_result's content array can carry a text block AND an
-  image block side by side - the image block ({type: "image", source: {type:
-  "base64", media_type, data}}) was previously silently dropped entirely by
-  summarize_content_block()'s default case. Now carried through as an extra
-  "image" field on the block (alongside the existing text summary for
-  tool_result, or standalone for a top-level image block not nested in a
-  tool_result), rendered as a real <img> with a data: URI. A new size cap (8MB
-  base64) drops anything pathologically large in favor of a plain text fallback
-  rather than embedding it or crashing. Andres's follow-up feedback (same day):
-  images are a SIBLING of .tool-detail, not nested inside it - always visible
-  regardless of the show/hide-tool-details toggle (a screenshot is often the
-  whole point of running the tool, unlike raw text output). Renders as a small
-  w-24 h-24 object-cover square thumbnail by default (.transcript-image class),
-  tap/click toggles to full size (w-full h-auto object-contain) and back - a
-  delegated click handler swaps the classes in place, not a separate lightbox/
-  modal. Verified: 5 Transcript.php unit tests (text+image together, top-level
-  image, oversized-image fallback), a live Playwright check with a real tiny
-  PNG confirming it actually decodes and renders (not just that the <img> tag
-  exists in markup). Follow-up bug (caught by Andres immediately, same day):
-  the always-visible move above wasn't enough on its own - the entry-tool-
-  result-only marker (which hides the WHOLE entry bubble, not just
-  .tool-detail, once a tool_result has nothing else left to show) didn't
-  account for an attached image either, so the whole card - image included -
-  was still vanishing. Fixed by excluding "has an image" from that marker
-  too. Caught the bug in my own first verification pass because that test
-  bypassed the real render_transcript_entry()/renderEntry() entry-wrapper
-  logic entirely (hand-built HTML injected directly into #history-list, never
-  exercising the actual marker-class code) - redone against the real SSR path
-  via a temporary canned-fixture image, confirmed correctly not marked, then
-  made a PERMANENT regression test (the "done" canned entry now always
-  carries an image) so this can't silently regress again.
 - session.php: Andres reports command/prompt-answer text now appears centered
-  instead of left-aligned after the no-wrap/scroll change (see below) shipped.
-  Checked live: computed text-align is "start" (left) all the way up the ancestor
-  chain (<pre>/<details>/wrapping divs) for both the transcript-history path and
-  the blocked-prompt-card path, in Chromium via Playwright - could not reproduce.
-  Possibly the SAME stale-page-cache bug already fixed below (Andres's browser
-  could have been looking at HTML/JS from before some earlier fix) - worth a fresh
-  look now that a genuinely fresh load is confirmed working, before assuming it's a
-  genuine mobile-Safari-specific rendering quirk.
-- RESOLVED: "unexpected response" alert when answering a prompt or sending a
-  compose message, worst on the iOS "Add to Home Screen" launch (no refresh
-  gesture, can stay resumed in the same JS session for hours). Two real bugs
-  found and fixed together: (1) session.php et al sent Cache-Control:
-  private, max-age=10800 (PHP's 180-minute session default), so a browser
-  could serve a 3-hour-stale copy of the page on a plain navigation - fixed
-  via session_cache_expire(1) in Auth.php's start_app_session(), pinning
-  max-age to 1 minute while still avoiding Cache-Control: no-store (preserves
-  the original bfcache fix for the Home Assistant iOS webview embed). (2) The
-  4 read-only polling endpoints (session_detail.php, session_history.php,
-  sessions_list.php, quota.php) never called start_app_session(), so a tab
-  left open just watching (never sending/answering) could silently outlive
-  PHP's session GC - the resulting stale-CSRF-token POST came back 403 with a
-  plain-text body ("Rejected: missing or invalid CSRF token."), which
-  fetch().then(r => r.json()) can't parse, surfacing as a bare "Unexpected
-  response" with no indication it was actually a CSRF/session issue. Fixed by
-  having all 4 join the session too, keeping it alive for as long as the page
-  is open and polling. Also improved the error message itself either way
-  (parseJsonResponse() in session.php/index.php reports the real status code
-  + a body snippet instead of a bare "Unexpected response"). Confirmed fixed
-  live: Andres deleted and re-added the iOS home-screen icon (forcing a fresh
-  load past the stale disk cache) and it now works.
-- RESOLVED: pull quota info from the tmux session itself - done 2026-08-02.
-  Claude Code's own status line already shows both rate-limit percentages this
-  app needs ("... | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40% (5d 8h) ..." - "5h" is
-  the rolling 5-hour window, "7d" the weekly one), so get_quota() now tries
-  every live managed session's pane first (quota_from_live_pane()/
-  parse_quota_from_pane(), a single instant capture-pane call, no subprocess)
-  before falling back to the old claude-quota scrape/cache mechanism (only
-  reached when no session is currently running, or none has sent a message
-  yet - Claude Code doesn't populate the status line's quota fields until
-  then). Live-verified: matched a real claude-quota scrape's percentages
-  almost exactly at the same moment (51%/41% vs the pane's 51%/40%), and a
-  fresh get_quota() call against a live session came back cached:false with
-  the pane's exact live numbers in ~20ms - as fast as the cache path, but
-  never stale as long as a session is running. Trade-off: loses the
-  per-model weekly breakdown (week_&lt;model&gt;) claude-quota's slower
-  /usage-panel scrape provides - the status line only ever shows the
-  aggregate "5h"/"7d" figures - not pursued further since Andres's ask was
-  specifically about speed, and the UI already degrades gracefully when
-  only session/week_all are present.
+  instead of left-aligned after the no-wrap/scroll change shipped. Checked live:
+  computed text-align is "start" (left) all the way up the ancestor chain
+  (<pre>/<details>/wrapping divs) for both the transcript-history path and the
+  blocked-prompt-card path, in Chromium via Playwright - could not reproduce.
+  Possibly a stale-page-cache issue (Andres's browser could have been looking at
+  HTML/JS from before some earlier fix) - worth a fresh look now that a genuinely
+  fresh load is confirmed working, before assuming it's a genuine mobile-Safari-
+  specific rendering quirk.
+
 Tier 2 - self-contained features/fixes:
 
-- RESOLVED: dashboard live polling - done 2026-08-02. index.php now polls
-  sessions_fragment.php (new endpoint) on the same visibility-gated pattern as
-  session.php, sharing its localStorage interval key so a chosen speed carries
-  over between pages. Rather than porting the dashboard's fairly involved
-  per-row markup (blocked-prompt cards, folder-trust panel, free-text reply,
-  Kill forms with CSRF) into JS, the row/list rendering was extracted into
-  shared PHP functions (session_row_html()/sessions_list_html()/
-  bare_process_row_html()/bare_processes_html()/session_count_label_html() in
-  AgentClient.php) that BOTH index.php's SSR page and the new fragment
-  endpoint call - one source of truth, no JS/PHP duplication to keep in sync.
-  The poll swaps #sessions-container/#bare-container's innerHTML wholesale,
-  skipping the replace when the returned HTML string is byte-identical to
-  what's already shown (same "don't rebuild on every poll" reasoning as
-  renderBlockedSection() on session.php - avoids collapsing an expanded "Show
-  last 3 messages" panel or similar for no reason). Live-verified against a
-  real throwaway session: watched the dashboard's session count and a new
-  row appear with zero manual refresh, and separately confirmed the skip-
-  logic itself by instrumenting the container's innerHTML setter - it held
-  steady across identical polls and only fired when this very conversation's
-  own tracked session (also shown on the same dashboard) picked up new
-  transcript content, proving both halves work: skip when nothing changed,
-  update when something real does. Also added a per-row "Thinking…" badge
-  (dashboard_thinking_indicator_html(), mirrors session.php's
-  render_thinking_indicator_html() minus the Stop button, which has nowhere
-  to live on a list row) per Andres's follow-up ask once the poll made it
-  worth showing live - verified live too: appeared while a throwaway session
-  was actively generating a long reply, cleared the moment it finished.
-- RESOLVED: new-content marker on session.php - done 2026-08-02. A "New" divider
-  is inserted above whatever a poll cycle just appended (markNewContent() in
-  session.php), plus each new entry bubble itself gets an indigo box-shadow ring
-  (.new-content-highlight) - not just the divider, since Andres flagged live that
-  a thin one-line divider alone wasn't a clear enough signal against a long list
-  of same-shaped bubbles. Fade is IntersectionObserver-gated, not a blind timer:
-  it only starts once the marker actually scrolls into view, plus a fixed 2.5s
-  minimum-visible delay after that (NEW_CONTENT_VISIBLE_DELAY_MS) before fading -
-  without the delay, the common case (user already at the bottom, maybeAutoScroll()
-  keeps them there) would have the marker intersect and start fading the instant
-  it's inserted, defeating the point. Real CSS bug caught live during verification
-  (Playwright against a real throwaway session, sampling computed styles in a
-  tight in-page loop to catch the transient state): the highlight ring initially
-  used a plain `el.classList.remove('new-content-highlight')` to fade out, which
-  strips the `transition` property at the same instant as `box-shadow`, so it
-  snapped off instantly with zero animation instead of fading - fixed by mirroring
-  the divider's own (already-correct) two-class pattern: toggle a `.fading`
-  modifier that zeroes the box-shadow while the base class (carrying `transition`)
-  stays present, only removing both classes after the animation's own duration.
-  Re-verified live afterward: box-shadow alpha traced a smooth 0.6 -> 0 curve over
-  ~900ms in sync with the divider's opacity fade, not a snap.
 - Audit both pages for any long unbroken string (URLs, paths, tokens, etc.) that could
   widen the viewport horizontally - most text already uses truncate/break-all/
   break-words, but sweep for gaps rather than assuming full coverage.
@@ -274,101 +34,34 @@ Tier 2 - self-contained features/fixes:
   tab-bar shape (see multi_question/navigate_prompt() in Sessions.php) needing
   broader verification/testing, but needs clarification on exactly what's not
   working before diving in.
-- RESOLVED: filename-first-line for single-file tool summaries - done 2026-08-02.
-  Turned out mostly already true: tool_use_primary_arg_keys() already recognized
-  `file_path` as a primary arg, so Read/Edit/Write/MultiEdit already led with the
-  filename. The actual gap was NotebookEdit, whose path argument is named
-  `notebook_path` - not in the list, so it only happened to lead the summary when
-  the JSONL transcript's own key order put it first, not because it was treated
-  as primary. Added `notebook_path` alongside `file_path`; regression test added
-  with the field deliberately NOT first in input order, to prove it's the
-  primary-key match doing the work, not accidental key order.
-- RESOLVED: a cluster of session.php history/prompt-answer fixes, done 2026-08-02:
-  (1) History entries are now colored+labeled by kind, not just entry.role - rose
-  "User", emerald "Assistant", sky "Tool call" (tool_use), violet "Tool output"
-  (tool_result), since a tool_result entry carries role=user under the hood same as
-  a real typed message, and tool_use/tool_result were originally lumped into one
-  "tool" color/label before Andres asked for them split apart (also had to move user
-  off indigo to rose - indigo sits too close to sky on the color wheel to reliably
-  tell apart from tool_use at a glance). (2) A tool_result-only entry (no other
-  content) is now hidden entirely once "Show tool usage details" is off, via a new
-  entry-tool-result-only marker class + CSS rule - previously left an empty
-  role-label-only bubble. (3) tool_use blocks are now collapsed by default
-  unconditionally - two separate force-open mechanisms existed (one in
-  renderBlock()'s renderCollapsibleBlock() call, a second, independent one in
-  applyShowToolDetails() that force-opened every already-rendered tool-use <details>
-  whenever the toggle was off) and both had to be removed; the second one is why a
-  plain page reload still showed them expanded even after the first fix. (4)
-  index.php's "show last 3 messages" now only shows real assistant text replies
-  (fetches a bigger page and filters client-side, since a plain limit=3 off the raw
-  transcript could come back with zero qualifying entries), is bordered/backgrounded
-  per the same color scheme, has a max-h-64 scrollable container, moved to render
-  above the blocked-prompt-or-last-message block instead of below it, and the toggle
-  button itself is now a real bordered/padded button, not a bare text link. (5) A
-  real correctness bug in the optimistic-UI work from earlier this session: pending
-  history entries (both compose messages and prompt answers) only ever cleared via
-  exact text-content matching against fresh poll data - fine for compose (the sent
-  text closely matches its own transcript entry) but broken for prompt answers,
-  since Claude Code's actual response to an answered AskUserQuestion is never
-  literally the button's label text, so the match could never succeed - found live:
-  a submitted answer stayed dimmed "Sending…" forever, even once the prompt had
-  genuinely resolved, and only a page reload (which wipes the client-side-only
-  pending state, since there's nothing to reconcile it against) made it "disappear".
-  Fixed by tying a prompt answer's pending entry directly to the blocked-prompt card
-  itself resolving (blocked_reason changing or clearing) instead of content-matching
-  - a definitive signal for that specific case. Compose messages still reconcile via
-  content-matching (renamed clearPendingEntries() -> reconcilePendingEntries()),
-  which remains correct for that case. (6) On mobile, dragging a text-selection
-  handle over the transcript was triggering the sidebar swipe-open/close gesture -
-  fixed by checking window.getSelection().isCollapsed in the touchstart/touchend
-  handlers and bailing out of swipe detection whenever a real selection is active or
-  becomes active mid-touch.
 - session.php: audit renderStaticInfo()/renderThinkingIndicator()/renderModeToggle()
-  for the same "rebuilds on every poll even when nothing changed" issue just fixed
-  in renderBlockedSection() (see the Tier 1 RESOLVED entry above) - renderModeToggle()
-  in particular rebuilds a <select>, so an open/mid-interaction dropdown could
-  plausibly suffer the same kind of disruption. Not confirmed as an actual bug yet,
-  just the same risky pattern in three more places.
+  for the same "rebuilds on every poll even when nothing changed" issue already fixed
+  in renderBlockedSection() - renderModeToggle() in particular rebuilds a <select>,
+  so an open/mid-interaction dropdown could plausibly suffer the same kind of
+  disruption. Not confirmed as an actual bug yet, just the same risky pattern in
+  three more places.
 
 Tier 3 - bigger or investigative items:
 
-- RESOLVED (likely): Andres's own replies (typed directly into a real Claude Code
-  session, not this app's compose box) not showing up on session.php - root cause
-  found and fixed 2026-08-02: Claude Code rotates to a brand-new session-id
-  transcript file on /clear, /compact, --resume, or --fork-session while staying
-  in the same tmux pane, but a session's sidecar (host-agent/lib/Sessions.php)
-  recorded claude_session_id exactly once at spawn and never updated it - so the
-  app kept reading an abandoned, no-longer-growing transcript forever after any
-  of those (confirmed live against this very conversation's own tmux session).
-  Fixed by registering Claude Code's own SessionStart hook
-  (host-agent/hooks/session_start.php, installed in ~/.claude/settings.json,
-  symlinked into ~/dotfiles) to rebind the sidecar's claude_session_id live on
-  every session start/clear/compact/resume/fork, plus a dashboard banner+button
-  (check_session_hook/install_session_hook actions) if that hook is ever missing
-  (e.g. after a fresh machine setup). Caveat: only fixes it going forward - a
-  session that already rotated before the hook existed needs a one-time manual
-  write_sidecar() rebind (or its next natural /clear/compact) to pick this up.
 - index.php: make the whole session-row "card" a link to its transcript page,
   except for known interactive bits (Kill button, show-last-3 toggle, blocked-prompt
   option buttons, etc.) which should keep working normally without navigating away.
 - index.php: list all known sessions grouped by project folder (not just currently-
   running ones - scan ~/.claude/projects for past sessions per cwd), and offer to
   restart/reattach a listed-but-not-currently-running one via `claude --resume
-  <session-id>` in a fresh tmux pane. Added 2026-08-02 - overlaps with the "unify
-  sessions/bare processes" and reptyr items below (all under the general theme of
-  "surface every session, not just ones currently live and app-spawned"), but this
-  one's specifically about PAST/dormant sessions, not currently-running bare ones -
+  <session-id>` in a fresh tmux pane. Overlaps with the "unify sessions/bare
+  processes" and reptyr items below (all under the general theme of "surface every
+  session, not just ones currently live and app-spawned"), but this one's
+  specifically about PAST/dormant sessions, not currently-running bare ones -
   worth reconciling into one coherent design rather than three separate features
   before building any of them.
 - index.php: unify the "sessions" (cc-* tmux, app-tracked) and "Other claude
-  processes" (bare) lists into one - discussed 2026-08-02, deferred (Andres chose
-  to keep going on the hook work already in flight rather than tackle this now).
-  The SessionStart hook (see above) fires for every claude session on the box
-  now, not just ones this app spawned, which makes this newly tractable:
-  generalize the hook to register a sidecar for ANY claude session running
-  inside a tmux pane - key it off the pane's own tmux session name (via `tmux
-  display-message`), not just the app-set CSM_SESSION_NAME env var, which only
-  app-spawned sessions have - then fold those into the main list with full
+  processes" (bare) lists into one. The SessionStart hook fires for every claude
+  session on the box now, not just ones this app spawned, which makes this
+  tractable: generalize the hook to register a sidecar for ANY claude session
+  running inside a tmux pane - key it off the pane's own tmux session name (via
+  `tmux display-message`), not just the app-set CSM_SESSION_NAME env var, which
+  only app-spawned sessions have - then fold those into the main list with full
   features (transcript, compose, answer-prompt, mode toggle all work via tmux
   send-keys/capture-pane regardless of who started the pane). Hard boundary: a
   claude process with NO tmux pane at all (bare terminal/SSH, no wrapper) can
@@ -418,46 +111,22 @@ Tier 3 - bigger or investigative items:
   might be worth rendering on session.php.
 - Research: how worthwhile would a refactor into classes be, or even a full move
   to Laravel 13/Livewire 4, versus the current plain-function/plain-PHP-file
-  style this whole app is written in. Added 2026-08-02 - a real architecture
-  question, not a quick investigation; weigh against how much this app is likely
-  to keep growing (it's picked up a lot of surface area this session alone) vs.
-  the cost of a rewrite/migration for what's currently a personal single-user
-  tool with no other contributors.
-- RESOLVED (the specific bug; the general research lead below is still open):
-  compose textarea getting pulled back into view via an unwanted auto-scroll
-  during a poll, with nothing new typed - done 2026-08-02, matches what Andres
-  suspected ("might be a mobile keyboard thing?"). Root cause: isNearBottom()
-  used window.innerHeight + window.scrollY, but window.innerHeight doesn't
-  shrink when iOS Safari's on-screen keyboard opens - the layout viewport
-  stays full-height while the keyboard visually covers the bottom portion, so
-  the old calculation could claim "near bottom" even while the compose bar
-  was actually hidden behind the keyboard, and maybeAutoScroll() would then
-  yank the page back down to that (keyboard-covered) bottom on the next poll.
-  Fixed by using window.visualViewport's height/pageTop instead when
-  available (it genuinely tracks the visible area, shrinking with the
-  keyboard), falling back to the old calculation otherwise. Verified by
-  mocking window.visualViewport to a reduced height and confirming
-  isNearBottom() (via the go-to-bottom button's driven visibility) correctly
-  flips to "not near bottom" even with scrollY/innerHeight unchanged - the
-  exact case the old code got wrong. Caveat: this is a well-documented
-  platform quirk, not something directly observed on a real device (no iOS
-  Safari available to test against directly) - worth Andres confirming on his
-  phone. The BROADER research lead below (a full #app-container flex layout
-  using visualViewport.height instead of 100vh, for fixed header/footer
-  positioning generally, not just this one auto-scroll bug) is still open -
-  this fix only addressed the specific reported symptom, not a full layout
-  overhaul.
+  style this whole app is written in. A real architecture question, not a quick
+  investigation; weigh against how much this app is likely to keep growing (it's
+  picked up a lot of surface area this session alone) vs. the cost of a
+  rewrite/migration for what's currently a personal single-user tool with no
+  other contributors.
 - Research: iOS Safari keyboard display issues, broader than the specific
-  auto-scroll bug just fixed above - the visual viewport shrinks when the
-  keyboard opens but layout viewport/scroll doesn't always keep up, which
-  could still affect fixed header/compose-bar positioning generally. Andres's
-  lead (2026-08-02): use window.visualViewport's resize/scroll events to
-  dynamically set an #app-container height (flex column, header/footer
-  flex-none, main flex-grow overflow-y-auto) to visualViewport.height instead
-  of relying on 100vh, plus window.scrollTo(0,0) on each adjustment to stop
-  Safari's "ghost scroll". A bigger layout restructuring than the isNearBottom()
-  fix above - only worth doing if Andres still sees positioning issues after
-  confirming that fix live.
+  auto-scroll bug already fixed - the visual viewport shrinks when the keyboard
+  opens but layout viewport/scroll doesn't always keep up, which could still
+  affect fixed header/compose-bar positioning generally. Andres's lead: use
+  window.visualViewport's resize/scroll events to dynamically set an
+  #app-container height (flex column, header/footer flex-none, main flex-grow
+  overflow-y-auto) to visualViewport.height instead of relying on 100vh, plus
+  window.scrollTo(0,0) on each adjustment to stop Safari's "ghost scroll". A
+  bigger layout restructuring - only worth doing if Andres still sees
+  positioning issues after confirming the already-shipped isNearBottom() fix
+  live on his phone.
 - Research: how would file uploads work (Andres wants to send an image/file
   from his phone to a session, not just receive them from the transcript).
   Needs a real look at the mechanism - tmux send-keys/paste-buffer only moves
@@ -477,48 +146,33 @@ Tier 3 - bigger or investigative items:
 - Research: can a webapp added to the home screen (the PWA path this app
   already targets, see the README's "Home screen bookmark" section) run in
   the background and send a real push notification when a new prompt shows
-  up, instead of requiring the tab to be open and polling? Needs a real look
-  at what iOS Safari's PWA support actually allows here (Web Push has grown
-  real but still-limited support on iOS in recent versions - worth checking
-  the exact current constraints, e.g. whether it requires the site to be
-  added to the home screen first, any background-run time limits, etc.)
-  versus what'd need a completely different mechanism (e.g. a native
-  notification triggered some other way, outside the webapp itself).
+  up, instead of requiring the tab to be open and polling? First-pass research
+  done 2026-08-02: yes, worth building - iOS Safari has required Home Screen
+  install for Web Push since 16.4 (2023, unchanged), no new backend infra
+  needed beyond minishlink/web-push + a VAPID keypair + a flat JSON
+  subscription file. Client-side background checking isn't available on iOS,
+  so it has to be server/host-triggered - this app's existing tmux blocking-
+  prompt detection is the right signal, just needs a periodic systemd timer
+  (not the current socket-activated agent) to poll it and fire on state
+  transitions. Real cost isn't building it, it's iOS's flaky subscription
+  lifecycle (dies silently after ~1-2 weeks or after 3 "silent" pushes, no
+  error signal) - needs a "resubscribe on every app open" habit in the
+  frontend to self-heal. Not yet implemented.
 - session.php: subagent reports (Task/Agent tool_use + its result) should be
   parsed/rendered as their own distinct entry type, not folded in as a plain
   user/assistant entry - own color, collapsed by default, ideally a one-line
   summary (agent type/description) rather than the raw dumped transcript
   content.
-- INVESTIGATED, REVERTED: using a Stop hook to make session_last_message()
-  show a fresh reply instantly instead of waiting on the transcript-file poll
-  - built, tested (~35 new assertions), and live-verified end-to-end
-  2026-08-02, then backed out the same day once real timing measurements
-  contradicted the premise. Confirmed via a tight-interval (10ms) monitor
-  script against two separate real throwaway sessions: Claude Code writes
-  the transcript file ~0.6-0.7s after a turn completes, but the Stop hook
-  itself doesn't fire until ~1.7-2s LATER than that (likely internal
-  bookkeeping/hook-subprocess overhead on Claude Code's side) - the exact
-  opposite of the assumed ordering. Since session_last_message() already
-  reads the transcript fresh on every call (no caching to be stale against),
-  the transcript is always the freshest source available by the time any
-  poll happens - the hook had nothing left to contribute, just a third
-  registered hook (one more process spawn per turn) for zero measured
-  benefit. Reverted: host-agent/hooks/stop.php, the stop-event sidecar
-  storage, session_last_message()'s freshness-merge logic, and the Stop
-  entry from install_session_hook()/check_session_hook() (which stayed
-  data-driven off app_hooks_status() rather than reverting that part too -
-  a real, independent cleanup worth keeping even at 2 hooks). Real lesson
-  for the next hook idea: verify actual firing order/latency against a real
-  session BEFORE building on top of an assumption about it, the same
-  rigor already used for confirming PreToolUse's payload shape.
 - Research: now that this app has a PreToolUse hook (see the pending-tool
-  full-command-preview feature, 2026-08-02), survey whether other Claude
-  Code hook events (PostToolUse, Notification, UserPromptSubmit, etc) could
-  replace/improve any of the pane-scraping this app currently does - e.g.
-  catching a tool result right as it lands instead of waiting for the next
-  transcript poll. Stop specifically is now known NOT to help with this
-  (see the investigated-and-reverted item above) - worth ruling it out of
-  any future version of this research too, not just PostToolUse/Notification.
+  full-command-preview feature), survey whether other Claude Code hook events
+  (PostToolUse, Notification, UserPromptSubmit, etc) could replace/improve any
+  of the pane-scraping this app currently does - e.g. catching a tool result
+  right as it lands instead of waiting for the next transcript poll. Stop is
+  already ruled out (tried 2026-08-02: Claude Code writes the transcript file
+  ~1.7-2s BEFORE the Stop hook fires, the opposite of what you'd assume, so it
+  has nothing to add over reading the transcript directly - verify actual
+  hook firing order/latency against a real session before building on an
+  assumption about it, same as this finding).
 - Investigate: Andres reports messages he typed sometimes disappear from
   session.php after navigating to another page and back to the session.
   Needs more detail to reproduce - which messages (his own compose sends,
