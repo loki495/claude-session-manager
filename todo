@@ -263,6 +263,10 @@ Tier 2 - self-contained features/fixes:
   does (hides tool_result blocks via the hide-tool-details CSS class; tool_use blocks
   are unaffected) before renaming, since the current name may already be accurate for
   half of what people expect it to do.
+- session.php: add a checkbox to the sidebar to show/hide tool CALLS (tool_use
+  blocks), separate from the existing "Show tool usage details" toggle which
+  only ever affects tool_result blocks - tool_use blocks currently always show
+  regardless of that setting.
 - RESOLVED: filename-first-line for single-file tool summaries - done 2026-08-02.
   Turned out mostly already true: tool_use_primary_arg_keys() already recognized
   `file_path` as a primary arg, so Read/Edit/Write/MultiEdit already led with the
