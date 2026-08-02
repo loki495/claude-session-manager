@@ -42,14 +42,81 @@ assert_equal('user', $userLine['role'] ?? null, 'parse_transcript_line: string c
 assert_equal([['kind' => 'text', 'text' => 'Fix the bug']], $userLine['blocks'] ?? null, 'parse_transcript_line: bare string content becomes one text block');
 
 $toolUseLine = parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]}}');
-assert_equal([['kind' => 'tool_use', 'text' => 'Bash']], $toolUseLine['blocks'] ?? null, 'parse_transcript_line: tool_use block summarizes to the tool name');
+assert_equal([['kind' => 'tool_use', 'text' => 'Bash']], $toolUseLine['blocks'] ?? null, 'parse_transcript_line: tool_use with no input falls back to the bare tool name');
+
+// --- summarize_tool_use(): shows the actual argument, not just the tool
+// name - "ToolName(detail)", matching Claude Code's own TUI convention
+// (verified against a real capture: "Bash(echo ... > /tmp/...)") ---
+assert_equal('Bash(rm -rf /tmp/x)', summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - command wins over description');
+assert_equal('Read(/etc/hosts)', summarize_tool_use(['name' => 'Read', 'input' => ['file_path' => '/etc/hosts']]), 'summarize_tool_use: Read - file_path used');
+assert_equal('Grep(TODO)', summarize_tool_use(['name' => 'Grep', 'input' => ['pattern' => 'TODO']]), 'summarize_tool_use: Grep - pattern used');
+assert_equal('Bash', summarize_tool_use(['name' => 'Bash', 'input' => []]), 'summarize_tool_use: empty input -> bare name');
+assert_equal('Bash', summarize_tool_use(['name' => 'Bash']), 'summarize_tool_use: no input key at all -> bare name');
+assert_equal(
+    'Weird({"foo":"bar"})',
+    summarize_tool_use(['name' => 'Weird', 'input' => ['foo' => 'bar']]),
+    'summarize_tool_use: unrecognized shape falls back to a compact JSON dump of the input'
+);
+
+// --- humanize_tool_name()/summarize_tool_use(): MCP tool names
+// ("mcp__server__tool") are reformatted to "server.tool" - real name taken
+// from a live captured transcript entry (an MCP Playwright call). Its
+// `element` field (also a real captured shape: {"element": "3. Type
+// something. button", "target": "f31e74"}) is a recognized primary arg too. ---
+assert_equal('playwright.browser_click', humanize_tool_name('mcp__playwright__browser_click'), 'humanize_tool_name: strips the mcp__ prefix and joins server/tool with a dot');
+assert_equal('Bash', humanize_tool_name('Bash'), 'humanize_tool_name: a non-MCP name passes through unchanged');
+assert_equal(
+    'playwright.browser_click(3. Type something. button)',
+    summarize_tool_use(['name' => 'mcp__playwright__browser_click', 'input' => ['element' => '3. Type something. button', 'target' => 'f31e74']]),
+    'summarize_tool_use: MCP tool name humanized, element used as the primary argument'
+);
+
+// --- summarize_tool_use()/summarize_ask_user_question(): AskUserQuestion's
+// nested questions/options input has no scalar primary key, so it would
+// otherwise fall through to an unreadable raw JSON dump - real shape taken
+// from a live captured transcript entry. ---
+$realAskUserQuestionInput = [
+    'questions' => [[
+        'header' => 'Stale tab?',
+        'multiSelect' => false,
+        'question' => 'Does a hard refresh on that tab fix it?',
+        'options' => [
+            ['label' => 'Yes, fixed after hard refresh', 'description' => 'Confirms it was just a stale page load.'],
+            ['label' => 'No, still shows the tmux command after hard refresh', 'description' => "Then it's a real, still-open bug."],
+        ],
+    ]],
+];
+assert_equal(
+    'AskUserQuestion: Does a hard refresh on that tab fix it? (Yes, fixed after hard refresh / No, still shows the tmux command after hard refresh)',
+    summarize_tool_use(['name' => 'AskUserQuestion', 'input' => $realAskUserQuestionInput]),
+    'summarize_tool_use: AskUserQuestion shows the question and its options, not a raw JSON dump'
+);
+assert_equal(
+    'AskUserQuestion: Favorite color? (Red / Blue); Favorite animal? (Cat / Dog)',
+    summarize_tool_use(['name' => 'AskUserQuestion', 'input' => ['questions' => [
+        ['question' => 'Favorite color?', 'options' => [['label' => 'Red'], ['label' => 'Blue']]],
+        ['question' => 'Favorite animal?', 'options' => [['label' => 'Cat'], ['label' => 'Dog']]],
+    ]]]),
+    'summarize_tool_use: AskUserQuestion with multiple questions joins them with "; "'
+);
+assert_equal(
+    'AskUserQuestion({"questions":[]})',
+    summarize_tool_use(['name' => 'AskUserQuestion', 'input' => ['questions' => []]]),
+    'summarize_tool_use: AskUserQuestion with an empty/unrecognized questions shape falls back to the generic JSON dump'
+);
+
+$toolUseWithCommand = parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}');
+assert_equal([['kind' => 'tool_use', 'text' => 'Bash(ls -la)']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it, not just "Bash"');
 
 $toolResultLine = parse_transcript_line('{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}]}}');
 assert_equal([['kind' => 'tool_result', 'text' => "file1\nfile2"]], $toolResultLine['blocks'] ?? null, 'parse_transcript_line: tool_result content flattened to text');
 
-$longLine = parse_transcript_line(json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => str_repeat('x', 3000)]]]]));
-assert_true(strlen($longLine['blocks'][0]['text']) < 2100, 'parse_transcript_line: long text block is truncated');
+$longLine = parse_transcript_line(json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => str_repeat('x', 52000)]]]]));
+assert_true(strlen($longLine['blocks'][0]['text']) < 50100, 'parse_transcript_line: text block beyond the hard cap is truncated');
 assert_true(str_ends_with($longLine['blocks'][0]['text'], '(truncated)'), 'parse_transcript_line: truncated block is marked as such');
+
+$normalLongLine = parse_transcript_line(json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => str_repeat('y', 10000)]]]]));
+assert_equal(10000, strlen($normalLongLine['blocks'][0]['text']), 'parse_transcript_line: a normal-sized long block (well under the hard cap) is kept in full, not truncated');
 
 // --- find_transcript_path(): only matches UUID-shaped ids, globs across
 // every project dir under claude_projects_dir() (home_root() . '/.claude/projects') ---
@@ -74,34 +141,40 @@ assert_equal(null, find_transcript_path('00000000-0000-4000-8000-000000000000'),
 @rmdir($fakeHome);
 putenv('HOME_ROOT');
 
+// --- parse_transcript_line(): a message that's only a thinking block
+// (the common shape - Claude Code writes thinking as its own separate
+// JSONL line) is treated the same as a meta-only line, not an empty
+// bubble with a role header and nothing in it. ---
+assert_equal(null, parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}'), 'parse_transcript_line: thinking-only message -> null, not an empty entry');
+
+$mixedLine = parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Done."}]}}');
+assert_equal([['kind' => 'text', 'text' => 'Done.']], $mixedLine['blocks'] ?? null, 'parse_transcript_line: thinking alongside real content is dropped, the rest is kept');
+
 // --- read_transcript_page(): pagination over the real fixture file ---
-// 10 raw lines; renderable (non-meta/malformed) ones are at raw line
-// numbers 2,3,4,5,7,8 (mode/permission-mode/malformed/null-message are
-// skipped) - see the fixture file for the full content.
+// 10 raw lines; renderable ones are at raw line numbers 2,3,4,5,8
+// (mode/permission-mode/malformed/null-message are meta/invalid, and line
+// 7's thinking-only message is dropped per the above) - see the fixture
+// file for the full content.
 $page1 = read_transcript_page(FIXTURE_TRANSCRIPT, null, 2);
 assert_true($page1['ok'] ?? false, 'read_transcript_page: page1 ok=true');
 assert_equal(2, count($page1['entries'] ?? []), 'read_transcript_page: page1 has 2 entries');
-assert_equal(['thinking', 'text'], array_map(fn($e) => $e['blocks'][0]['kind'], $page1['entries']), 'read_transcript_page: page1 is lines 7-8, oldest-first (thinking, then final text)');
-assert_equal(7, $page1['next_before'] ?? null, 'read_transcript_page: page1 next_before points just before line 7');
+assert_equal(['tool_result', 'text'], array_map(fn($e) => $e['blocks'][0]['kind'], $page1['entries']), 'read_transcript_page: page1 is lines 5 and 8 - the thinking-only line 7 is skipped for free, not counted against the page');
+assert_equal(5, $page1['next_before'] ?? null, 'read_transcript_page: page1 next_before points just before line 5');
 assert_true($page1['has_more'] ?? false, 'read_transcript_page: page1 has_more=true');
 
 $page2 = read_transcript_page(FIXTURE_TRANSCRIPT, $page1['next_before'], 2);
-assert_equal(['tool_use', 'tool_result'], array_map(fn($e) => $e['blocks'][0]['kind'], $page2['entries']), 'read_transcript_page: page2 is lines 4-5 (tool_use, tool_result)');
-assert_equal(4, $page2['next_before'] ?? null, 'read_transcript_page: page2 next_before points just before line 4');
+assert_equal(['text', 'tool_use'], array_map(fn($e) => $e['blocks'][0]['kind'], $page2['entries']), 'read_transcript_page: page2 is lines 3-4 (text, tool_use)');
+assert_equal(3, $page2['next_before'] ?? null, 'read_transcript_page: page2 next_before points just before line 3');
 assert_true($page2['has_more'] ?? false, 'read_transcript_page: page2 has_more=true');
 
+// Line 1 is meta-only ("mode") - the walk consumes it for free while
+// filling this last page, landing on has_more=false directly rather than
+// leaving a dangling page with nothing in it.
 $page3 = read_transcript_page(FIXTURE_TRANSCRIPT, $page2['next_before'], 2);
-assert_equal(['text', 'text'], array_map(fn($e) => $e['blocks'][0]['kind'], $page3['entries']), 'read_transcript_page: page3 is lines 2-3 (both text)');
-assert_equal('Fix the bug', $page3['entries'][0]['blocks'][0]['text'] ?? null, 'read_transcript_page: page3 first entry is the original user message');
-assert_equal(2, $page3['next_before'] ?? null, 'read_transcript_page: page3 next_before points just before line 2');
-assert_true($page3['has_more'] ?? false, 'read_transcript_page: page3 has_more=true (line 1 is still unread)');
-
-// Line 1 is meta-only ("mode") - the next page has nothing renderable left
-// but must still report has_more=false rather than looping forever.
-$page4 = read_transcript_page(FIXTURE_TRANSCRIPT, $page3['next_before'], 2);
-assert_equal([], $page4['entries'] ?? null, 'read_transcript_page: page4 is empty (only a meta-only line remains)');
-assert_equal(null, $page4['next_before'], 'read_transcript_page: page4 next_before is null (reached the start of the file)');
-assert_equal(false, $page4['has_more'] ?? null, 'read_transcript_page: page4 has_more=false');
+assert_equal(['text'], array_map(fn($e) => $e['blocks'][0]['kind'], $page3['entries']), 'read_transcript_page: page3 is just line 2 (the original user message)');
+assert_equal('Fix the bug', $page3['entries'][0]['blocks'][0]['text'] ?? null, 'read_transcript_page: page3 entry is the original user message');
+assert_equal(null, $page3['next_before'], 'read_transcript_page: page3 next_before is null (reached the start of the file)');
+assert_equal(false, $page3['has_more'] ?? null, 'read_transcript_page: page3 has_more=false');
 
 $missing = read_transcript_page('/does/not/exist.jsonl', null, 10);
 assert_equal(false, $missing['ok'] ?? null, 'read_transcript_page: missing file -> ok=false');
