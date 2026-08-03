@@ -18,6 +18,7 @@ const CANNED_CLAUDE_SESSION_ID = '11111111-2222-4333-8444-555555555555';
 // smoke test's headless browser actually decode/render it, not just check
 // an <img> tag exists in the markup.
 const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuTym7Lxyboe7HSFwi79IJN7-wqbUbZmYR1CkLvXZSc';
 
 const CANNED_LAST_MESSAGE = [
     'role' => 'assistant',
@@ -140,6 +141,11 @@ $response = match ($action) {
     'navigate_prompt' => in_array($request['session'] ?? null, [CANNED_SESSION_NAME, CANNED_BLOCKED_SESSION_NAME], true) && in_array($request['direction'] ?? null, ['left', 'right'], true)
         ? ['ok' => true, 'message' => 'Sent ' . ucfirst((string)$request['direction']) . ' to ' . $request['session']]
         : ['ok' => false, 'message' => 'Rejected: this session is not currently showing a multi-question prompt'],
+    'push_public_key' => ['ok' => true, 'configured' => true, 'public_key' => CANNED_VAPID_PUBLIC_KEY],
+    'push_subscribe' => is_array($request['subscription'] ?? null) && is_string($request['subscription']['endpoint'] ?? null)
+        ? ['ok' => true]
+        : ['ok' => false, 'message' => 'Malformed subscription'],
+    'push_unsubscribe' => ['ok' => true],
     'cleanup' => ['ok' => true, 'killed' => [CANNED_SESSION_NAME], 'failed' => []],
     'check_session_hook' => ['ok' => true, 'installed' => true],
     'install_session_hook' => ['ok' => true, 'installed' => true],

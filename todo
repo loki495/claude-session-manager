@@ -166,21 +166,34 @@ Tier 3 - bigger or investigative items:
   again. Likely related to autoGrowCompose() not re-running (or running
   against a stale/zeroed scrollHeight) at the right moment when the compose
   bar's visibility is toggled back on by renderComposeVisibility().
-- Research: can a webapp added to the home screen (the PWA path this app
-  already targets, see the README's "Home screen bookmark" section) run in
-  the background and send a real push notification when a new prompt shows
-  up, instead of requiring the tab to be open and polling? First-pass research
-  done 2026-08-02: yes, worth building - iOS Safari has required Home Screen
-  install for Web Push since 16.4 (2023, unchanged), no new backend infra
-  needed beyond minishlink/web-push + a VAPID keypair + a flat JSON
-  subscription file. Client-side background checking isn't available on iOS,
-  so it has to be server/host-triggered - this app's existing tmux blocking-
-  prompt detection is the right signal, just needs a periodic systemd timer
-  (not the current socket-activated agent) to poll it and fire on state
-  transitions. Real cost isn't building it, it's iOS's flaky subscription
-  lifecycle (dies silently after ~1-2 weeks or after 3 "silent" pushes, no
-  error signal) - needs a "resubscribe on every app open" habit in the
-  frontend to self-heal. Not yet implemented.
+- RESOLVED (built, NOT gone live): Web Push notifications - done 2026-08-02.
+  Full implementation per the earlier research: minishlink/web-push (first
+  Composer dependency this project has ever had - agent.php now
+  unconditionally requires vendor/autoload.php, so install.sh runs
+  `composer install` automatically if vendor/ is missing), host-agent/lib/Push.php
+  (subscription storage, VAPID send, push_session_state()/check_and_send_pushes()
+  transition detection - notifies only on the transition INTO blocked, not
+  every tick a prompt sits unanswered), host-agent/push_trigger.php + a new
+  csm-push-check.timer/.service pair (30s poll), push_subscribe.php/
+  push_unsubscribe.php endpoints, src/sw.js (service worker - its push handler
+  always calls showNotification, per the research, to avoid iOS's 3-silent-
+  pushes kill), and a "Notify me" button (push_notify_button_html() in
+  AgentClient.php) on both pages that also silently re-subscribes on every
+  page load to self-heal iOS's flaky subscription lifecycle. A real bug
+  caught by tests before it could bite in production: minishlink/web-push
+  throws a hard, uncaught exception for a malformed VAPID key rather than
+  returning a normal failure - since this runs unattended via the systemd
+  timer, that would've silently killed an entire tick (every session's
+  check, not just the bad send) - now caught and converted to a graceful
+  ok:false. Per Andres's explicit choice: the systemd timer is installed
+  but NOT enabled, and no real push was ever sent - stopped at "verified
+  everything up to the actual send" (unit tests include one real send
+  attempt against a guaranteed-closed localhost port, proving graceful
+  failure handling without ever reaching a real push service). To actually
+  go live: generate a real VAPID keypair, set it in host-agent/.env, tap
+  "Enable notifications" from a home-screen-installed session, then
+  `systemctl --user enable --now csm-push-check.timer` - see the README's
+  new "Web Push notifications" section for the full step-by-step.
 - RESOLVED: subagent reports as their own entry kind - done 2026-08-02. The
   real tool name is "Agent" (verified live against a real captured transcript
   - not "Task"), with input {description, prompt, subagent_type,
@@ -225,3 +238,9 @@ Tier 3 - bigger or investigative items:
   Needs more detail to reproduce - which messages (his own compose sends,
   or ones typed directly into a real Claude Code session outside the app?),
   how soon after sending, whether a poll cycle happens in between.
+- Add a health box (dashboard or a dedicated page) showing whether
+  everything the site needs is actually installed/configured - host agent
+  reachable, SessionStart/PreToolUse hooks installed, claude-quota binary
+  present, tmux socket dir OK, VAPID push keys configured, Composer vendor/
+  installed, etc. - one place to see setup status at a glance instead of
+  discovering each piece is missing separately.

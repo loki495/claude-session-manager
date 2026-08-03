@@ -1,0 +1,8 @@
+[Unit]
+Description=Claude Session Manager push-notification check (one run)
+
+[Service]
+Type=oneshot
+# Optional (leading "-" = don't fail if missing). See host-agent/.env.example.
+EnvironmentFile=-/home/andres/www/claude-session-manager/host-agent/.env
+ExecStart=/usr/bin/php /home/andres/www/claude-session-manager/host-agent/push_trigger.php

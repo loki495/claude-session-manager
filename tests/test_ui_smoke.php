@@ -17,6 +17,7 @@ require __DIR__ . '/lib/http.php';
 // file runs as its own separate process (spawned per-connection by
 // socket_harness.php), so its constants aren't reachable from here.
 const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuTym7Lxyboe7HSFwi79IJN7-wqbUbZmYR1CkLvXZSc';
 
 $agentSocket = sys_get_temp_dir() . '/csm-test-ui-agent.sock';
 $agentHarness = start_harness(['php', __DIR__ . '/fixtures/canned_agent.php'], $agentSocket);
@@ -89,6 +90,8 @@ try {
     assert_contains('id="quota-footer"', $result['body'], 'GET /: collapsible quota footer present');
     assert_contains('id="quota-toggle-btn"', $result['body'], 'GET /: quota footer collapse/expand toggle present');
     assert_true(!str_contains($result['body'], "isn't installed"), 'GET /: session-rotation hook banner not shown when the canned agent reports it already installed');
+    assert_contains('id="push-notify-btn"', $result['body'], 'GET /: push-notification "Notify me" control present when the canned agent reports VAPID configured');
+    assert_contains(CANNED_VAPID_PUBLIC_KEY, $result['body'], 'GET /: the actual VAPID public key is embedded for the frontend subscribe flow');
     // Both canned sessions have working=true, but only the non-blocked one
     // should ever show the indicator - the blocked one must not, proving
     // dashboard_thinking_indicator_html()'s blocked_reason check actually
@@ -438,6 +441,8 @@ try {
         strpos($result['body'], 'id="quota-footer"') > strpos($result['body'], 'id="compose-textarea"'),
         'GET /session.php: quota footer is placed below the compose textarea, inside #compose-bar'
     );
+    assert_contains('id="push-notify-btn"', $result['body'], 'GET /session.php: push-notification "Notify me" control present when the canned agent reports VAPID configured');
+    assert_contains(CANNED_VAPID_PUBLIC_KEY, $result['body'], 'GET /session.php: the actual VAPID public key is embedded for the frontend subscribe flow');
     assert_contains('id="mode-select"', $result['body'], 'GET /session.php: mode select present');
     assert_true(
         strpos($result['body'], 'id="mode-select"') > strpos($result['body'], 'id="quota-toggle-btn"'),
@@ -544,6 +549,48 @@ try {
     ], $cookieJar);
     $navigateRejectBody = json_decode($result['body'], true);
     assert_equal(false, $navigateRejectBody['ok'] ?? null, 'POST /session_navigate.php: canned agent rejects an unrecognized session');
+
+    // --- push_subscribe.php: GET not allowed ---
+    $result = curl_request('GET', "{$baseUrl}/push_subscribe.php");
+    assert_equal(405, $result['status'], 'GET /push_subscribe.php: 405 (POST required)');
+
+    // --- push_subscribe.php: CSRF enforced ---
+    $fakeSubscriptionJson = json_encode(['endpoint' => 'https://push.example/x', 'keys' => ['p256dh' => 'p', 'auth' => 'a']]);
+    $result = curl_request('POST', "{$baseUrl}/push_subscribe.php", [
+        '-d', 'subscription=' . urlencode((string)$fakeSubscriptionJson) . '&csrf_token=not-the-real-token',
+    ]);
+    assert_equal(403, $result['status'], 'POST /push_subscribe.php with a wrong csrf_token: 403');
+
+    // --- push_subscribe.php: valid CSRF + well-formed subscription -> canned agent accepts it ---
+    $result = curl_request('POST', "{$baseUrl}/push_subscribe.php", [
+        '-d', 'subscription=' . urlencode((string)$fakeSubscriptionJson) . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    assert_equal(200, $result['status'], 'POST /push_subscribe.php with valid CSRF: 200 (JSON, not a redirect)');
+    $subscribeBody = json_decode($result['body'], true);
+    assert_true(is_array($subscribeBody) && ($subscribeBody['ok'] ?? false), 'POST /push_subscribe.php: canned agent accepts a well-formed subscription, response decodes as ok=true JSON');
+
+    // --- push_subscribe.php: malformed/missing subscription field is rejected before ever reaching the agent ---
+    $result = curl_request('POST', "{$baseUrl}/push_subscribe.php", [
+        '-d', 'csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $malformedSubscribeBody = json_decode($result['body'], true);
+    assert_equal(false, $malformedSubscribeBody['ok'] ?? null, 'POST /push_subscribe.php: rejects a request with no subscription field at all');
+
+    // --- push_unsubscribe.php: GET not allowed, CSRF enforced, valid request accepted ---
+    $result = curl_request('GET', "{$baseUrl}/push_unsubscribe.php");
+    assert_equal(405, $result['status'], 'GET /push_unsubscribe.php: 405 (POST required)');
+
+    $result = curl_request('POST', "{$baseUrl}/push_unsubscribe.php", [
+        '-d', 'endpoint=' . urlencode('https://push.example/x') . '&csrf_token=not-the-real-token',
+    ]);
+    assert_equal(403, $result['status'], 'POST /push_unsubscribe.php with a wrong csrf_token: 403');
+
+    $result = curl_request('POST', "{$baseUrl}/push_unsubscribe.php", [
+        '-d', 'endpoint=' . urlencode('https://push.example/x') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    assert_equal(200, $result['status'], 'POST /push_unsubscribe.php with valid CSRF: 200 (JSON, not a redirect)');
+    $unsubscribeBody = json_decode($result['body'], true);
+    assert_true(is_array($unsubscribeBody) && ($unsubscribeBody['ok'] ?? false), 'POST /push_unsubscribe.php: canned agent accepts it, response decodes as ok=true JSON');
 
     // --- cross-origin POST rejected ---
     $result = curl_request('POST', "{$baseUrl}/", [

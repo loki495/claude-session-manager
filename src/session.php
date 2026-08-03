@@ -18,6 +18,9 @@ $csrfToken = csrf_token();
 $detail = agent_call(['action' => 'session_detail', 'session' => $sessionName]);
 $found = (bool)($detail['ok'] ?? false);
 
+$pushResult = agent_call(['action' => 'push_public_key']);
+$vapidPublicKey = (string)($pushResult['public_key'] ?? '');
+
 $history = $found ? agent_call(['action' => 'session_history', 'session' => $sessionName, 'before' => null, 'limit' => 30]) : ['ok' => false];
 $historyOk = (bool)($history['ok'] ?? false);
 $entries = $historyOk ? ($history['entries'] ?? []) : [];
@@ -517,6 +520,7 @@ function render_transcript_entry(array $entry): string
       </div>
       <div class="mt-2">
         <?= quota_footer_html(render_mode_toggle_html($detail)) ?>
+        <?= push_notify_button_html($vapidPublicKey, $csrfToken) ?>
       </div>
     </div>
   </div>

@@ -1,0 +1,188 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * Exercises the Web Push logic in host-agent/lib/Push.php - subscription
+ * storage, session-state transition detection, and dispatch_push_action()
+ * - against isolated fixture paths, never the real subscription/state
+ * files. A real send_push_notification() call is only ever exercised
+ * against a guaranteed-closed local port (127.0.0.1:1), never a real push
+ * service - see the "real send attempt" section below for why that's
+ * still a meaningful test without actually delivering anywhere.
+ */
+
+require __DIR__ . '/lib/assert.php';
+require dirname(__DIR__) . '/host-agent/lib/Push.php';
+
+const REAL_PUSH_SUBSCRIPTIONS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-subscriptions.json';
+const REAL_PUSH_STATE_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-session-state.json';
+
+$fixtureDir = sys_get_temp_dir() . '/csm-test-push-' . bin2hex(random_bytes(4));
+mkdir($fixtureDir, 0700, true);
+
+putenv('PUSH_SUBSCRIPTIONS_FILE=' . $fixtureDir . '/push-subscriptions.json');
+putenv('PUSH_STATE_FILE=' . $fixtureDir . '/push-session-state.json');
+
+if (push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE || push_state_file() === REAL_PUSH_STATE_FILE) {
+    fwrite(STDERR, "REFUSING TO RUN: push subscription/state files still resolve to the real ones.\n");
+    exit(1);
+}
+
+try {
+    // --- push_configured(): false until both VAPID keys are set ---
+
+    putenv('VAPID_PUBLIC_KEY');
+    putenv('VAPID_PRIVATE_KEY');
+    assert_equal(false, push_configured(), 'push_configured: false with no VAPID keys set (fresh checkout default)');
+
+    putenv('VAPID_PUBLIC_KEY=fake-public-key');
+    assert_equal(false, push_configured(), 'push_configured: still false with only the public key set');
+
+    putenv('VAPID_PRIVATE_KEY=fake-private-key');
+    assert_equal(true, push_configured(), 'push_configured: true once both keys are set');
+
+    // --- read/write/add/remove_push_subscription(): round-trip, dedupe by endpoint ---
+
+    assert_equal([], read_push_subscriptions(), 'read_push_subscriptions: empty when no file exists yet');
+
+    $subA = ['endpoint' => 'https://push.example/a', 'keys' => ['p256dh' => 'p256dh-a', 'auth' => 'auth-a']];
+    $subB = ['endpoint' => 'https://push.example/b', 'keys' => ['p256dh' => 'p256dh-b', 'auth' => 'auth-b']];
+
+    assert_true(add_push_subscription($subA), 'add_push_subscription: accepts a well-formed subscription');
+    assert_true(add_push_subscription($subB), 'add_push_subscription: accepts a second, different subscription');
+    assert_equal(2, count(read_push_subscriptions()), 'add_push_subscription: both subscriptions stored');
+
+    assert_equal(false, add_push_subscription(['endpoint' => 'https://push.example/c']), 'add_push_subscription: rejects a subscription missing keys');
+    assert_equal(false, add_push_subscription(['keys' => ['p256dh' => 'x', 'auth' => 'y']]), 'add_push_subscription: rejects a subscription missing an endpoint');
+    assert_equal(2, count(read_push_subscriptions()), 'add_push_subscription: a rejected subscription is not stored');
+
+    // Resubscribing under the SAME endpoint with new keys replaces, not duplicates -
+    // this is exactly what the frontend's resubscribe-on-every-open call relies on.
+    $subAUpdated = ['endpoint' => 'https://push.example/a', 'keys' => ['p256dh' => 'p256dh-a-NEW', 'auth' => 'auth-a-NEW']];
+    add_push_subscription($subAUpdated);
+    $stored = read_push_subscriptions();
+    assert_equal(2, count($stored), 'add_push_subscription: resubscribing under the same endpoint does not duplicate');
+    $storedA = array_values(array_filter($stored, fn(array $s) => $s['endpoint'] === 'https://push.example/a'))[0] ?? null;
+    assert_equal('p256dh-a-NEW', $storedA['keys']['p256dh'] ?? null, 'add_push_subscription: resubscribing under the same endpoint updates the stored keys');
+
+    remove_push_subscription('https://push.example/a');
+    $afterRemove = read_push_subscriptions();
+    assert_equal(1, count($afterRemove), 'remove_push_subscription: removes exactly the matching subscription');
+    assert_equal('https://push.example/b', $afterRemove[0]['endpoint'] ?? null, 'remove_push_subscription: the other subscription survives');
+
+    remove_push_subscription('https://push.example/b');
+    assert_equal([], read_push_subscriptions(), 'remove_push_subscription: file is empty after removing the last subscription');
+
+    // --- push_session_state(): classification used for transition detection ---
+
+    assert_equal('blocked', push_session_state(['blocked_reason' => 'Do you want to proceed?', 'working' => false]), 'push_session_state: blocked_reason present -> blocked, regardless of working');
+    assert_equal('blocked', push_session_state(['blocked_reason' => 'Do you want to proceed?', 'working' => true]), 'push_session_state: blocked_reason wins even if working is also somehow true');
+    assert_equal('working', push_session_state(['blocked_reason' => null, 'working' => true]), 'push_session_state: working (not blocked) -> working');
+    assert_equal('idle', push_session_state(['blocked_reason' => null, 'working' => false]), 'push_session_state: neither blocked nor working -> idle');
+    assert_equal('idle', push_session_state([]), 'push_session_state: missing fields default to idle, not a crash');
+
+    // --- check_and_send_pushes(): transition detection, with zero
+    // subscriptions configured so no real send is ever attempted here -
+    // see the "real send attempt" section below for that part. ---
+
+    assert_equal(['ok' => false, 'notified' => [], 'pruned' => 0], (function () {
+        putenv('VAPID_PUBLIC_KEY');
+        putenv('VAPID_PRIVATE_KEY');
+        $result = check_and_send_pushes([['name' => 'cc-x', 'blocked_reason' => 'hi', 'working' => false]]);
+        putenv('VAPID_PUBLIC_KEY=fake-public-key');
+        putenv('VAPID_PRIVATE_KEY=fake-private-key');
+        return $result;
+    })(), 'check_and_send_pushes: a harmless no-op when VAPID keys are not configured');
+
+    @unlink(push_state_file());
+
+    $first = check_and_send_pushes([
+        ['name' => 'cc-blocked', 'blocked_reason' => 'Proceed?', 'working' => false],
+        ['name' => 'cc-idle', 'blocked_reason' => null, 'working' => false],
+    ]);
+    assert_equal(['cc-blocked'], $first['notified'], 'check_and_send_pushes: a session already blocked on the very first check counts as a fresh transition (no prior state on record)');
+
+    $second = check_and_send_pushes([
+        ['name' => 'cc-blocked', 'blocked_reason' => 'Proceed?', 'working' => false],
+        ['name' => 'cc-idle', 'blocked_reason' => null, 'working' => false],
+    ]);
+    assert_equal([], $second['notified'], 'check_and_send_pushes: still blocked on the next check -> not notified again (same prompt, not a new one)');
+
+    $third = check_and_send_pushes([
+        ['name' => 'cc-blocked', 'blocked_reason' => null, 'working' => false],
+        ['name' => 'cc-idle', 'blocked_reason' => 'A new question', 'working' => false],
+    ]);
+    assert_equal(['cc-idle'], $third['notified'], 'check_and_send_pushes: cc-idle transitioning into blocked is notified; cc-blocked resolving is not (that\'s not a "new prompt" event)');
+
+    $fourth = check_and_send_pushes([
+        ['name' => 'cc-blocked', 'blocked_reason' => 'Proceed again?', 'working' => false],
+    ]);
+    assert_equal(['cc-blocked'], $fourth['notified'], 'check_and_send_pushes: transitioning back into blocked after having resolved counts as a fresh transition again');
+
+    // --- send_push_notification(): a genuinely malformed VAPID key must
+    // report failure, not crash the whole (unattended, systemd-timer-run)
+    // process - found live: minishlink/web-push throws a hard
+    // ErrorException for this, not a normal failed-report return. ---
+
+    $malformedKeySubscription = ['endpoint' => 'http://127.0.0.1:1/nothing-listens-here', 'keys' => ['p256dh' => 'x', 'auth' => 'y']];
+    $malformedKeyResult = send_push_notification($malformedKeySubscription, 'Title', 'Body');
+    assert_equal(false, $malformedKeyResult['ok'], 'send_push_notification: a malformed VAPID key reports ok=false, not an uncaught exception');
+
+    // --- real send attempt with a structurally-valid VAPID keypair and
+    // subscription, against a guaranteed-closed local port: never a real
+    // push service, but proves a real (failed) send is handled gracefully
+    // end to end, not just the malformed-key case above. ---
+
+    $realVapidKeys = Minishlink\WebPush\VAPID::createVapidKeys();
+    putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
+    putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
+
+    $ecKeyResource = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    $ecDetails = openssl_pkey_get_details($ecKeyResource);
+    $b64url = fn(string $d): string => rtrim(strtr(base64_encode($d), '+/', '-_'), '=');
+    $fakeP256dh = $b64url("\x04" . $ecDetails['ec']['x'] . $ecDetails['ec']['y']);
+    $fakeAuth = $b64url(random_bytes(16));
+
+    $unreachableSubscription = ['endpoint' => 'http://127.0.0.1:1/nothing-listens-here', 'keys' => ['p256dh' => $fakeP256dh, 'auth' => $fakeAuth]];
+    $sendResult = send_push_notification($unreachableSubscription, 'Title', 'Body');
+    assert_equal(false, $sendResult['ok'], 'send_push_notification: a real (failed) send against an unreachable endpoint reports ok=false, not an uncaught exception');
+
+    add_push_subscription($unreachableSubscription);
+    @unlink(push_state_file());
+    $withRealSubscriber = check_and_send_pushes([['name' => 'cc-real-send', 'blocked_reason' => 'Proceed?', 'working' => false]]);
+    assert_equal(['cc-real-send'], $withRealSubscriber['notified'], 'check_and_send_pushes: still reports the transition even though the actual send to the one subscriber failed');
+    remove_push_subscription($unreachableSubscription['endpoint']);
+
+    // --- dispatch_push_action(): routes push_* actions, returns null (so
+    // agent.php can fall through to dispatch_action()) for everything else ---
+
+    assert_equal(null, dispatch_push_action(['action' => 'list']), 'dispatch_push_action: null for a non-push action, so agent.php falls through to dispatch_action()');
+
+    $publicKeyResponse = dispatch_push_action(['action' => 'push_public_key']);
+    assert_equal(true, $publicKeyResponse['ok'] ?? null, 'dispatch_push_action: push_public_key ok=true');
+    assert_equal(true, $publicKeyResponse['configured'] ?? null, 'dispatch_push_action: push_public_key reports configured=true (VAPID keys are set in this test)');
+    assert_equal($realVapidKeys['publicKey'], $publicKeyResponse['public_key'] ?? null, 'dispatch_push_action: push_public_key returns the actual configured key');
+
+    $subscribeResponse = dispatch_push_action(['action' => 'push_subscribe', 'subscription' => $subA]);
+    assert_equal(true, $subscribeResponse['ok'] ?? null, 'dispatch_push_action: push_subscribe accepts a well-formed subscription');
+    assert_equal(1, count(read_push_subscriptions()), 'dispatch_push_action: push_subscribe actually stored it');
+
+    $malformedSubscribeResponse = dispatch_push_action(['action' => 'push_subscribe', 'subscription' => ['endpoint' => 'no-keys-here']]);
+    assert_equal(false, $malformedSubscribeResponse['ok'] ?? null, 'dispatch_push_action: push_subscribe rejects a malformed subscription');
+
+    $missingSubscribeResponse = dispatch_push_action(['action' => 'push_subscribe']);
+    assert_equal(false, $missingSubscribeResponse['ok'] ?? null, 'dispatch_push_action: push_subscribe rejects a request with no subscription field at all');
+
+    $unsubscribeResponse = dispatch_push_action(['action' => 'push_unsubscribe', 'endpoint' => $subA['endpoint']]);
+    assert_equal(true, $unsubscribeResponse['ok'] ?? null, 'dispatch_push_action: push_unsubscribe ok=true');
+    assert_equal(0, count(read_push_subscriptions()), 'dispatch_push_action: push_unsubscribe actually removed it');
+} finally {
+    putenv('VAPID_PUBLIC_KEY');
+    putenv('VAPID_PRIVATE_KEY');
+    putenv('PUSH_SUBSCRIPTIONS_FILE');
+    putenv('PUSH_STATE_FILE');
+    array_map('unlink', glob("{$fixtureDir}/*") ?: []);
+    @rmdir($fixtureDir);
+}
+
+test_exit();

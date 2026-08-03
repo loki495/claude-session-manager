@@ -184,14 +184,18 @@ inside the container will silently be a directory instead of the real
 socket, and everything will fail with "Cannot reach host agent."
 
 1. Install the host agent (runs natively via systemd `--user`, needs no
-   containers, no extra dependencies beyond PHP CLI, which is already on
-   this host):
+   containers). `install.sh` runs `composer install` itself if `vendor/`
+   is missing (needed by `host-agent/lib/Push.php`'s Web Push dependency -
+   `agent.php` requires it unconditionally now, so this isn't optional
+   even if you never set up push notifications):
    ```
    ./host-agent/install.sh
    ```
-   This copies the two unit files into `~/.config/systemd/user/`, then
-   runs `systemctl --user enable --now csm-agent.socket`. Verify the
-   socket exists and is a socket (`s` in `ls -la`), not a directory:
+   This copies the systemd unit files into `~/.config/systemd/user/`, then
+   runs `systemctl --user enable --now csm-agent.socket` (the push-check
+   timer is also installed here but deliberately left disabled - see "Web
+   Push notifications" below). Verify the socket exists and is a socket
+   (`s` in `ls -la`), not a directory:
    ```
    ls -la $XDG_RUNTIME_DIR/csm-agent.sock
    ```
@@ -394,6 +398,61 @@ On a phone on the same LAN:
 1. Open `http://<BIND_ADDR>:<APP_PORT>/` in the browser.
 2. Use "Add to Home Screen" (Safari: Share → Add to Home Screen; Chrome:
    ⋮ menu → Add to Home Screen).
+
+## Web Push notifications
+
+Lets a session's newly-blocked prompt reach the phone without the tab
+open and polling - see `host-agent/lib/Push.php` for the full mechanism.
+Off by default on a fresh checkout (no VAPID keys, no timer running) -
+every piece is a harmless no-op until you opt in:
+
+1. **Generate a VAPID keypair** (one-time, on the host):
+   ```
+   php -r "require 'vendor/autoload.php'; print_r(Minishlink\WebPush\VAPID::createVapidKeys());"
+   ```
+2. Put the two resulting keys in `host-agent/.env`:
+   ```
+   VAPID_PUBLIC_KEY=...
+   VAPID_PRIVATE_KEY=...
+   ```
+   (`VAPID_SUBJECT` already defaults to a `mailto:` address - see `.env.example`.)
+3. Reload `/` or `session.php` in the browser you want notifications on and
+   tap "Enable notifications" (only appears once the keys above are set).
+   Requires the site to already be added to the home screen first - iOS
+   Safari only exposes the Push API to a home-screen-launched PWA, not a
+   regular browser tab.
+4. Enable the timer that actually checks for newly-blocked sessions and
+   sends the pushes (installed but left disabled by `install.sh`, since
+   starting a new recurring background service deserves a deliberate
+   opt-in):
+   ```
+   systemctl --user enable --now csm-push-check.timer
+   ```
+
+**Mechanism**: no client-side background mechanism exists on iOS to detect
+this itself (no Periodic Background Sync support), so it's entirely
+server/host-triggered - the timer above runs `host-agent/push_trigger.php`
+every 30s, which compares each live session's current blocked/working/idle
+state (`push_session_state()`) against what it was on the previous tick
+(`host-agent/state/push-session-state.json`) and sends a push only on the
+transition INTO blocked - not on every tick a prompt sits unanswered, and
+not when a session resolves out of blocked either.
+
+**iOS's subscription lifecycle is flaky, by design of the platform, not a
+bug here**: a subscription can silently die after roughly 1-2 weeks, or
+after as few as 3 pushes the service worker doesn't turn into a shown
+notification (see `src/sw.js` - its `push` handler is written specifically
+to never skip calling `showNotification`, to avoid tripping that). There's
+no error surfaced to the app when this happens. The frontend's own
+mitigation: every page load with an existing subscription silently re-POSTs
+it to `push_subscribe.php`, so simply opening the app periodically
+self-heals a subscription that's started to go stale. `check_and_send_pushes()`
+also prunes any subscription a real send reports as permanently expired
+(HTTP 404/410) rather than retrying it forever.
+
+**Optional**: `minishlink/web-push`'s own EC crypto is noticeably faster
+with the GMP or BCMath PHP extension installed (`php -m | grep -i 'gmp\|bcmath'`
+to check) - not required, sends still work without it, just slower.
 
 ## Running tests
 

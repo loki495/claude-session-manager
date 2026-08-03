@@ -87,6 +87,9 @@ $hookResult = $agentReachable ? agent_call(['action' => 'check_session_hook']) :
 $hookCheckOk = (bool)($hookResult['ok'] ?? false);
 $hookInstalled = (bool)($hookResult['installed'] ?? false);
 
+$pushResult = $agentReachable ? agent_call(['action' => 'push_public_key']) : ['ok' => false];
+$vapidPublicKey = (string)($pushResult['public_key'] ?? '');
+
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 $flashMsg = is_array($flash) ? (string)($flash['msg'] ?? '') : null;
@@ -192,12 +195,15 @@ $csrfToken = csrf_token();
   <?php endif; ?>
 
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
-    <div class="max-w-2xl mx-auto flex items-start justify-between gap-3">
-      <?= quota_footer_html() ?>
-      <a href="/"
-        class="min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
-        Refresh
-      </a>
+    <div class="max-w-2xl mx-auto">
+      <div class="flex items-start justify-between gap-3">
+        <?= quota_footer_html() ?>
+        <a href="/"
+          class="min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
+          Refresh
+        </a>
+      </div>
+      <?= push_notify_button_html($vapidPublicKey, $csrfToken) ?>
     </div>
   </div>
 

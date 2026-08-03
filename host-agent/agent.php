@@ -11,6 +11,7 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/lib/Sessions.php';
+require __DIR__ . '/lib/Push.php';
 
 $input = stream_get_contents(STDIN);
 $request = json_decode((string)$input, true);
@@ -20,6 +21,10 @@ if (!is_array($request) || !isset($request['action'])) {
     exit(0);
 }
 
-$response = dispatch_action($request);
+// dispatch_push_action() (lib/Push.php) handles push_* actions, falling
+// through (null) to dispatch_action() (lib/Sessions.php) for everything
+// else - see dispatch_push_action()'s own doc comment for why these live
+// in two separate dispatchers instead of one.
+$response = dispatch_push_action($request) ?? dispatch_action($request);
 
 fwrite(STDOUT, json_encode($response));

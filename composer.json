@@ -1,0 +1,14 @@
+{
+    "name": "loki495/claude-session-manager",
+    "description": "Personal Claude Code session manager (host-agent + web frontend)",
+    "type": "project",
+    "require": {
+        "minishlink/web-push": "^9.0"
+    },
+    "authors": [
+        {
+            "name": "Andres Crucitti",
+            "email": "dasc495@gmail.com"
+        }
+    ]
+}
