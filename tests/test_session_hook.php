@@ -199,6 +199,27 @@ try {
     $augmented = augment_prompt_with_pending_tool($basePrompt, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'npm test --full-real-command-not-truncated']]);
     assert_equal('npm test --full-real-command-not-truncated', $augmented['context'], 'augment_prompt_with_pending_tool: a matching tool name replaces the truncated pane context with the full hook-sourced one');
     assert_equal('Do you want to proceed?', $augmented['question'], 'augment_prompt_with_pending_tool: only context is replaced, question/options/etc are untouched');
+    assert_equal('Bash', $augmented['tool_name'] ?? null, 'augment_prompt_with_pending_tool: exposes tool_name so callers (push body) can tell a permission prompt from a real question');
+    assert_equal(['command' => 'npm test --full-real-command-not-truncated'], $augmented['tool_input'] ?? null, 'augment_prompt_with_pending_tool: exposes tool_input too');
+
+    // AskUserQuestion renders with no "●" marker at all (verified live), so
+    // there's nothing to cross-check against - the pane-scraped
+    // question/context (already exactly what a human sees) must be left
+    // untouched rather than replaced by a raw tool_input JSON dump, but
+    // tool_name/tool_input still need to be exposed so the push body can
+    // tell this apart from a permission prompt.
+    $questionPrompt = [
+        'question' => 'Which color do you prefer?',
+        'context' => "☐ Color\n\nWhich color do you prefer?",
+        'options' => [],
+        'multi_question' => false,
+        'is_folder_trust' => false,
+    ];
+    $questionInput = ['questions' => [['question' => 'Which color do you prefer?', 'header' => 'Color', 'options' => [['label' => 'Red'], ['label' => 'Blue']]]]];
+    $augmentedQuestion = augment_prompt_with_pending_tool($questionPrompt, ['tool_name' => 'AskUserQuestion', 'tool_input' => $questionInput]);
+    assert_equal($questionPrompt['context'], $augmentedQuestion['context'], 'augment_prompt_with_pending_tool: AskUserQuestion context is left untouched, not replaced with a raw JSON dump');
+    assert_equal('AskUserQuestion', $augmentedQuestion['tool_name'] ?? null, 'augment_prompt_with_pending_tool: AskUserQuestion still exposes tool_name');
+    assert_equal($questionInput, $augmentedQuestion['tool_input'] ?? null, 'augment_prompt_with_pending_tool: AskUserQuestion still exposes tool_input');
 
     // --- pending-tool sidecar: read/write/delete round-trip ---
 

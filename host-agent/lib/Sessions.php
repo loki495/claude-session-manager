@@ -630,9 +630,18 @@ function format_pending_tool_input(string $toolName, array $toolInput): ?string
  * than the tool name, so a name mismatch is treated as "not this prompt"
  * and the pane-scraped context is kept instead.
  *
+ * AskUserQuestion is the one exception to that marker check: it renders
+ * with no "●" line at all (verified live - a "☐ <header>" line instead),
+ * so there's nothing to cross-check its identity against, and the
+ * pane-scraped question/context (already exactly what a human reading the
+ * prompt sees) is left untouched rather than being replaced by a raw
+ * tool_input JSON dump. tool_name/tool_input are still exposed on the
+ * returned prompt either way, so callers (e.g. the push notification
+ * body) can tell a real question apart from a permission prompt.
+ *
  * @param array{question:string, context:string, options:array, multi_question:bool, is_folder_trust:bool} $prompt
  * @param array{tool_name:?string, tool_input:?array}|null $pendingTool
- * @return array{question:string, context:string, options:array, multi_question:bool, is_folder_trust:bool}
+ * @return array{question:string, context:string, options:array, multi_question:bool, is_folder_trust:bool, tool_name?:string, tool_input?:array}
  */
 function augment_prompt_with_pending_tool(array $prompt, ?array $pendingTool): array
 {
@@ -651,13 +660,16 @@ function augment_prompt_with_pending_tool(array $prompt, ?array $pendingTool): a
         return $prompt;
     }
 
-    $fullContext = format_pending_tool_input($toolName, $toolInput);
+    if ($toolName !== 'AskUserQuestion') {
+        $fullContext = format_pending_tool_input($toolName, $toolInput);
 
-    if ($fullContext === null) {
-        return $prompt;
+        if ($fullContext !== null) {
+            $prompt['context'] = $fullContext;
+        }
     }
 
-    $prompt['context'] = $fullContext;
+    $prompt['tool_name'] = $toolName;
+    $prompt['tool_input'] = $toolInput;
 
     return $prompt;
 }
@@ -980,7 +992,7 @@ function delete_pending_tool(string $sessionName): void
  * @param array{name:string, activity:int, attached:bool} $tmuxSession
  * @param array<int, array{pid:int, cwd:?string, started_at:?int}> $claudeProcs
  * @param array<int, int> $ppidMap
- * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:?string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, current_mode:?string, claude_session_id:?string, last_message:?array}
+ * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:?string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, current_mode:?string, claude_session_id:?string, last_message:?array}
  */
 function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppidMap): array
 {
@@ -1021,6 +1033,8 @@ function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppid
         'prompt_options' => $prompt['options'] ?? [],
         'prompt_multi_question' => $prompt['multi_question'] ?? false,
         'prompt_is_folder_trust' => $prompt['is_folder_trust'] ?? false,
+        'prompt_tool_name' => $prompt['tool_name'] ?? null,
+        'prompt_tool_input' => $prompt['tool_input'] ?? null,
         'current_mode' => parse_current_mode($paneContent),
         'claude_session_id' => $claudeSessionId,
         'last_message' => session_last_message($claudeSessionId),

@@ -464,6 +464,12 @@ long* a session has been in its current state) and sends one of two
 notification types, only on the relevant transition (never every tick):
 - **Blocked**: on the transition INTO blocked - not on every tick a prompt
   sits unanswered, and not when a session resolves out of blocked either.
+  The body (`push_blocked_body()`) shows the real command/action for a
+  permission prompt (Bash/Write/Edit/etc. - via the PreToolUse hook's
+  recorded tool_input, see `push_permission_body()`) rather than the
+  generic pane-scraped "Do you want to proceed?" question; an
+  `AskUserQuestion` prompt still shows the real question text, since
+  that's already exactly what's worth seeing.
 - **Finished**: on the transition from working INTO idle, but only once
   the session has been continuously working for at least
   `PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY` seconds (default 60) - this

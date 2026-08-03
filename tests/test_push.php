@@ -142,6 +142,40 @@ try {
     assert_equal('Finished - no input needed', push_finished_body(['role' => 'user', 'blocks' => [['kind' => 'text', 'text' => 'irrelevant']]]), 'push_finished_body: a non-assistant last message -> generic fallback (not the user\'s own prior message)');
     assert_equal('Finished - no input needed', push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls']]]), 'push_finished_body: an assistant turn with only tool calls, no closing text -> generic fallback');
 
+    // --- push_permission_body()/push_blocked_body(): a permission prompt's
+    // push body shows the real command/action, not the generic pane-scraped
+    // "do you want to proceed?" question - an AskUserQuestion prompt keeps
+    // showing the real question text as before ---
+
+    assert_equal('npm test', push_permission_body('Bash', ['command' => 'npm test']), 'push_permission_body: Bash shows the real command');
+    assert_equal('Run a Bash command', push_permission_body('Bash', []), 'push_permission_body: Bash with no command -> generic fallback');
+    assert_equal('Write /tmp/foo.txt', push_permission_body('Write', ['file_path' => '/tmp/foo.txt', 'content' => 'irrelevant for the push body']), 'push_permission_body: Write shows the path, not the full file content');
+    assert_equal('Edit /tmp/foo.txt', push_permission_body('Edit', ['file_path' => '/tmp/foo.txt', 'old_string' => 'a', 'new_string' => 'b']), 'push_permission_body: Edit shows the path');
+    assert_equal('Run WebFetch', push_permission_body('WebFetch', ['url' => 'https://example.com']), 'push_permission_body: an unrecognized tool falls back to "Run <tool>"');
+    $longCommand = str_repeat('a', 200);
+    assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand])), 'push_permission_body: a long command is truncated the same as push_finished_body');
+
+    assert_equal(
+        'npm test',
+        push_blocked_body(['blocked_reason' => 'Do you want to proceed?', 'prompt_tool_name' => 'Bash', 'prompt_tool_input' => ['command' => 'npm test']]),
+        'push_blocked_body: a permission prompt (matched pending tool) shows the command, not the generic question'
+    );
+    assert_equal(
+        'Which color do you prefer?',
+        push_blocked_body(['blocked_reason' => 'Which color do you prefer?', 'prompt_tool_name' => 'AskUserQuestion', 'prompt_tool_input' => ['questions' => []]]),
+        'push_blocked_body: an AskUserQuestion prompt keeps showing the real question text'
+    );
+    assert_equal(
+        'Do you trust the files in this folder?',
+        push_blocked_body(['blocked_reason' => 'Do you trust the files in this folder?', 'prompt_tool_name' => null, 'prompt_tool_input' => null]),
+        'push_blocked_body: no matched pending tool at all (trust dialog, stale/missing PreToolUse record) falls back to the pane-scraped question'
+    );
+    assert_equal(
+        'Waiting on input',
+        push_blocked_body([]),
+        'push_blocked_body: a completely empty session still returns something, not a crash'
+    );
+
     // --- check_and_send_pushes(): the "finished a long task" notification
     // - a genuinely new case (previously ZERO notification coverage for a
     // session that finishes without ever needing input at all) ---

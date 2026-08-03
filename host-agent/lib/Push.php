@@ -220,11 +220,22 @@ function push_notification_title(array $session): string
 }
 
 /**
+ * Same 140-char preview convention as last_message_preview_html() in
+ * AgentClient.php, shared by every push body that echoes real
+ * user/session-generated text (as opposed to a fixed generic string) so a
+ * long command or reply doesn't blow out a notification.
+ */
+function push_truncate(string $text, int $limit = 140): string
+{
+    $text = trim($text);
+
+    return mb_strlen($text) > $limit ? mb_substr($text, 0, $limit) . '…' : $text;
+}
+
+/**
  * The body for a "finished working, nothing needs your input" push - the
- * actual reply text if there is one (same 140-char preview convention as
- * last_message_preview_html() in AgentClient.php), a generic fallback
- * otherwise (e.g. the session's last turn was only tool calls, no closing
- * text reply).
+ * actual reply text if there is one, a generic fallback otherwise (e.g.
+ * the session's last turn was only tool calls, no closing text reply).
  *
  * @param array{role?:?string, blocks?:array<int, array{kind:string, text:string}>}|null $lastMessage
  */
@@ -236,13 +247,64 @@ function push_finished_body(?array $lastMessage): string
 
     foreach ($lastMessage['blocks'] ?? [] as $block) {
         if (($block['kind'] ?? null) === 'text' && is_string($block['text'] ?? null) && trim($block['text']) !== '') {
-            $text = trim($block['text']);
-
-            return mb_strlen($text) > 140 ? mb_substr($text, 0, 140) . '…' : $text;
+            return push_truncate($block['text']);
         }
     }
 
     return 'Finished - no input needed';
+}
+
+/**
+ * The body for a permission prompt (Bash/Write/Edit/etc. awaiting
+ * approval) - the actual command/action being asked about, not a generic
+ * "do you want to proceed?" (that's what the pane-scraped blocked_reason
+ * usually reduces to for this prompt shape - see push_blocked_body()).
+ *
+ * @param array<string, mixed> $toolInput
+ */
+function push_permission_body(string $toolName, array $toolInput): string
+{
+    switch ($toolName) {
+        case 'Bash':
+            $command = is_string($toolInput['command'] ?? null) ? trim($toolInput['command']) : '';
+
+            return $command !== '' ? push_truncate($command) : 'Run a Bash command';
+
+        case 'Write':
+            $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
+
+            return $path !== null ? "Write {$path}" : 'Write a file';
+
+        case 'Edit':
+            $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
+
+            return $path !== null ? "Edit {$path}" : 'Edit a file';
+
+        default:
+            return "Run {$toolName}";
+    }
+}
+
+/**
+ * The body for a newly-blocked prompt: the real command/action for a
+ * permission prompt (see push_permission_body()), or the real question
+ * text for an AskUserQuestion prompt / anything else without a matched
+ * pending tool (the trust dialog, a stale/missing PreToolUse record) -
+ * unchanged from before, since blocked_reason is already the right thing
+ * to show for those.
+ *
+ * @param array{blocked_reason?:mixed, prompt_tool_name?:mixed, prompt_tool_input?:mixed} $session
+ */
+function push_blocked_body(array $session): string
+{
+    $toolName = is_string($session['prompt_tool_name'] ?? null) ? $session['prompt_tool_name'] : null;
+    $toolInput = is_array($session['prompt_tool_input'] ?? null) ? $session['prompt_tool_input'] : null;
+
+    if ($toolName !== null && $toolName !== 'AskUserQuestion' && $toolInput !== null) {
+        return push_permission_body($toolName, $toolInput);
+    }
+
+    return (string)($session['blocked_reason'] ?? 'Waiting on input');
 }
 
 /**
@@ -363,7 +425,7 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
         if ($state === 'blocked' && $previousStateName !== 'blocked') {
             $notification = [
                 'title' => push_notification_title($session),
-                'body' => (string)($session['blocked_reason'] ?? 'Waiting on input'),
+                'body' => push_blocked_body($session),
             ];
         } elseif (
             $state === 'idle'

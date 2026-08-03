@@ -223,18 +223,26 @@ Tier 3 - bigger or investigative items:
   web.push.apple.com silently times out (30s) on this network while IPv4
   to the exact same endpoint responds instantly - fixed by forcing IPv4
   via clientOptions (CURLOPT_IPRESOLVE) in send_push_notification().
-- Notification body for a blocked prompt should distinguish prompt type
-  instead of always using the generic pane-scraped "question" text:
-  permission prompts (Bash/Write/Edit tool approval) should show the
-  actual command/action (already available as prompt_context, built by
-  augment_prompt_with_pending_tool()/format_pending_tool_input() - just
-  never used in the push body today), while genuine AskUserQuestion
-  prompts should keep showing the real question text as they do now.
-  Needs a way to tell the two apart - the existing "●\s*ToolName" marker
-  detection (parse_blocking_prompt()/augment_prompt_with_pending_tool())
-  is the natural signal; check whether AskUserQuestion itself renders
-  with that same marker (it's technically a tool call too) before relying
-  on tool-name-equals-AskUserQuestion as the distinguishing check.
+- RESOLVED: better notification content for permission prompts vs real
+  questions - done 2026-08-03. push_blocked_body() now shows the real
+  command/action (push_permission_body(), sourced from the PreToolUse
+  hook's recorded tool_input) for a permission prompt (Bash/Write/Edit/
+  etc.) instead of the generic pane-scraped "Do you want to proceed?",
+  while an AskUserQuestion prompt still shows the real question text as
+  before. Distinguishing signal: prompt_tool_name, newly exposed on the
+  session array by augment_prompt_with_pending_tool()/build_session_entry().
+  A real incidental bug found and fixed along the way: AskUserQuestion
+  renders with no "●" marker line at all (verified live, unlike every
+  other tool), so the existing marker cross-check never bailed out for it
+  - prompt_context was silently getting clobbered with a raw tool_input
+  JSON dump instead of staying the clean pane-scraped question/options
+  text, on the live in-page blocked-prompt card too, not just push. Fixed
+  by skipping the context-overwrite specifically for AskUserQuestion while
+  still exposing tool_name/tool_input for callers. New test coverage in
+  tests/test_session_hook.php and tests/test_push.php; full suite green.
+  Live-verified against a real throwaway session's real AskUserQuestion
+  call (confirmed push_blocked_body() returns the real question, not a
+  JSON dump).
 - RESOLVED: subagent reports as their own entry kind - done 2026-08-02. The
   real tool name is "Agent" (verified live against a real captured transcript
   - not "Task"), with input {description, prompt, subagent_type,
