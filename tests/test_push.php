@@ -119,6 +119,76 @@ try {
     ]);
     assert_equal(['cc-blocked'], $fourth['notified'], 'check_and_send_pushes: transitioning back into blocked after having resolved counts as a fresh transition again');
 
+    // --- push_notification_title(): prefers the real title, falls back
+    // to something friendlier than the raw cc-YYYYMMDD-HHMM name when a
+    // session hits a prompt before Claude Code has set one yet ---
+
+    assert_equal('Fix the login bug', push_notification_title(['name' => 'cc-20260101-1200', 'title' => 'Fix the login bug', 'workdir' => '/home/andres/www/demo']), 'push_notification_title: prefers the real title when present');
+    assert_equal('demo-project', push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => '/home/andres/www/demo-project']), 'push_notification_title: falls back to the workdir basename when no title is set yet');
+    assert_equal('cc-20260101-1200', push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => null]), 'push_notification_title: falls back to the raw session name as a last resort');
+    assert_equal('Claude session', push_notification_title([]), 'push_notification_title: a completely empty session still returns something, not a crash');
+
+    // --- push_finished_body(): the real reply text (truncated), or a generic fallback ---
+
+    assert_equal(
+        'Found it: the redirect URL was hardcoded.',
+        push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'text', 'text' => 'Found it: the redirect URL was hardcoded.']]]),
+        'push_finished_body: uses the real assistant reply text'
+    );
+    $longReply = str_repeat('a', 200);
+    $truncated = push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'text', 'text' => $longReply]]]);
+    assert_equal(141, mb_strlen($truncated), 'push_finished_body: truncates a long reply to 140 chars + ellipsis, same convention as last_message_preview_html()');
+    assert_equal('Finished - no input needed', push_finished_body(null), 'push_finished_body: no last message at all -> generic fallback');
+    assert_equal('Finished - no input needed', push_finished_body(['role' => 'user', 'blocks' => [['kind' => 'text', 'text' => 'irrelevant']]]), 'push_finished_body: a non-assistant last message -> generic fallback (not the user\'s own prior message)');
+    assert_equal('Finished - no input needed', push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls']]]), 'push_finished_body: an assistant turn with only tool calls, no closing text -> generic fallback');
+
+    // --- check_and_send_pushes(): the "finished a long task" notification
+    // - a genuinely new case (previously ZERO notification coverage for a
+    // session that finishes without ever needing input at all) ---
+
+    @unlink(push_state_file());
+    putenv('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY=60');
+
+    $t0 = 1_000_000;
+    $workingStart = check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => true]], $t0);
+    assert_equal([], $workingStart['notified'], 'check_and_send_pushes: starting to work is never itself notification-worthy');
+
+    $stillWorkingSoon = check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => true]], $t0 + 10);
+    assert_equal([], $stillWorkingSoon['notified'], 'check_and_send_pushes: still working 10s later - no notification yet, still working');
+
+    $finishedTooSoon = check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => false]], $t0 + 15);
+    assert_equal([], $finishedTooSoon['notified'], 'check_and_send_pushes: finished after only 15s of work - below the 60s threshold, not notified (avoids noise for quick replies)');
+
+    @unlink(push_state_file());
+    $workingStart2 = check_and_send_pushes([['name' => 'cc-long-task', 'blocked_reason' => null, 'working' => true]], $t0);
+    assert_equal([], $workingStart2['notified'], 'check_and_send_pushes (long task): starting to work is never itself notification-worthy');
+
+    $finishedLongTask = check_and_send_pushes([[
+        'name' => 'cc-long-task',
+        'blocked_reason' => null,
+        'working' => false,
+        'title' => 'Refactor the auth module',
+        'last_message' => ['role' => 'assistant', 'blocks' => [['kind' => 'text', 'text' => 'Done - all tests pass.']]],
+    ]], $t0 + 90);
+    assert_equal(['cc-long-task'], $finishedLongTask['notified'], 'check_and_send_pushes: finished after 90s of continuous work - above the 60s threshold, notified');
+
+    // Once notified, going idle -> idle again (nothing changed) must not re-notify.
+    $stillIdleAfter = check_and_send_pushes([['name' => 'cc-long-task', 'blocked_reason' => null, 'working' => false]], $t0 + 100);
+    assert_equal([], $stillIdleAfter['notified'], 'check_and_send_pushes: still idle on the next check -> not notified again');
+
+    // A blocked prompt appearing takes priority over (and is a completely
+    // separate concern from) the finished-working case - both paths must
+    // coexist correctly in the same pass.
+    @unlink(push_state_file());
+    check_and_send_pushes([['name' => 'cc-mixed', 'blocked_reason' => null, 'working' => true]], $t0);
+    $mixedResult = check_and_send_pushes([
+        ['name' => 'cc-mixed', 'blocked_reason' => 'A follow-up question', 'working' => false],
+        ['name' => 'cc-other', 'blocked_reason' => null, 'working' => true],
+    ], $t0 + 90);
+    assert_equal(['cc-mixed'], $mixedResult['notified'], 'check_and_send_pushes: a session that started working then hit a prompt is notified for the blocked transition, not double-counted as "finished"');
+
+    putenv('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY');
+
     // --- send_push_notification(): a genuinely malformed VAPID key must
     // report failure, not crash the whole (unattended, systemd-timer-run)
     // process - found live: minishlink/web-push throws a hard

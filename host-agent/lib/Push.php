@@ -33,6 +33,17 @@ function vapid_subject(): string
 }
 
 /**
+ * How long a session must have been continuously 'working' before its
+ * transition to 'idle' (finished, nothing left needing input) is worth a
+ * push notification for - avoids notifying for every trivial quick reply,
+ * only for something that actually took a while.
+ */
+function push_min_working_seconds_for_finish_notify(): int
+{
+    return (int)csm_config('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY', '60');
+}
+
+/**
  * False (and every push-related action a harmless no-op) until VAPID
  * keys are actually generated and set - see README for the one-time
  * generation step.
@@ -124,7 +135,11 @@ function remove_push_subscription(string $endpoint): void
 }
 
 /**
- * @return array<string, string> sessionName => last-known state ('blocked'|'working'|'idle')
+ * @return array<string, array{state:string, since:int}> sessionName =>
+ *   last-known state ('blocked'|'working'|'idle') plus the timestamp it's
+ *   been in that state continuously since - the "since" half is what lets
+ *   check_and_send_pushes() tell a session that just finished a genuinely
+ *   long task apart from one that only worked for a couple of seconds.
  */
 function read_push_session_state(): array
 {
@@ -140,7 +155,7 @@ function read_push_session_state(): array
 }
 
 /**
- * @param array<string, string> $state
+ * @param array<string, array{state:string, since:int}> $state
  */
 function write_push_session_state(array $state): void
 {
@@ -176,6 +191,61 @@ function push_session_state(array $session): string
 }
 
 /**
+ * The title a push notification shows - prefers the session's own live
+ * pane-title task description (see build_session_entry() in
+ * Sessions.php), falling back to something friendlier than the raw
+ * cc-YYYYMMDD-HHMM session name when that title isn't set yet. Found
+ * live: a session can hit a blocking prompt within seconds of being
+ * created, before Claude Code's own title-setting has had a chance to
+ * run at all - the notification for that one showed the bare session
+ * name instead of anything meaningful.
+ *
+ * @param array{name?:mixed, title?:mixed, workdir?:mixed} $session
+ */
+function push_notification_title(array $session): string
+{
+    $title = is_string($session['title'] ?? null) ? trim($session['title']) : '';
+
+    if ($title !== '') {
+        return $title;
+    }
+
+    $workdir = is_string($session['workdir'] ?? null) ? trim($session['workdir']) : '';
+
+    if ($workdir !== '') {
+        return basename($workdir);
+    }
+
+    return is_string($session['name'] ?? null) ? $session['name'] : 'Claude session';
+}
+
+/**
+ * The body for a "finished working, nothing needs your input" push - the
+ * actual reply text if there is one (same 140-char preview convention as
+ * last_message_preview_html() in AgentClient.php), a generic fallback
+ * otherwise (e.g. the session's last turn was only tool calls, no closing
+ * text reply).
+ *
+ * @param array{role?:?string, blocks?:array<int, array{kind:string, text:string}>}|null $lastMessage
+ */
+function push_finished_body(?array $lastMessage): string
+{
+    if ($lastMessage === null || ($lastMessage['role'] ?? null) !== 'assistant') {
+        return 'Finished - no input needed';
+    }
+
+    foreach ($lastMessage['blocks'] ?? [] as $block) {
+        if (($block['kind'] ?? null) === 'text' && is_string($block['text'] ?? null) && trim($block['text']) !== '') {
+            $text = trim($block['text']);
+
+            return mb_strlen($text) > 140 ? mb_substr($text, 0, 140) . '…' : $text;
+        }
+    }
+
+    return 'Finished - no input needed';
+}
+
+/**
  * Sends one push notification to one subscription. Returns whether the
  * subscription is still good - a 404/410 means the browser/OS has
  * permanently discarded it, the caller should prune it rather than retry
@@ -205,6 +275,12 @@ function send_push_notification(array $subscription, string $title, string $body
                 'publicKey' => vapid_public_key(),
                 'privateKey' => vapid_private_key(),
             ],
+        ], [], 30, [
+            // Found live: IPv6 to web.push.apple.com can silently black-hole
+            // on this network (times out after the full 30s) while IPv4 to
+            // the exact same endpoint responds instantly - forcing IPv4
+            // avoids paying that timeout on every send.
+            'curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4],
         ]);
 
         $payload = json_encode(['title' => $title, 'body' => $body, 'url' => $url]);
@@ -232,33 +308,78 @@ function send_push_notification(array $subscription, string $title, string $body
  * The main push-trigger pass, called on every csm-push-check timer tick
  * (see host-agent/push_trigger.php): for every currently-live session,
  * compares its current push_session_state() against what was last
- * recorded, sends a push to every stored subscription for any session
- * that just transitioned INTO 'blocked' (a new prompt appeared - the
- * transition matters, not the state itself, so a prompt that's been
- * sitting unanswered for an hour doesn't re-notify on every tick), and
- * prunes any subscription a send reports as permanently expired.
+ * recorded (including how long it's been in that state, tracked via
+ * "since" - see read_push_session_state()), and sends a push to every
+ * stored subscription for either of two transitions:
  *
- * @param array<int, array{name:string, blocked_reason?:?string, working?:bool, title?:?string}> $sessions
+ * - INTO 'blocked' (a new prompt appeared) - the transition matters, not
+ *   the state itself, so a prompt that's been sitting unanswered for an
+ *   hour doesn't re-notify on every tick.
+ * - FROM 'working' INTO 'idle', but only once it's been working
+ *   continuously for at least push_min_working_seconds_for_finish_notify()
+ *   - a session finishing a genuinely long task without needing any
+ *   input at all previously had NO notification coverage whatsoever (only
+ *   the "needs input" case did); the duration gate avoids notifying for
+ *   every trivial quick reply.
+ *
+ * Also prunes any subscription a send reports as permanently expired.
+ *
+ * @param array<int, array{name:string, blocked_reason?:?string, working?:bool, title?:?string, workdir?:?string, last_message?:?array}> $sessions
+ * @param int|null $now defaults to time() - overridable so tests can
+ *   exercise the duration gate without real sleeps
  * @return array{ok:bool, notified:array<int, string>, pruned:int}
  */
-function check_and_send_pushes(array $sessions): array
+function check_and_send_pushes(array $sessions, ?int $now = null): array
 {
     if (!push_configured()) {
         return ['ok' => false, 'notified' => [], 'pruned' => 0];
     }
 
+    $now ??= time();
     $previousState = read_push_session_state();
     $currentState = [];
     $notified = [];
     $subscriptions = read_push_subscriptions();
     $expiredEndpoints = [];
+    $minWorkingSeconds = push_min_working_seconds_for_finish_notify();
 
     foreach ($sessions as $session) {
         $name = (string)$session['name'];
         $state = push_session_state($session);
-        $currentState[$name] = $state;
 
-        $wasBlocked = ($previousState[$name] ?? null) === 'blocked';
+        $previousEntry = is_array($previousState[$name] ?? null) ? $previousState[$name] : null;
+        $previousStateName = is_string($previousEntry['state'] ?? null) ? $previousEntry['state'] : null;
+        $previousSince = is_int($previousEntry['since'] ?? null) ? $previousEntry['since'] : null;
+
+        // Carries the "since" timestamp forward as long as the state
+        // itself hasn't changed - this is what lets a later tick compute
+        // "how long has it actually been in this state" rather than just
+        // "not the same as last tick".
+        $since = ($previousStateName === $state && $previousSince !== null) ? $previousSince : $now;
+        $currentState[$name] = ['state' => $state, 'since' => $since];
+
+        $notification = null;
+
+        if ($state === 'blocked' && $previousStateName !== 'blocked') {
+            $notification = [
+                'title' => push_notification_title($session),
+                'body' => (string)($session['blocked_reason'] ?? 'Waiting on input'),
+            ];
+        } elseif (
+            $state === 'idle'
+            && $previousStateName === 'working'
+            && $previousSince !== null
+            && ($now - $previousSince) >= $minWorkingSeconds
+        ) {
+            $notification = [
+                'title' => push_notification_title($session),
+                'body' => push_finished_body(is_array($session['last_message'] ?? null) ? $session['last_message'] : null),
+            ];
+        }
+
+        if ($notification === null) {
+            continue;
+        }
 
         // $notified reflects the transition itself, independent of
         // whether there's actually anyone subscribed to receive it -
@@ -266,19 +387,14 @@ function check_and_send_pushes(array $sessions): array
         // separately observable/testable, and means a fresh install with
         // zero subscriptions yet still correctly tracks state instead of
         // silently skipping the bookkeeping too.
-        if ($state === 'blocked' && !$wasBlocked) {
-            $notified[] = $name;
+        $notified[] = $name;
 
-            if ($subscriptions !== []) {
-                $title = (string)($session['title'] ?? $name);
-                $body = (string)($session['blocked_reason'] ?? 'Waiting on input');
+        if ($subscriptions !== []) {
+            foreach ($subscriptions as $subscription) {
+                $result = send_push_notification($subscription, $notification['title'], $notification['body'], '/session.php?session=' . urlencode($name));
 
-                foreach ($subscriptions as $subscription) {
-                    $result = send_push_notification($subscription, $title, $body, '/session.php?session=' . urlencode($name));
-
-                    if ($result['expired']) {
-                        $expiredEndpoints[] = $subscription['endpoint'];
-                    }
+                if ($result['expired']) {
+                    $expiredEndpoints[] = $subscription['endpoint'];
                 }
             }
         }

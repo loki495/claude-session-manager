@@ -459,9 +459,23 @@ this itself (no Periodic Background Sync support), so it's entirely
 server/host-triggered - the timer above runs `host-agent/push_trigger.php`
 every 10s, which compares each live session's current blocked/working/idle
 state (`push_session_state()`) against what it was on the previous tick
-(`host-agent/state/push-session-state.json`) and sends a push only on the
-transition INTO blocked - not on every tick a prompt sits unanswered, and
-not when a session resolves out of blocked either.
+(`host-agent/state/push-session-state.json`, which also now tracks *how
+long* a session has been in its current state) and sends one of two
+notification types, only on the relevant transition (never every tick):
+- **Blocked**: on the transition INTO blocked - not on every tick a prompt
+  sits unanswered, and not when a session resolves out of blocked either.
+- **Finished**: on the transition from working INTO idle, but only once
+  the session has been continuously working for at least
+  `PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY` seconds (default 60) - this
+  avoids a notification for every trivial quick reply, reserving it for
+  genuinely long-running tasks that finish without ever needing input.
+
+Both notification titles use `push_notification_title()` - the session's
+real title if Claude Code has set one yet, else the workdir's basename,
+else the raw `cc-YYYYMMDD-HHMM` session name as a last resort (a session
+that hits a blocking prompt within its first second or two can still have
+no title set - found live, this used to show the ugly raw name in that
+case).
 
 **iOS's subscription lifecycle is flaky, by design of the platform, not a
 bug here**: a subscription can silently die after roughly 1-2 weeks, or
@@ -474,6 +488,13 @@ it to `push_subscribe.php`, so simply opening the app periodically
 self-heals a subscription that's started to go stale. `check_and_send_pushes()`
 also prunes any subscription a real send reports as permanently expired
 (HTTP 404/410) rather than retrying it forever.
+
+**IPv6 caveat**: `send_push_notification()` forces IPv4 for the actual send
+(`CURLOPT_IPRESOLVE` via `WebPush`'s Guzzle client options) - found live: on
+this network, IPv6 to `web.push.apple.com` silently times out after the
+full 30s while IPv4 to the exact same endpoint responds in well under a
+second. Without this, every send would eat a 30s timeout on networks with
+the same IPv6 routing issue.
 
 **Optional**: `minishlink/web-push`'s own EC crypto is noticeably faster
 with the GMP or BCMath PHP extension installed (`php -m | grep -i 'gmp\|bcmath'`
