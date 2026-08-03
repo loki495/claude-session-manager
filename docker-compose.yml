@@ -47,6 +47,15 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.csm.rule=Host(`csm.dev.local.test`)"
       - "traefik.http.routers.csm.entrypoints=web"
+      # HTTPS - a secure context is a hard requirement for Service
+      # Workers/Web Push (see the README's "Web Push notifications"
+      # section), not optional. Self-signed (Traefik's own auto-generated
+      # default cert, no certResolver configured on this router) - the
+      # phone needs to trust it once, see the README.
+      - "traefik.http.routers.csm-secure.rule=Host(`csm.dev.local.test`)"
+      - "traefik.http.routers.csm-secure.entrypoints=websecure"
+      - "traefik.http.routers.csm-secure.tls=true"
+      - "traefik.http.routers.csm-secure.service=csm"
       - "traefik.http.services.csm.loadbalancer.server.port=80"
     networks:
       - web

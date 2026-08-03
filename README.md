@@ -395,7 +395,9 @@ internet — it can create and kill tmux sessions on your dev box.
 
 On a phone on the same LAN:
 
-1. Open `http://<BIND_ADDR>:<APP_PORT>/` in the browser.
+1. Open `http://<BIND_ADDR>:<APP_PORT>/` in the browser - or, if you want
+   Web Push notifications to work (see below, requires HTTPS), trust the
+   cert first and use `https://csm.dev.local.test/` instead.
 2. Use "Add to Home Screen" (Safari: Share → Add to Home Screen; Chrome:
    ⋮ menu → Add to Home Screen).
 
@@ -405,6 +407,29 @@ Lets a session's newly-blocked prompt reach the phone without the tab
 open and polling - see `host-agent/lib/Push.php` for the full mechanism.
 Off by default on a fresh checkout (no VAPID keys, no timer running) -
 every piece is a harmless no-op until you opt in:
+
+0. **Requires HTTPS - a hard platform requirement, not optional.** Service
+   Workers (what Web Push is built on) are blocked entirely by the browser
+   outside a secure context; plain `http://<BIND_ADDR>:<APP_PORT>/` never
+   works for this specifically, silently (no error, the "Notify me" button
+   just never appears - found live: this was missed when the feature was
+   first built). The shared Traefik instance (`~/www/traefik/`) has a
+   `websecure` entrypoint on `:443` with a self-signed cert scoped to
+   `csm.dev.local.test` specifically (`traefik/dynamic/csm-tls.yml`, SAN
+   set correctly - Traefik's own generic anonymous default cert has the
+   wrong hostname and won't validate even once trusted). 397-day validity
+   deliberately (Apple's own ≤398-day cap for a cert to be trustable via
+   iOS's Certificate Trust Settings at all - a longer one would silently
+   never be trustable there). To trust it on an iPhone: AirDrop/email
+   yourself `traefik/certs/csm.dev.local.test.crt` (never the `.key`),
+   open it → Settings will offer "Install Profile" → install it, then
+   separately go to Settings → General → About → Certificate Trust
+   Settings → enable full trust for it. A "proceed anyway" click through
+   Safari's own warning page does NOT carry over to a home-screen-
+   installed app's separate WebView context - the profile-install step
+   above is the only way that actually works for that case. Once trusted,
+   use `https://csm.dev.local.test/` (not the plain-HTTP URL) for the
+   "Home screen bookmark" step below.
 
 1. **Generate a VAPID keypair** (one-time, on the host):
    ```
