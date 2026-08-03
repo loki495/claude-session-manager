@@ -127,6 +127,9 @@ try {
     assert_equal('demo-project', push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => '/home/andres/www/demo-project']), 'push_notification_title: falls back to the workdir basename when no title is set yet');
     assert_equal('cc-20260101-1200', push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => null]), 'push_notification_title: falls back to the raw session name as a last resort');
     assert_equal('Claude session', push_notification_title([]), 'push_notification_title: a completely empty session still returns something, not a crash');
+    assert_equal('Fix the login bug', push_notification_title(['name' => 'cc-20260101-1200', 'title' => "\u{2733} Fix the login bug", 'workdir' => null]), 'push_notification_title: strips Claude Code\'s leading idle-title icon (e.g. U+2733), decorative in a terminal title bar but out of place in a phone notification');
+    assert_equal('Fix the login bug', push_notification_title(['name' => 'cc-20260101-1200', 'title' => "\u{2728} Fix the login bug", 'workdir' => null]), 'push_notification_title: strips any leading Symbol-Other (\\p{So}) glyph, not just the one specific icon seen live');
+    assert_equal('No icon here', push_notification_title(['name' => 'cc-20260101-1200', 'title' => 'No icon here', 'workdir' => null]), 'push_notification_title: a plain title with no leading icon is untouched');
 
     // --- push_finished_body(): the real reply text (truncated), or a generic fallback ---
 

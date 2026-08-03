@@ -481,7 +481,10 @@ real title if Claude Code has set one yet, else the workdir's basename,
 else the raw `cc-YYYYMMDD-HHMM` session name as a last resort (a session
 that hits a blocking prompt within its first second or two can still have
 no title set - found live, this used to show the ugly raw name in that
-case).
+case). Claude Code's own idle-title icon (e.g. "✳", distinct from the
+animated braille spinner shown while actively working) is stripped from
+the front of the title too - fine in a terminal title bar, out of place
+at the start of a phone notification.
 
 **iOS's subscription lifecycle is flaky, by design of the platform, not a
 bug here**: a subscription can silently die after roughly 1-2 weeks, or

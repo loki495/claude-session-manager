@@ -207,7 +207,15 @@ function push_notification_title(array $session): string
     $title = is_string($session['title'] ?? null) ? trim($session['title']) : '';
 
     if ($title !== '') {
-        return $title;
+        // Claude Code prefixes its idle/non-working pane title with a
+        // static icon (e.g. "✳ Fix login bug", U+2733 - distinct from the
+        // animated braille spinner clean_pane_title() already strips,
+        // which only appears while actively working). Fine in a terminal
+        // title bar, out of place at the start of a phone notification -
+        // \p{So} (Symbol, other) covers this and similar single-glyph
+        // icon prefixes generically rather than hardcoding this one
+        // codepoint.
+        return preg_replace('/^\p{So}\s*/u', '', $title) ?? $title;
     }
 
     $workdir = is_string($session['workdir'] ?? null) ? trim($session['workdir']) : '';

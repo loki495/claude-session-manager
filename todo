@@ -223,6 +223,12 @@ Tier 3 - bigger or investigative items:
   web.push.apple.com silently times out (30s) on this network while IPv4
   to the exact same endpoint responds instantly - fixed by forcing IPv4
   via clientOptions (CURLOPT_IPRESOLVE) in send_push_notification().
+  Follow-up done 2026-08-03: push_notification_title() now strips Claude
+  Code's leading idle-title icon (e.g. "✳", U+2733 - distinct from the
+  animated braille spinner shown while working, which clean_pane_title()
+  already stripped) via a generic \p{So} (Symbol, other) regex rather than
+  hardcoding just that one codepoint. Fine in a terminal title bar, looked
+  out of place at the start of a phone notification.
 - RESOLVED: better notification content for permission prompts vs real
   questions - done 2026-08-03. push_blocked_body() now shows the real
   command/action (push_permission_body(), sourced from the PreToolUse
