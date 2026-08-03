@@ -139,17 +139,22 @@ Tier 3 - bigger or investigative items:
   picked up a lot of surface area this session alone) vs. the cost of a
   rewrite/migration for what's currently a personal single-user tool with no
   other contributors.
-- Research: iOS Safari keyboard display issues, broader than the specific
-  auto-scroll bug already fixed - the visual viewport shrinks when the keyboard
-  opens but layout viewport/scroll doesn't always keep up, which could still
-  affect fixed header/compose-bar positioning generally. Andres's lead: use
-  window.visualViewport's resize/scroll events to dynamically set an
-  #app-container height (flex column, header/footer flex-none, main flex-grow
-  overflow-y-auto) to visualViewport.height instead of relying on 100vh, plus
-  window.scrollTo(0,0) on each adjustment to stop Safari's "ghost scroll". A
-  bigger layout restructuring - only worth doing if Andres still sees
-  positioning issues after confirming the already-shipped isNearBottom() fix
-  live on his phone.
+- RESOLVED: compose-bar footer drift on scroll - done 2026-08-03, confirmed
+  working on Andres's phone. Reported live: the footer drifted upward while
+  scrolling even with the keyboard closed, and only stayed put when the
+  textarea had enough text to make the page tall enough. Root cause:
+  iOS Safari's position:fixed is anchored to the *layout* viewport, not the
+  *visual* one - its dynamic toolbar (hides/shows on scroll) shrinks/grows
+  the visual viewport independently, and a short page (empty textarea) sat
+  right at the toolbar's collapse threshold, making the drift obvious.
+  Fixed with a lighter version of the approach already flagged here:
+  window.visualViewport's resize/scroll events drive a translateY offset
+  on #compose-bar and #go-to-bottom-btn (both position:fixed) equal to how
+  much of the layout viewport currently sits below the visible area -
+  keeps them glued to the real screen bottom regardless of toolbar state
+  or keyboard, reusing the same visualViewport API isNearBottom() already
+  relied on. Didn't need the full #app-container/flex restructuring this
+  entry originally proposed.
 - Research: how would file uploads work (Andres wants to send an image/file
   from his phone to a session, not just receive them from the transcript).
   Needs a real look at the mechanism - tmux send-keys/paste-buffer only moves
