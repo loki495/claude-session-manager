@@ -185,15 +185,17 @@ Tier 3 - bigger or investigative items:
   returning a normal failure - since this runs unattended via the systemd
   timer, that would've silently killed an entire tick (every session's
   check, not just the bad send) - now caught and converted to a graceful
-  ok:false. Per Andres's explicit choice: the systemd timer is installed
-  but NOT enabled, and no real push was ever sent - stopped at "verified
-  everything up to the actual send" (unit tests include one real send
-  attempt against a guaranteed-closed localhost port, proving graceful
-  failure handling without ever reaching a real push service). To actually
-  go live: generate a real VAPID keypair, set it in host-agent/.env, tap
-  "Enable notifications" from a home-screen-installed session, then
-  `systemctl --user enable --now csm-push-check.timer` - see the README's
-  new "Web Push notifications" section for the full step-by-step.
+  ok:false. Per Andres's explicit choice: no real push was ever sent -
+  stopped at "verified everything up to the actual send" (unit tests
+  include one real send attempt against a guaranteed-closed localhost
+  port, proving graceful failure handling without ever reaching a real
+  push service). csm-push-check.timer is now enabled and running (turned
+  on 2026-08-02, confirmed clean: status=0/SUCCESS, ~24ms CPU per tick) -
+  still a correct no-op on every tick since no VAPID keys are set yet.
+  Remaining to actually go live: generate a real VAPID keypair, set it in
+  host-agent/.env, tap "Enable notifications" from a home-screen-installed
+  session - see the README's "Web Push notifications" section for the
+  full steps.
 - RESOLVED: subagent reports as their own entry kind - done 2026-08-02. The
   real tool name is "Agent" (verified live against a real captured transcript
   - not "Task"), with input {description, prompt, subagent_type,
