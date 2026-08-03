@@ -2,13 +2,17 @@
 Description=Periodically check for newly-blocked sessions and send push notifications
 
 [Timer]
-# 30s: research (see the todo file/README) suggested this range for
-# server-triggered push - iOS has no client-side background-sync
-# mechanism, so a session's blocked prompt is only ever noticed as fast
-# as this timer polls. OnUnitActiveSec (not OnCalendar) so a slow tick
-# (an overloaded host) can't pile up overlapping runs.
-OnBootSec=30s
-OnUnitActiveSec=30s
+# 10s: iOS has no client-side background-sync mechanism, so a session's
+# blocked prompt is only ever noticed as fast as this timer polls. Each
+# tick is cheap (~24ms CPU measured live) - the real cost of going faster
+# is process-spawn/journald noise, not load, and for a "you're away from
+# your phone" notification 10s vs 30s is the point where it stops feeling
+# noticeably slow without spamming the log every few seconds for something
+# that isn't actually latency-sensitive at 1-5s granularity.
+# OnUnitActiveSec (not OnCalendar) so a slow tick (an overloaded host)
+# can't pile up overlapping runs.
+OnBootSec=10s
+OnUnitActiveSec=10s
 Unit=csm-push-check.service
 
 [Install]

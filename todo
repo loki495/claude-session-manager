@@ -166,36 +166,45 @@ Tier 3 - bigger or investigative items:
   again. Likely related to autoGrowCompose() not re-running (or running
   against a stale/zeroed scrollHeight) at the right moment when the compose
   bar's visibility is toggled back on by renderComposeVisibility().
-- RESOLVED (built, NOT gone live): Web Push notifications - done 2026-08-02.
-  Full implementation per the earlier research: minishlink/web-push (first
-  Composer dependency this project has ever had - agent.php now
-  unconditionally requires vendor/autoload.php, so install.sh runs
-  `composer install` automatically if vendor/ is missing), host-agent/lib/Push.php
-  (subscription storage, VAPID send, push_session_state()/check_and_send_pushes()
-  transition detection - notifies only on the transition INTO blocked, not
-  every tick a prompt sits unanswered), host-agent/push_trigger.php + a new
-  csm-push-check.timer/.service pair (30s poll), push_subscribe.php/
-  push_unsubscribe.php endpoints, src/sw.js (service worker - its push handler
-  always calls showNotification, per the research, to avoid iOS's 3-silent-
-  pushes kill), and a "Notify me" button (push_notify_button_html() in
-  AgentClient.php) on both pages that also silently re-subscribes on every
-  page load to self-heal iOS's flaky subscription lifecycle. A real bug
-  caught by tests before it could bite in production: minishlink/web-push
-  throws a hard, uncaught exception for a malformed VAPID key rather than
-  returning a normal failure - since this runs unattended via the systemd
-  timer, that would've silently killed an entire tick (every session's
-  check, not just the bad send) - now caught and converted to a graceful
-  ok:false. Per Andres's explicit choice: no real push was ever sent -
-  stopped at "verified everything up to the actual send" (unit tests
-  include one real send attempt against a guaranteed-closed localhost
-  port, proving graceful failure handling without ever reaching a real
-  push service). csm-push-check.timer is now enabled and running (turned
-  on 2026-08-02, confirmed clean: status=0/SUCCESS, ~24ms CPU per tick) -
-  still a correct no-op on every tick since no VAPID keys are set yet.
-  Remaining to actually go live: generate a real VAPID keypair, set it in
-  host-agent/.env, tap "Enable notifications" from a home-screen-installed
-  session - see the README's "Web Push notifications" section for the
-  full steps.
+- RESOLVED, LIVE: Web Push notifications - done 2026-08-02, confirmed
+  working end-to-end same day (Andres successfully enabled notifications
+  on his phone). Full implementation per the earlier research:
+  minishlink/web-push (first Composer dependency this project has ever
+  had - agent.php now unconditionally requires vendor/autoload.php, so
+  install.sh runs `composer install` automatically if vendor/ is
+  missing), host-agent/lib/Push.php (subscription storage, VAPID send,
+  push_session_state()/check_and_send_pushes() transition detection -
+  notifies only on the transition INTO blocked, not every tick a prompt
+  sits unanswered), host-agent/push_trigger.php + a csm-push-check.timer/
+  .service pair (10s poll, tightened from an initial 30s - each tick is
+  cheap, ~24ms CPU measured live, so the real cost of going faster is
+  process-spawn/journald noise, not load), push_subscribe.php/
+  push_unsubscribe.php endpoints, src/sw.js (service worker - its push
+  handler always calls showNotification, per the research, to avoid
+  iOS's 3-silent-pushes kill), and a "Notify me" button
+  (push_notify_button_html() in AgentClient.php) on both pages that also
+  silently re-subscribes on every page load to self-heal iOS's flaky
+  subscription lifecycle. A real bug caught by tests before it could bite
+  in production: minishlink/web-push throws a hard, uncaught exception for
+  a malformed VAPID key rather than returning a normal failure - since
+  this runs unattended via the systemd timer, that would've silently
+  killed an entire tick (every session's check, not just the bad send) -
+  now caught and converted to a graceful ok:false.
+  A second real bug found only once actually trying to go live: the whole
+  feature was silently broken because the app was HTTP-only - Service
+  Workers are blocked entirely by the browser outside a secure context, no
+  error surfaced anywhere, the "Notify me" button just never appeared.
+  Fixed by adding HTTPS to the shared Traefik instance (~/www/traefik/,
+  routes ~15 other local sites too) - a real cert scoped specifically to
+  csm.dev.local.test (SAN set correctly; Traefik's own generic anonymous
+  default self-signed cert has the wrong hostname and would still fail
+  validation even once trusted), 397-day validity to stay under Apple's
+  ≤398-day cap for iOS's Certificate Trust Settings to accept it at all.
+  See the README's "Web Push notifications" section for the full
+  cert-trust steps, including the iOS-specific gotcha that clicking
+  through Safari's own "proceed anyway" warning does NOT carry over to a
+  home-screen-installed app's separate WebView context - only the actual
+  configuration-profile install does that reliably.
 - RESOLVED: subagent reports as their own entry kind - done 2026-08-02. The
   real tool name is "Agent" (verified live against a real captured transcript
   - not "Task"), with input {description, prompt, subagent_type,

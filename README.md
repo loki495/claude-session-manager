@@ -457,7 +457,7 @@ every piece is a harmless no-op until you opt in:
 **Mechanism**: no client-side background mechanism exists on iOS to detect
 this itself (no Periodic Background Sync support), so it's entirely
 server/host-triggered - the timer above runs `host-agent/push_trigger.php`
-every 30s, which compares each live session's current blocked/working/idle
+every 10s, which compares each live session's current blocked/working/idle
 state (`push_session_state()`) against what it was on the previous tick
 (`host-agent/state/push-session-state.json`) and sends a push only on the
 transition INTO blocked - not on every tick a prompt sits unanswered, and
