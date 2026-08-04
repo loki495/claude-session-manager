@@ -64,6 +64,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 : (string)($result['message'] ?? 'Failed to install hooks');
             break;
 
+        case 'set_push_timer_interval':
+            $seconds = (int)($_POST['seconds'] ?? 0);
+            $result = agent_call(['action' => 'set_push_timer_interval', 'seconds' => $seconds]);
+            $ok = (bool)($result['ok'] ?? false);
+            $message = $ok
+                ? "Push-check interval set to {$seconds}s."
+                : (string)($result['message'] ?? 'Failed to update the push-check interval');
+            break;
+
         default:
             $ok = false;
             $message = 'Unknown action';
@@ -92,6 +101,9 @@ $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
 
 $healthResult = $agentReachable ? agent_call(['action' => 'health_check']) : ['ok' => false];
 $healthChecks = (bool)($healthResult['ok'] ?? false) ? ($healthResult['checks'] ?? []) : [];
+
+$pushTimerResult = $agentReachable ? agent_call(['action' => 'get_push_timer_interval']) : ['ok' => false];
+$pushTimerIntervalSeconds = (bool)($pushTimerResult['ok'] ?? false) ? (int)($pushTimerResult['interval_seconds'] ?? 0) : null;
 
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
@@ -160,7 +172,7 @@ $csrfToken = csrf_token();
     </div>
   <?php endif; ?>
 
-  <?= health_box_html($healthChecks) ?>
+  <?= health_box_html($healthChecks, $pushTimerIntervalSeconds, $csrfToken) ?>
 
   <details id="new-session-details" class="mb-3 rounded-xl border border-slate-800 bg-slate-900/50">
     <summary id="new-session-summary" class="min-h-[3rem] flex items-center justify-center rounded-xl bg-indigo-600 active:bg-indigo-700 font-medium text-base px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">

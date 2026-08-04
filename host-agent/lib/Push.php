@@ -590,6 +590,133 @@ function push_delivery_check(): array
 }
 
 /**
+ * Path to the INSTALLED csm-push-check.timer unit - NOT the repo template
+ * at host-agent/systemd/csm-push-check.timer, which install.sh only ever
+ * copies from once. Editing the template would silently do nothing until
+ * a manual reinstall; this is the file systemd actually reads.
+ */
+function push_timer_unit_path(): string
+{
+    return csm_config('PUSH_TIMER_UNIT_PATH', home_root() . '/.config/systemd/user/csm-push-check.timer');
+}
+
+/**
+ * The systemd unit NAME passed to `systemctl --user`, separately
+ * overridable from push_timer_unit_path() above - tests need to isolate
+ * this too, not just the file path, since set_push_timer_interval() runs
+ * real `systemctl --user is-active`/`restart` commands: without an
+ * override, a test running on this same machine would query/restart the
+ * REAL production csm-push-check.timer, not a fixture. Pointing this at a
+ * name systemd has never heard of makes `is-active` reliably report
+ * "inactive" (not "active"), which is what keeps the restart branch in
+ * set_push_timer_interval() from ever firing in tests.
+ */
+function push_timer_unit_name(): string
+{
+    return csm_config('PUSH_TIMER_UNIT_NAME', 'csm-push-check.timer');
+}
+
+/**
+ * Bounds on the adjustable interval. Floor avoids hammering systemd/
+ * journald for no real latency benefit below ~1-5s granularity (see the
+ * shipped unit's own comment on why 10s was chosen); ceiling keeps a
+ * "forgot I changed this" mistake from silently making notifications
+ * near-useless, given iOS has no client-side background-sync mechanism -
+ * this timer is the ONLY thing standing between a session blocking and
+ * the phone finding out.
+ */
+function push_timer_interval_min_seconds(): int
+{
+    return 5;
+}
+
+function push_timer_interval_max_seconds(): int
+{
+    return 300;
+}
+
+/**
+ * Reads the interval straight from the installed unit file (not some
+ * separately-tracked setting) so this can never drift from what systemd
+ * is actually running.
+ *
+ * @return array{ok:bool, interval_seconds:?int, message?:string}
+ */
+function get_push_timer_interval(): array
+{
+    $raw = @file_get_contents(push_timer_unit_path());
+
+    if ($raw === false) {
+        return ['ok' => false, 'interval_seconds' => null, 'message' => 'csm-push-check.timer is not installed - see the README'];
+    }
+
+    if (!preg_match('/^OnUnitActiveSec=(\d+)s\s*$/m', $raw, $m)) {
+        return ['ok' => false, 'interval_seconds' => null, 'message' => 'Could not parse OnUnitActiveSec from the installed timer unit'];
+    }
+
+    return ['ok' => true, 'interval_seconds' => (int)$m[1]];
+}
+
+/**
+ * Rewrites both OnBootSec= and OnUnitActiveSec= (kept identical, matching
+ * how the shipped unit already pairs them) to the new interval, then
+ * daemon-reload + restart so the change actually takes effect right away
+ * instead of waiting for the current cycle to finish under the old one.
+ * Only restarts if the timer was already active - install.sh deliberately
+ * leaves it uninstalled/inactive until VAPID keys exist (see its own
+ * comment there), and adjusting the interval shouldn't be what silently
+ * turns the timer on for the first time.
+ *
+ * @return array{ok:bool, interval_seconds?:int, message?:string}
+ */
+function set_push_timer_interval(int $seconds): array
+{
+    $min = push_timer_interval_min_seconds();
+    $max = push_timer_interval_max_seconds();
+
+    if ($seconds < $min || $seconds > $max) {
+        return ['ok' => false, 'message' => "Interval must be between {$min} and {$max} seconds"];
+    }
+
+    $path = push_timer_unit_path();
+    $raw = @file_get_contents($path);
+
+    if ($raw === false) {
+        return ['ok' => false, 'message' => 'csm-push-check.timer is not installed - see the README'];
+    }
+
+    $updated = preg_replace('/^OnBootSec=\d+s\s*$/m', "OnBootSec={$seconds}s", $raw, 1, $bootCount);
+    $updated = preg_replace('/^OnUnitActiveSec=\d+s\s*$/m', "OnUnitActiveSec={$seconds}s", $updated, 1, $activeCount);
+
+    if ($bootCount !== 1 || $activeCount !== 1) {
+        return ['ok' => false, 'message' => 'Could not find OnBootSec=/OnUnitActiveSec= lines to update in the installed timer unit'];
+    }
+
+    if (@file_put_contents($path, $updated) === false) {
+        return ['ok' => false, 'message' => 'Failed to write the updated timer unit - check file permissions'];
+    }
+
+    $reload = run_process(['systemctl', '--user', 'daemon-reload']);
+
+    if ($reload['exit'] !== 0) {
+        return ['ok' => false, 'message' => 'systemctl daemon-reload failed: ' . trim($reload['stderr'])];
+    }
+
+    $unitName = push_timer_unit_name();
+    $isActive = run_process(['systemctl', '--user', 'is-active', $unitName]);
+
+    if (trim($isActive['stdout']) === 'active') {
+        $restart = run_process(['systemctl', '--user', 'restart', $unitName]);
+
+        if ($restart['exit'] !== 0) {
+            return ['ok' => false, 'message' => 'Interval updated but restarting the timer failed: ' . trim($restart['stderr'])];
+        }
+    }
+
+    return ['ok' => true, 'interval_seconds' => $seconds];
+}
+
+/**
  * "Is everything this app needs actually installed/configured" - one
  * combined check for the dashboard's health box, instead of leaving
  * Andres to discover each missing piece separately (a stale/never-set
@@ -702,6 +829,12 @@ function dispatch_push_action(array $request): ?array
 
         case 'health_check':
             return health_check();
+
+        case 'get_push_timer_interval':
+            return get_push_timer_interval();
+
+        case 'set_push_timer_interval':
+            return set_push_timer_interval((int)($request['seconds'] ?? 0));
 
         default:
             return null;
