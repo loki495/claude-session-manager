@@ -107,26 +107,6 @@ Bigger or investigative items:
   Needs more detail to reproduce - which messages (his own compose sends,
   or ones typed directly into a real Claude Code session outside the app?),
   how soon after sending, whether a poll cycle happens in between.
-- Add a badge to the home-screen icon (via the Badging API,
-  navigator.setAppBadge()/clearAppBadge() from src/sw.js's push handler)
-  when a push notification has been sent but not yet cleared/seen.
-  Caveat worth checking before building: the whole push feature here was
-  built specifically for iOS Safari's home-screen-installed PWA mode
-  (see the README's cert-trust section), and Badging API support on iOS
-  PWAs has historically lagged well behind other platforms - confirm it
-  actually works in Andres's real installed-app context before assuming
-  this is a straightforward addition on top of the existing sw.js.
-- Investigate: Andres reports tapping a push notification on iOS opens
-  the dashboard instead of the specific session it was about. sw.js's
-  notificationclick handler already looks correct in the code - it reads
-  event.notification.data.url (set from the real per-session URL
-  check_and_send_pushes() passes to send_push_notification(), e.g.
-  /session.php?session=cc-...) and calls clients.openWindow(url)/focus()
-  on a matching existing client - so this smells like a known-ish iOS/
-  WebKit limitation with openWindow() in home-screen-installed PWA
-  (standalone display) mode rather than an app-side bug, but needs
-  confirming live on Andres's actual device before assuming that's really
-  the cause or looking for a workaround.
 - session.php: when Claude sends a non-image file, show a download link
   for it (currently renders as a plain tool_use/tool_result pair, no
   special treatment at all - only images get that, via
