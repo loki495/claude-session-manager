@@ -15,10 +15,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib/Push.php';
 
+use HostAgent\Services\SessionService;
+
 if (!push_configured()) {
     exit(0);
 }
 
-$sessions = list_all_sessions()['sessions'] ?? [];
+$sessions = SessionService::list_all_sessions()['sessions'] ?? [];
 
 check_and_send_pushes($sessions);

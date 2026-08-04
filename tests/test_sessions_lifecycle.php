@@ -17,6 +17,7 @@ use HostAgent\Services\Config;
 use HostAgent\Services\ProcessInspector;
 use HostAgent\Services\PromptParser;
 use HostAgent\Services\QuotaService;
+use HostAgent\Services\SessionService;
 use HostAgent\Services\TmuxService;
 
 const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
@@ -35,10 +36,10 @@ $bareProc = null;
 /** @var string|null $adhocName a non-cc-* tmux session hosting a fake claude process, for the finally-block safety net */
 $adhocName = null;
 
-/** @var string|null $promptTestSession a cc-* session used to test answer_prompt(), for the finally-block safety net */
+/** @var string|null $promptTestSession a cc-* session used to test SessionService::answer_prompt(), for the finally-block safety net */
 $promptTestSession = null;
 
-/** @var string|null $sendTestSession a cc-* session used to test send_message(), for the finally-block safety net */
+/** @var string|null $sendTestSession a cc-* session used to test SessionService::send_message(), for the finally-block safety net */
 $sendTestSession = null;
 
 /** @var string|null $wrapTestSession a cc-* session used to test TmuxService::tmux_capture_pane()'s line-wrap rejoin, for the finally-block safety net */
@@ -52,7 +53,7 @@ $quotaTestSession = null;
  */
 function create_and_track(string $workdir, array &$createdSessions): array
 {
-    $result = create_cc_session($workdir);
+    $result = SessionService::create_cc_session($workdir);
     $name = null;
 
     if (preg_match('/Created session (cc-\S+) in/', (string)($result['message'] ?? ''), $m) === 1) {
@@ -65,7 +66,7 @@ function create_and_track(string $workdir, array &$createdSessions): array
 
 function find_session(string $name): ?array
 {
-    foreach (list_all_sessions()['sessions'] as $session) {
+    foreach (SessionService::list_all_sessions()['sessions'] as $session) {
         if ($session['name'] === $name) {
             return $session;
         }
@@ -119,7 +120,7 @@ assert_equal(
 // also extracting the surrounding context (the actual tool call / command /
 // trust-dialog explanation, not just the bare question) and every numbered
 // option, so a caller can render real Approve/Deny buttons with enough
-// information to decide, not a blind rubber stamp (used by answer_prompt()
+// information to decide, not a blind rubber stamp (used by SessionService::answer_prompt()
 // below). The two multi-line fixtures below are verbatim tmux capture-pane
 // output from a real, live session - a real trust dialog and a real Bash
 // permission prompt - captured specifically because the original
@@ -218,7 +219,7 @@ assert_equal(false, $parsedNoQuestion['multi_question'] ?? null, 'parse_blocking
 
 // --- PromptParser::parse_blocking_prompt(): a real, live capture of a multi-question
 // AskUserQuestion prompt - a tabbed interface (one tab per question plus
-// a trailing Submit tab, cycled with Left/Right - see navigate_prompt()),
+// a trailing Submit tab, cycled with Left/Right - see SessionService::navigate_prompt()),
 // where each numbered option is followed by its own indented description
 // line and a purely decorative divider precedes the last option. Captured
 // specifically because the original option-parsing loop (which stopped
@@ -269,36 +270,36 @@ assert_equal(null, PromptParser::parse_current_mode($realTrustDialog), 'parse_cu
 // a blocked prompt themselves ---
 assert_equal('tmux -S ' . Config::tmux_socket() . ' attach -t cc-example', TmuxService::tmux_attach_hint('cc-example'), 'tmux_attach_hint: uses the configured socket path');
 
-// --- generate_uuid_v4(): the id passed to `claude --session-id` at launch ---
+// --- SessionService::generate_uuid_v4(): the id passed to `claude --session-id` at launch ---
 $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/';
-assert_true(preg_match($uuidPattern, generate_uuid_v4()) === 1, 'generate_uuid_v4: matches the RFC 4122 v4 shape');
-assert_true(generate_uuid_v4() !== generate_uuid_v4(), 'generate_uuid_v4: two calls produce different ids');
+assert_true(preg_match($uuidPattern, SessionService::generate_uuid_v4()) === 1, 'generate_uuid_v4: matches the RFC 4122 v4 shape');
+assert_true(SessionService::generate_uuid_v4() !== SessionService::generate_uuid_v4(), 'generate_uuid_v4: two calls produce different ids');
 
-// --- browse_dir(): powers the New Session folder browser, walking from
+// --- SessionService::browse_dir(): powers the New Session folder browser, walking from
 // WWW_ROOT up to (but never past) HOME_ROOT ---
-$result = browse_dir(Config::www_root());
-assert_true($result['ok'] ?? false, 'browse_dir(www_root): ok=true');
-assert_equal(['.hidden-dir', 'project-a', 'project-b'], $result['dirs'] ?? null, 'browse_dir(www_root): includes hidden dirs, sorted');
+$result = SessionService::browse_dir(Config::www_root());
+assert_true($result['ok'] ?? false, 'SessionService::browse_dir(www_root): ok=true');
+assert_equal(['.hidden-dir', 'project-a', 'project-b'], $result['dirs'] ?? null, 'SessionService::browse_dir(www_root): includes hidden dirs, sorted');
 
-$result = browse_dir(Config::www_root() . '/project-a');
-assert_true($result['ok'] ?? false, 'browse_dir(project-a): ok=true');
-assert_equal(['nested'], $result['dirs'] ?? null, 'browse_dir(project-a): lists its one subfolder');
-assert_equal(Config::www_root(), $result['parent'] ?? null, 'browse_dir(project-a): parent is WWW_ROOT');
+$result = SessionService::browse_dir(Config::www_root() . '/project-a');
+assert_true($result['ok'] ?? false, 'SessionService::browse_dir(project-a): ok=true');
+assert_equal(['nested'], $result['dirs'] ?? null, 'SessionService::browse_dir(project-a): lists its one subfolder');
+assert_equal(Config::www_root(), $result['parent'] ?? null, 'SessionService::browse_dir(project-a): parent is WWW_ROOT');
 
-$result = browse_dir(Config::www_root() . '/project-a/nested');
-assert_true($result['ok'] ?? false, 'browse_dir(nested): ok=true');
-assert_equal([], $result['dirs'] ?? null, 'browse_dir(nested): no subfolders');
-assert_equal(Config::www_root() . '/project-a', $result['parent'] ?? null, 'browse_dir(nested): parent is project-a');
+$result = SessionService::browse_dir(Config::www_root() . '/project-a/nested');
+assert_true($result['ok'] ?? false, 'SessionService::browse_dir(nested): ok=true');
+assert_equal([], $result['dirs'] ?? null, 'SessionService::browse_dir(nested): no subfolders');
+assert_equal(Config::www_root() . '/project-a', $result['parent'] ?? null, 'SessionService::browse_dir(nested): parent is project-a');
 
-$result = browse_dir(Config::home_root());
-assert_true($result['ok'] ?? false, 'browse_dir(home_root): ok=true');
-assert_equal(null, $result['parent'], 'browse_dir(home_root): parent is null - can\'t go up further');
+$result = SessionService::browse_dir(Config::home_root());
+assert_true($result['ok'] ?? false, 'SessionService::browse_dir(home_root): ok=true');
+assert_equal(null, $result['parent'], 'SessionService::browse_dir(home_root): parent is null - can\'t go up further');
 
-$result = browse_dir('/etc');
-assert_equal(false, $result['ok'] ?? null, 'browse_dir(/etc): rejects a path outside home_root');
+$result = SessionService::browse_dir('/etc');
+assert_equal(false, $result['ok'] ?? null, 'SessionService::browse_dir(/etc): rejects a path outside home_root');
 
-$result = browse_dir(Config::www_root() . '/does-not-exist');
-assert_equal(false, $result['ok'] ?? null, 'browse_dir(missing dir): rejects a nonexistent path');
+$result = SessionService::browse_dir(Config::www_root() . '/does-not-exist');
+assert_equal(false, $result['ok'] ?? null, 'SessionService::browse_dir(missing dir): rejects a nonexistent path');
 
 try {
     // --- create ---
@@ -315,39 +316,39 @@ try {
     assert_true(($session['pid'] ?? null) !== null, 'list: pane process pid matched via argv[0]');
     // fake_claude (behaves like /bin/cat) never sets a terminal title like the
     // real claude CLI does, so its content isn't asserted here - only that
-    // list_all_sessions() always includes the key. The stripping behavior
+    // SessionService::list_all_sessions() always includes the key. The stripping behavior
     // itself is covered deterministically by the PromptParser::clean_pane_title() checks above.
     assert_true(array_key_exists('title', $session ?? []), 'list: title key present');
     assert_true(preg_match($uuidPattern, (string)($session['claude_session_id'] ?? '')) === 1, 'list: claude_session_id recorded via sidecar, uuid-shaped');
 
-    // --- session_detail(): the same re-derived-from-a-live-scan data as one
+    // --- SessionService::session_detail(): the same re-derived-from-a-live-scan data as one
     // list() row, plus has_transcript - fake_claude never actually writes a
     // real ~/.claude/projects transcript, so has_transcript is expected
     // false here (see test_transcript.php for the file-found path) ---
-    $detail = $name !== null ? session_detail($name) : ['ok' => false];
+    $detail = $name !== null ? SessionService::session_detail($name) : ['ok' => false];
     assert_true($detail['ok'] ?? false, 'session_detail: ok=true for a live session');
     assert_equal($session['claude_session_id'] ?? null, $detail['claude_session_id'] ?? null, 'session_detail: same claude_session_id as list()');
     assert_equal(false, $detail['has_transcript'] ?? null, 'session_detail: has_transcript=false (no real transcript file exists for this fixture)');
 
-    $missingDetail = session_detail('cc-not-a-real-session');
+    $missingDetail = SessionService::session_detail('cc-not-a-real-session');
     assert_equal(false, $missingDetail['ok'] ?? null, 'session_detail: rejects a name that is not currently live');
 
-    // --- session_history(): a claude_session_id is recorded, but with no
+    // --- SessionService::session_history(): a claude_session_id is recorded, but with no
     // real transcript file behind it (fake_claude doesn't write one) this
     // must fail gracefully, not error out ---
-    $history = $name !== null ? session_history($name, null, 10) : ['ok' => true];
+    $history = $name !== null ? SessionService::session_history($name, null, 10) : ['ok' => true];
     assert_equal(false, $history['ok'] ?? null, 'session_history: ok=false when no transcript file exists for a recorded claude_session_id');
 
-    $noSidecarHistory = session_history('cc-not-a-real-session', null, 10);
+    $noSidecarHistory = SessionService::session_history('cc-not-a-real-session', null, 10);
     assert_equal(false, $noSidecarHistory['ok'] ?? null, 'session_history: ok=false for a session with no sidecar at all');
 
     // --- reject kill of a name that isn't currently active ---
-    $result = kill_cc_session('cc-not-a-real-session');
+    $result = SessionService::kill_cc_session('cc-not-a-real-session');
     assert_equal(false, $result['ok'] ?? null, 'kill: rejects a name not in the live whitelist');
 
     // --- kill ---
     if ($name !== null) {
-        $result = kill_cc_session($name);
+        $result = SessionService::kill_cc_session($name);
         assert_true($result['ok'] ?? false, 'kill: ok=true');
         $createdSessions = array_values(array_diff($createdSessions, [$name]));
 
@@ -356,7 +357,7 @@ try {
     }
 
     // --- input validation: relative path rejected before touching tmux ---
-    $result = create_cc_session('relative/path');
+    $result = SessionService::create_cc_session('relative/path');
     assert_equal(false, $result['ok'] ?? null, 'create: rejects a relative workdir');
 
     // --- self-healing: the tmux socket's parent directory can vanish
@@ -375,12 +376,12 @@ try {
     $healed = create_and_track(Config::www_root() . '/project-a', $createdSessions);
     assert_true($healed['ok'], 'create: recreates a missing tmux socket dir and still succeeds');
     if ($healed['name'] !== null) {
-        kill_cc_session($healed['name']);
+        SessionService::kill_cc_session($healed['name']);
         $createdSessions = array_values(array_diff($createdSessions, [$healed['name']]));
     }
 
     // --- claude binary fails to start: tmux registers the session, then the pane
-    // exits immediately since the command doesn't exist - create_cc_session()'s
+    // exits immediately since the command doesn't exist - SessionService::create_cc_session()'s
     // post-creation check must catch that and report failure ---
     $originalClaudeBin = Config::claude_bin();
     putenv('CLAUDE_BIN=/definitely/does/not/exist/csm-test-claude-binary');
@@ -394,7 +395,7 @@ try {
 
     sleep(Config::cleanup_threshold_seconds() + 1);
 
-    $result = cleanup_inactive_sessions();
+    $result = SessionService::cleanup_inactive_sessions();
     assert_true($result['ok'] ?? false, 'cleanup: ok=true');
     assert_true(
         $created['name'] !== null && in_array($created['name'], $result['killed'] ?? [], true),
@@ -405,8 +406,8 @@ try {
     }
 
     // --- bare processes: a plain (non-tmux) fake claude process must show
-    // up in list_all_sessions()['bare'] with no tmux_session/title, and
-    // kill_bare_process() must SIGTERM it directly ---
+    // up in SessionService::list_all_sessions()['bare'] with no tmux_session/title, and
+    // SessionService::kill_bare_process() must SIGTERM it directly ---
     $bareCwd = Config::www_root() . '/project-a';
     $bareProc = proc_open([Config::claude_bin()], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $barePipes, $bareCwd);
     assert_true(is_resource($bareProc), 'bare setup: spawned a plain (non-tmux) fake claude process');
@@ -414,7 +415,7 @@ try {
     usleep(300000); // let /proc reflect the new process's argv/cwd
 
     $bareEntry = null;
-    foreach (list_all_sessions()['bare'] as $b) {
+    foreach (SessionService::list_all_sessions()['bare'] as $b) {
         if ($b['pid'] === $barePid) {
             $bareEntry = $b;
             break;
@@ -425,9 +426,9 @@ try {
     assert_equal(null, $bareEntry['tmux_session'], 'list: plain bare process has no owning tmux session');
     assert_equal(null, $bareEntry['title'], 'list: plain bare process has no title');
 
-    assert_equal(false, kill_bare_process(999999)['ok'] ?? null, 'kill_bare_process: rejects a pid that is not a running claude process');
+    assert_equal(false, SessionService::kill_bare_process(999999)['ok'] ?? null, 'kill_bare_process: rejects a pid that is not a running claude process');
 
-    $killResult = $barePid !== null ? kill_bare_process($barePid) : ['ok' => false];
+    $killResult = $barePid !== null ? SessionService::kill_bare_process($barePid) : ['ok' => false];
     assert_true($killResult['ok'] ?? false, 'kill_bare_process: ok=true for a plain process');
     usleep(300000);
 
@@ -447,7 +448,7 @@ try {
     // --- bare processes: a fake claude process living inside a tmux
     // session this tool doesn't manage (not cc-* prefixed) must be
     // enriched with that session's name and pane title, and
-    // kill_bare_process() must kill the whole session rather than just
+    // SessionService::kill_bare_process() must kill the whole session rather than just
     // SIGTERM the pid ---
     $adhocName = 'csm-test-adhoc-' . getmypid();
     $adhocCwd = Config::www_root() . '/project-b';
@@ -458,7 +459,7 @@ try {
     usleep(100000);
 
     $adhocEntry = null;
-    foreach (list_all_sessions()['bare'] as $b) {
+    foreach (SessionService::list_all_sessions()['bare'] as $b) {
         if (($b['cwd'] ?? null) === $adhocCwd) {
             $adhocEntry = $b;
             break;
@@ -469,14 +470,14 @@ try {
     assert_equal('Adhoc bare title', $adhocEntry['title'] ?? null, 'list: bare process picks up its tmux pane title');
 
     $adhocPid = $adhocEntry['pid'] ?? null;
-    $killResult = $adhocPid !== null ? kill_bare_process($adhocPid) : ['ok' => false];
+    $killResult = $adhocPid !== null ? SessionService::kill_bare_process($adhocPid) : ['ok' => false];
     assert_true($killResult['ok'] ?? false, 'kill_bare_process: ok=true for a tmux-hosted bare process');
 
     $hasSession = TmuxService::tmux_run(['has-session', '-t', $adhocName]);
     assert_true($hasSession['exit'] !== 0, 'kill_bare_process: ad-hoc tmux session no longer exists');
     $adhocName = null;
 
-    // --- answer_prompt(): sends the chosen option's number + Enter to a
+    // --- SessionService::answer_prompt(): sends the chosen option's number + Enter to a
     // live session's pane, exactly like a human attached over tmux would
     // type. fake_claude/cat doesn't understand a real permission prompt,
     // so a raw pane running `cat` with local echo disabled (stty -echo)
@@ -497,35 +498,35 @@ try {
 
     assert_equal(
         false,
-        answer_prompt($promptTestSession, 99)['ok'] ?? null,
+        SessionService::answer_prompt($promptTestSession, 99)['ok'] ?? null,
         'answer_prompt: rejects an option not currently offered by the prompt'
     );
     assert_equal(
         false,
-        answer_prompt('cc-not-a-real-session', 1)['ok'] ?? null,
+        SessionService::answer_prompt('cc-not-a-real-session', 1)['ok'] ?? null,
         'answer_prompt: rejects a session name that is not currently live'
     );
     assert_equal(
         false,
-        navigate_prompt($promptTestSession, 'left')['ok'] ?? null,
+        SessionService::navigate_prompt($promptTestSession, 'left')['ok'] ?? null,
         'navigate_prompt: rejects a plain (non-multi-question) prompt'
     );
     assert_equal(
         false,
-        navigate_prompt($promptTestSession, 'sideways')['ok'] ?? null,
+        SessionService::navigate_prompt($promptTestSession, 'sideways')['ok'] ?? null,
         'navigate_prompt: rejects an invalid direction'
     );
 
-    $answered = answer_prompt($promptTestSession, 1);
+    $answered = SessionService::answer_prompt($promptTestSession, 1);
     assert_true($answered['ok'] ?? false, 'answer_prompt: ok=true for a currently-offered option');
     usleep(300000);
 
     $paneAfterAnswer = trim(TmuxService::tmux_capture_pane($promptTestSession));
     assert_true(str_ends_with($paneAfterAnswer, '1'), 'answer_prompt: the option number was actually sent into the pane (echoed back by cat)');
 
-    // --- navigate_prompt(): accept path, against a tab-bar-shaped pane
+    // --- SessionService::navigate_prompt(): accept path, against a tab-bar-shaped pane
     // (same session, fresh content) - verifies the real Left/Right
-    // keypress actually reaches the pane, the same way the answer_prompt()
+    // keypress actually reaches the pane, the same way the SessionService::answer_prompt()
     // check above verifies a numbered option does. ---
     TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, "←  ☐ Color  ☐ Animal  ✔ Submit  →", 'Enter']);
     TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'Pick one', 'Enter']);
@@ -533,7 +534,7 @@ try {
     TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '  2. B', 'Enter']);
     usleep(300000);
 
-    // Unlike answer_prompt()'s digit case, a "Right" arrow keypress is an
+    // Unlike SessionService::answer_prompt()'s digit case, a "Right" arrow keypress is an
     // escape sequence, not a printable byte cat's canonical-mode line
     // buffering would echo back visibly (it also never reaches cat's
     // read() at all without a following Enter to flush the line) -
@@ -546,28 +547,28 @@ try {
     // non-multi-question prompt, rejects an invalid direction) - ok=true
     // confirms it correctly recognized this as answerable and the
     // underlying tmux command didn't error.
-    $navigated = navigate_prompt($promptTestSession, 'right');
+    $navigated = SessionService::navigate_prompt($promptTestSession, 'right');
     assert_true($navigated['ok'] ?? false, 'navigate_prompt: ok=true for a live multi-question prompt');
 
-    // --- set_mode(): jumps straight to a chosen mode by working out how
+    // --- SessionService::set_mode(): jumps straight to a chosen mode by working out how
     // many Shift+Tab ("BTab") presses that is from the current mode, read
     // live from the pane. Each press is itself an escape sequence (not a
-    // printable byte cat echoes back visibly - same as navigate_prompt()'s
+    // printable byte cat echoes back visibly - same as SessionService::navigate_prompt()'s
     // arrow-key case above), but here the *count* of presses is
     // independently verifiable: seed the pane with a real status line
     // (echoed back by cat) so PromptParser::parse_current_mode() reads a known starting
     // mode, then confirm ok=true for the multi-step jump. ---
-    assert_equal(false, set_mode($promptTestSession, 'not-a-real-mode')['ok'] ?? null, 'set_mode: rejects an unrecognized mode');
-    assert_equal(false, set_mode('cc-not-a-real-session', 'plan')['ok'] ?? null, 'set_mode: rejects a session name that is not currently live');
+    assert_equal(false, SessionService::set_mode($promptTestSession, 'not-a-real-mode')['ok'] ?? null, 'set_mode: rejects an unrecognized mode');
+    assert_equal(false, SessionService::set_mode('cc-not-a-real-session', 'plan')['ok'] ?? null, 'set_mode: rejects a session name that is not currently live');
     assert_equal(
         false,
-        set_mode($promptTestSession, 'plan')['ok'] ?? null,
+        SessionService::set_mode($promptTestSession, 'plan')['ok'] ?? null,
         'set_mode: rejects when the current mode cannot be read from the pane (no real Claude Code status line here yet)'
     );
 
     TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'manual mode on', 'Enter']);
     usleep(300000);
-    $modeSet = set_mode($promptTestSession, 'auto'); // manual -> auto is 3 steps, the largest possible jump
+    $modeSet = SessionService::set_mode($promptTestSession, 'auto'); // manual -> auto is 3 steps, the largest possible jump
     assert_true($modeSet['ok'] ?? false, 'set_mode: ok=true once the current mode is readable, for a live session');
 
     TmuxService::tmux_run(['kill-session', '-t', $promptTestSession]);
@@ -598,7 +599,7 @@ try {
     TmuxService::tmux_run(['kill-session', '-t', $wrapTestSession]);
     $wrapTestSession = null;
 
-    // --- send_message(): sends free text to a session's pane via tmux
+    // --- SessionService::send_message(): sends free text to a session's pane via tmux
     // paste-buffer + Enter, exactly as if a human had typed it while
     // attached. Verified end-to-end against a real pane: the full
     // multi-line message lands as one block (echoed back by cat), not
@@ -609,10 +610,10 @@ try {
     assert_equal(0, $sendSetup['exit'], 'send_message setup: created a live cc-* session to send a message to');
     usleep(300000);
 
-    assert_equal(false, send_message('cc-not-a-real-session', 'hello')['ok'] ?? null, 'send_message: rejects a session name that is not currently live');
-    assert_equal(false, send_message($sendTestSession, '   ')['ok'] ?? null, 'send_message: rejects a whitespace-only message');
+    assert_equal(false, SessionService::send_message('cc-not-a-real-session', 'hello')['ok'] ?? null, 'send_message: rejects a session name that is not currently live');
+    assert_equal(false, SessionService::send_message($sendTestSession, '   ')['ok'] ?? null, 'send_message: rejects a whitespace-only message');
 
-    $sent = send_message($sendTestSession, "Line one\nLine two");
+    $sent = SessionService::send_message($sendTestSession, "Line one\nLine two");
     assert_true($sent['ok'] ?? false, 'send_message: ok=true for a live session');
     usleep(300000);
 
@@ -656,7 +657,7 @@ try {
     // socket is the real backstop regardless of what happens here, but
     // clean up explicitly too in case this script is ever run standalone.
     foreach ($createdSessions as $leftover) {
-        kill_cc_session($leftover);
+        SessionService::kill_cc_session($leftover);
     }
     if ($adhocName !== null) {
         TmuxService::tmux_run(['kill-session', '-t', $adhocName]);
