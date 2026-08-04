@@ -71,6 +71,18 @@ function push_state_file(): string
 }
 
 /**
+ * Last-tick outcome of check_and_send_pushes() - written on EVERY tick
+ * (even ones with nothing to send), so its timestamp doubles as a
+ * heartbeat proving the csm-push-check timer is actually running, not
+ * just that sends succeed when attempted. Read back by health_check() for
+ * the dashboard.
+ */
+function push_check_status_file(): string
+{
+    return csm_config('PUSH_CHECK_STATUS_FILE', csm_repo_root() . '/host-agent/state/push-check-status.json');
+}
+
+/**
  * @return array<int, array{endpoint:string, keys:array{p256dh:string, auth:string}}>
  */
 function read_push_subscriptions(): array
@@ -268,29 +280,39 @@ function push_finished_body(?array $lastMessage): string
  * "do you want to proceed?" (that's what the pane-scraped blocked_reason
  * usually reduces to for this prompt shape - see push_blocked_body()).
  *
+ * $taskTitle (push_notification_title() of the same session) is prefixed
+ * on when given, e.g. "Check the todos: npm test" instead of just
+ * "npm test" - the notification's own title field already carries this,
+ * but some lock screens/previews de-emphasize or truncate the title
+ * enough that the command alone reads as context-free. Optional (default
+ * '', no prefix) so callers that only care about the command/action
+ * formatting itself don't need to think about it.
+ *
  * @param array<string, mixed> $toolInput
  */
-function push_permission_body(string $toolName, array $toolInput): string
+function push_permission_body(string $toolName, array $toolInput, string $taskTitle = ''): string
 {
     switch ($toolName) {
         case 'Bash':
             $command = is_string($toolInput['command'] ?? null) ? trim($toolInput['command']) : '';
-
-            return $command !== '' ? push_truncate($command) : 'Run a Bash command';
+            $action = $command !== '' ? $command : 'Run a Bash command';
+            break;
 
         case 'Write':
             $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
-
-            return $path !== null ? "Write {$path}" : 'Write a file';
+            $action = $path !== null ? "Write {$path}" : 'Write a file';
+            break;
 
         case 'Edit':
             $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
-
-            return $path !== null ? "Edit {$path}" : 'Edit a file';
+            $action = $path !== null ? "Edit {$path}" : 'Edit a file';
+            break;
 
         default:
-            return "Run {$toolName}";
+            $action = "Run {$toolName}";
     }
+
+    return push_truncate($taskTitle !== '' ? "{$taskTitle}: {$action}" : $action);
 }
 
 /**
@@ -309,7 +331,7 @@ function push_blocked_body(array $session): string
     $toolInput = is_array($session['prompt_tool_input'] ?? null) ? $session['prompt_tool_input'] : null;
 
     if ($toolName !== null && $toolName !== 'AskUserQuestion' && $toolInput !== null) {
-        return push_permission_body($toolName, $toolInput);
+        return push_permission_body($toolName, $toolInput, push_notification_title($session));
     }
 
     return (string)($session['blocked_reason'] ?? 'Waiting on input');
@@ -375,6 +397,45 @@ function send_push_notification(array $subscription, string $title, string $body
 }
 
 /**
+ * Persists the outcome of one check_and_send_pushes() tick and logs any
+ * non-expiry failure to the journal (via error_log(), which csm-push-
+ * check.service's default StandardError=journal already routes there) -
+ * previously the ONLY trace of a failed send was silently pruning an
+ * expired subscription; anything else (malformed payload, the push
+ * service unreachable, a bad VAPID key) left no record anywhere. Called
+ * every tick regardless of whether there was anything to send, so
+ * "checked_at" also works as a heartbeat - see push_check_status_file().
+ *
+ * @param array<int, array{ok:bool, expired:bool, message?:string}> $sendResults
+ */
+function record_push_check_result(array $sendResults): void
+{
+    $failures = array_values(array_filter(
+        $sendResults,
+        fn(array $r): bool => !$r['ok'] && !$r['expired']
+    ));
+
+    foreach ($failures as $failure) {
+        error_log('csm-push-check: send failed - ' . ($failure['message'] ?? 'unknown reason'));
+    }
+
+    $status = [
+        'checked_at' => time(),
+        'sent' => count($sendResults),
+        'failed' => count($failures),
+        'last_failure_message' => $failures !== [] ? ($failures[count($failures) - 1]['message'] ?? 'unknown reason') : null,
+    ];
+
+    $dir = dirname(push_check_status_file());
+
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0700, true);
+    }
+
+    @file_put_contents(push_check_status_file(), json_encode($status));
+}
+
+/**
  * The main push-trigger pass, called on every csm-push-check timer tick
  * (see host-agent/push_trigger.php): for every currently-live session,
  * compares its current push_session_state() against what was last
@@ -411,6 +472,7 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
     $notified = [];
     $subscriptions = read_push_subscriptions();
     $expiredEndpoints = [];
+    $sendResults = [];
     $minWorkingSeconds = push_min_working_seconds_for_finish_notify();
 
     foreach ($sessions as $session) {
@@ -462,6 +524,7 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
         if ($subscriptions !== []) {
             foreach ($subscriptions as $subscription) {
                 $result = send_push_notification($subscription, $notification['title'], $notification['body'], '/session.php?session=' . urlencode($name));
+                $sendResults[] = $result;
 
                 if ($result['expired']) {
                     $expiredEndpoints[] = $subscription['endpoint'];
@@ -476,8 +539,54 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
     }
 
     write_push_session_state($currentState);
+    record_push_check_result($sendResults);
 
     return ['ok' => true, 'notified' => $notified, 'pruned' => count($expiredEndpoints)];
+}
+
+/**
+ * health_check() entry for the csm-push-check timer itself - not just
+ * "are VAPID keys configured" (that's its own separate check, a
+ * prerequisite rather than this), but whether the timer is actually
+ * running AND whether its most recent tick's sends succeeded. Reads the
+ * status record_push_check_result() writes every tick.
+ *
+ * @return array{key:string, label:string, ok:bool, detail:?string}
+ */
+function push_delivery_check(): array
+{
+    $key = 'push_delivery';
+    $label = 'Push delivery';
+
+    if (!push_configured()) {
+        return ['key' => $key, 'label' => $label, 'ok' => true, 'detail' => 'VAPID not configured yet - nothing to check'];
+    }
+
+    $raw = @file_get_contents(push_check_status_file());
+    $status = $raw !== false ? json_decode($raw, true) : null;
+
+    if (!is_array($status) || !is_int($status['checked_at'] ?? null)) {
+        return ['key' => $key, 'label' => $label, 'ok' => false, 'detail' => 'csm-push-check timer has never run - is it installed and enabled?'];
+    }
+
+    $ageSeconds = time() - $status['checked_at'];
+    $failed = (int)($status['failed'] ?? 0);
+
+    if ($failed > 0) {
+        $message = is_string($status['last_failure_message'] ?? null) ? $status['last_failure_message'] : 'unknown reason';
+
+        return ['key' => $key, 'label' => $label, 'ok' => false, 'detail' => "Last check {$ageSeconds}s ago: {$failed} send(s) failed - {$message}"];
+    }
+
+    // A stale timestamp means the timer itself has stopped ticking, not
+    // that sends are failing - worth its own message rather than reading
+    // as a false "all good". 120s is generous slack over the default 10s
+    // interval regardless of whatever interval is actually configured.
+    if ($ageSeconds > 120) {
+        return ['key' => $key, 'label' => $label, 'ok' => false, 'detail' => "Last check was {$ageSeconds}s ago - csm-push-check timer may not be running"];
+    }
+
+    return ['key' => $key, 'label' => $label, 'ok' => true, 'detail' => "Last check {$ageSeconds}s ago, no failures"];
 }
 
 /**
@@ -543,6 +652,8 @@ function health_check(): array
         'ok' => push_configured(),
         'detail' => null,
     ];
+
+    $checks[] = push_delivery_check();
 
     $vendorAutoload = csm_repo_root() . '/vendor/autoload.php';
     $checks[] = [

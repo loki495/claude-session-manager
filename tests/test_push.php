@@ -16,14 +16,16 @@ require dirname(__DIR__) . '/host-agent/lib/Push.php';
 
 const REAL_PUSH_SUBSCRIPTIONS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-subscriptions.json';
 const REAL_PUSH_STATE_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-session-state.json';
+const REAL_PUSH_CHECK_STATUS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-check-status.json';
 
 $fixtureDir = sys_get_temp_dir() . '/csm-test-push-' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0700, true);
 
 putenv('PUSH_SUBSCRIPTIONS_FILE=' . $fixtureDir . '/push-subscriptions.json');
 putenv('PUSH_STATE_FILE=' . $fixtureDir . '/push-session-state.json');
+putenv('PUSH_CHECK_STATUS_FILE=' . $fixtureDir . '/push-check-status.json');
 
-if (push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE || push_state_file() === REAL_PUSH_STATE_FILE) {
+if (push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE || push_state_file() === REAL_PUSH_STATE_FILE || push_check_status_file() === REAL_PUSH_CHECK_STATUS_FILE) {
     fwrite(STDERR, "REFUSING TO RUN: push subscription/state files still resolve to the real ones.\n");
     exit(1);
 }
@@ -158,10 +160,24 @@ try {
     $longCommand = str_repeat('a', 200);
     assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand])), 'push_permission_body: a long command is truncated the same as push_finished_body');
 
+    // --- push_permission_body()'s optional $taskTitle: prefixes "<title>: "
+    // onto the action so the body still carries task context even if a
+    // lock screen de-emphasizes/truncates the notification's own title
+    // field - omitted (default '') leaves the body exactly as before, per
+    // the assertions just above ---
+    assert_equal('Check the todos: npm test', push_permission_body('Bash', ['command' => 'npm test'], 'Check the todos'), 'push_permission_body: prefixes the given task title onto the command');
+    assert_equal('Check the todos: Write /tmp/foo.txt', push_permission_body('Write', ['file_path' => '/tmp/foo.txt'], 'Check the todos'), 'push_permission_body: prefixes the given task title onto a Write action too');
+    assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand], 'Check the todos')), 'push_permission_body: truncation still applies to the combined title+command');
+
     assert_equal(
-        'npm test',
+        'Claude session: npm test',
         push_blocked_body(['blocked_reason' => 'Do you want to proceed?', 'prompt_tool_name' => 'Bash', 'prompt_tool_input' => ['command' => 'npm test']]),
-        'push_blocked_body: a permission prompt (matched pending tool) shows the command, not the generic question'
+        'push_blocked_body: a permission prompt (matched pending tool) shows the command prefixed with the session\'s task title (push_notification_title()) - "Claude session" here since this session has no title/workdir/name of its own to derive one from'
+    );
+    assert_equal(
+        'Fix the login bug: npm test',
+        push_blocked_body(['name' => 'cc-20260101-1200', 'title' => 'Fix the login bug', 'blocked_reason' => 'Do you want to proceed?', 'prompt_tool_name' => 'Bash', 'prompt_tool_input' => ['command' => 'npm test']]),
+        'push_blocked_body: uses the session\'s real title when it has one'
     );
     assert_equal(
         'Which color do you prefer?',
@@ -258,7 +274,41 @@ try {
     @unlink(push_state_file());
     $withRealSubscriber = check_and_send_pushes([['name' => 'cc-real-send', 'blocked_reason' => 'Proceed?', 'working' => false]]);
     assert_equal(['cc-real-send'], $withRealSubscriber['notified'], 'check_and_send_pushes: still reports the transition even though the actual send to the one subscriber failed');
+
+    // --- record_push_check_result()/push_delivery_check(): the failed
+    // send just above must leave a real, readable trace - previously a
+    // non-expiry send failure left NO record anywhere at all, only an
+    // expired subscription being silently pruned did. ---
+
+    $statusAfterFailure = json_decode((string)file_get_contents(push_check_status_file()), true);
+    assert_equal(1, $statusAfterFailure['sent'] ?? null, 'record_push_check_result: counts the one send attempt from this tick');
+    assert_equal(1, $statusAfterFailure['failed'] ?? null, 'record_push_check_result: counts the one failure (an unreachable endpoint is a real, non-expiry failure)');
+    assert_equal(true, is_string($statusAfterFailure['last_failure_message'] ?? null) && $statusAfterFailure['last_failure_message'] !== '', 'record_push_check_result: persists a non-empty failure message, not just a bare count');
+
+    $deliveryCheckAfterFailure = push_delivery_check();
+    assert_equal(false, $deliveryCheckAfterFailure['ok'], 'push_delivery_check: ok=false right after a tick with a real send failure');
+    assert_equal(true, str_contains($deliveryCheckAfterFailure['detail'], '1 send(s) failed'), 'push_delivery_check: detail mentions the failure count');
+
     remove_push_subscription($unreachableSubscription['endpoint']);
+
+    // A tick with nothing to send (no subscribers, no transitions) still
+    // records a heartbeat, and clears the previous failure - the failure
+    // record reflects only the MOST RECENT tick, not history piling up.
+    @unlink(push_state_file());
+    check_and_send_pushes([['name' => 'cc-quiet', 'blocked_reason' => null, 'working' => false]]);
+    $statusAfterQuietTick = json_decode((string)file_get_contents(push_check_status_file()), true);
+    assert_equal(0, $statusAfterQuietTick['sent'] ?? null, 'record_push_check_result: a tick with nothing to send still records (0 sent), proving the timer ran');
+    assert_equal(0, $statusAfterQuietTick['failed'] ?? null, 'record_push_check_result: no failures on a quiet tick');
+    assert_equal(true, push_delivery_check()['ok'], 'push_delivery_check: ok=true right after a clean, recent tick');
+
+    @unlink(push_check_status_file());
+    assert_equal(false, push_delivery_check()['ok'], 'push_delivery_check: ok=false when the timer has never run at all (no status file yet)');
+
+    putenv('VAPID_PUBLIC_KEY');
+    putenv('VAPID_PRIVATE_KEY');
+    assert_equal(true, push_delivery_check()['ok'], 'push_delivery_check: ok=true (nothing to check yet) when VAPID isn\'t configured, not a false alarm on top of the separate "VAPID push keys" health check');
+    putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
+    putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
 
     // --- dispatch_push_action(): routes push_* actions, returns null (so
     // agent.php can fall through to dispatch_action()) for everything else ---
@@ -288,6 +338,7 @@ try {
     putenv('VAPID_PRIVATE_KEY');
     putenv('PUSH_SUBSCRIPTIONS_FILE');
     putenv('PUSH_STATE_FILE');
+    putenv('PUSH_CHECK_STATUS_FILE');
     array_map('unlink', glob("{$fixtureDir}/*") ?: []);
     @rmdir($fixtureDir);
 }
