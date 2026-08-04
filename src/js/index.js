@@ -18,32 +18,8 @@ var requestSessionsPollNow = function () {};
 // answer shows a brief confirmation note and immediately requests a poll
 // (requestSessionsPollNow()) rather than waiting for the next scheduled
 // tick.
-// Shared with session.php's sidebar checkbox (same localStorage key) -
-// this page has no sidebar of its own to host the toggle, but still
-// respects whatever the user set there.
-var CONFIRM_BEFORE_ANSWER_KEY = 'csm-confirm-before-answer';
-
-function shouldConfirmBeforeAnswer() {
-  try {
-    return window.localStorage.getItem(CONFIRM_BEFORE_ANSWER_KEY) !== '0';
-  } catch (e) {
-    return true;
-  }
-}
-
-// Mirrors parseJsonResponse() in session.php - reads the raw response text
-// and only then tries to parse it, so a parse failure can report the
-// actual status code and a body snippet right in the alert, not just a
-// bare "something went wrong".
-function parseJsonResponse(r, label) {
-  return r.text().then(function (text) {
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      return { ok: false, message: 'Unexpected response [' + label + '] (status ' + r.status + '): ' + text.slice(0, 200) };
-    }
-  });
-}
+// shouldConfirmBeforeAnswer()/parseJsonResponse() are shared with
+// session.js - see common.js (loaded before this file).
 
 document.addEventListener('submit', function (e) {
   var form = e.target.closest('form[data-confirm-label]');
@@ -204,11 +180,7 @@ document.addEventListener('keydown', function (e) {
 (function () {
   var ROLE_LABELS = { user: 'User', assistant: 'Assistant', system: 'System' };
 
-  function escapeHtml(text) {
-    var div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
+  // escapeHtml() is shared with session.js - see common.js.
 
   // Mirrors TranscriptView::entry_color_kind()/entry_color_classes() - see
   // there for why this isn't just entry.role (a tool_result entry carries
@@ -414,8 +386,8 @@ document.addEventListener('keydown', function (e) {
     return; // nothing to keep live - the "cannot reach host agent" banner is SSR-only
   }
 
-  var POLL_INTERVAL_STORAGE_KEY = 'csm-poll-interval-ms';
-  var POLL_INTERVAL_ALLOWED_MS = [1000, 3000, 5000, 10000, 15000];
+  // POLL_INTERVAL_STORAGE_KEY/POLL_INTERVAL_ALLOWED_MS are shared with
+  // session.js - see common.js.
   var pollIntervalMs = (function () {
     try {
       var stored = parseInt(window.localStorage.getItem(POLL_INTERVAL_STORAGE_KEY), 10);

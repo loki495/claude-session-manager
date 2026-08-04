@@ -5,6 +5,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Assets;
 use App\Views\TranscriptView;
 
 start_app_session();
@@ -154,6 +155,7 @@ $newestLine = !empty($entries) ? end($entries)['line'] : null;
 <script>
 window.CSM_BOOTSTRAP = <?= json_encode(['session' => $sessionName, 'csrfToken' => $csrfToken, 'newestLine' => $newestLine]) ?>;
 </script>
-<script src="/js/session.js"></script>
+<script src="<?= Assets::versioned_url('/js/common.js') ?>"></script>
+<script src="<?= Assets::versioned_url('/js/session.js') ?>"></script>
 </body>
 </html>

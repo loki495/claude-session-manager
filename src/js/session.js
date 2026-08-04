@@ -123,19 +123,10 @@
   var sidebarNotifyDot = document.getElementById('sidebar-notify-dot');
 
   // Setting: whether answering a plain prompt option asks for confirmation
-  // first. Shared (same localStorage key, same helper duplicated) with
-  // index.php's dashboard rows, which answer prompts too but have no
-  // sidebar of their own to host the checkbox.
-  var CONFIRM_BEFORE_ANSWER_KEY = 'csm-confirm-before-answer';
-
-  function shouldConfirmBeforeAnswer() {
-    try {
-      return window.localStorage.getItem(CONFIRM_BEFORE_ANSWER_KEY) !== '0';
-    } catch (e) {
-      return true;
-    }
-  }
-
+  // first. CONFIRM_BEFORE_ANSWER_KEY/shouldConfirmBeforeAnswer() are shared
+  // with index.js - see common.js. Shared localStorage key with index.php's
+  // dashboard rows, which answer prompts too but have no sidebar of their
+  // own to host the checkbox.
   var confirmBeforeAnswerToggle = document.getElementById('confirm-before-answer-toggle');
 
   if (confirmBeforeAnswerToggle) {
@@ -597,8 +588,8 @@
 
   // Polling interval: user-selectable (dropdown in the sticky header, 1/3/5/
   // 10/15s), persisted per-browser. Defaults to 3s.
-  var POLL_INTERVAL_STORAGE_KEY = 'csm-poll-interval-ms';
-  var POLL_INTERVAL_ALLOWED_MS = [1000, 3000, 5000, 10000, 15000];
+  // POLL_INTERVAL_STORAGE_KEY/POLL_INTERVAL_ALLOWED_MS are shared with
+  // index.js - see common.js.
   var pollIntervalMs = (function () {
     try {
       var stored = parseInt(window.localStorage.getItem(POLL_INTERVAL_STORAGE_KEY), 10);
@@ -608,27 +599,7 @@
     }
   })();
 
-  function escapeHtml(text) {
-    var div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // Replaces the old bare "Unexpected response" fallback - reading the raw
-  // response text and only then trying to parse it (instead of jumping
-  // straight to r.json(), which throws before you ever see the body) means
-  // a parse failure can report the actual status code and a body snippet
-  // right in the alert/inline error, not just "something went wrong" - no
-  // DevTools needed to tell which endpoint failed or why.
-  function parseJsonResponse(r, label) {
-    return r.text().then(function (text) {
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        return { ok: false, message: 'Unexpected response [' + label + '] (status ' + r.status + '): ' + text.slice(0, 200) };
-      }
-    });
-  }
+  // escapeHtml()/parseJsonResponse() are shared with index.js - see common.js.
 
   // --- scroll-to-bottom: the floating button shows whenever there's more
   // page below the viewport, and new content (polled messages, a

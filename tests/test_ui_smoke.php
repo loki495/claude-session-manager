@@ -102,6 +102,14 @@ try {
     assert_contains('id="session-count-text"', $result['body'], 'GET /: session-count text is a targetable element (updated live by the poll)');
     assert_contains('id="sessions-container"', $result['body'], 'GET /: session list lives inside a targetable container (swapped in place by the poll)');
     assert_contains('id="bare-container"', $result['body'], 'GET /: bare-process list lives inside a targetable container (swapped in place by the poll)');
+    assert_true(
+        preg_match('#<script src="(/js/common\.js\?v=\d+)"></script>\s*<script src="(/js/index\.js\?v=\d+)"></script>#', $result['body'], $indexScriptMatch) === 1,
+        'GET /: loads common.js then index.js, both cache-busted with a ?v=<mtime> query string (App\Assets::versioned_url())'
+    );
+    $indexCommonJs = curl_request('GET', "{$baseUrl}{$indexScriptMatch[1]}");
+    assert_equal(200, $indexCommonJs['status'], 'GET /js/common.js?v=...: 200 (served as a static file, no 404)');
+    $indexJs = curl_request('GET', "{$baseUrl}{$indexScriptMatch[2]}");
+    assert_equal(200, $indexJs['status'], 'GET /js/index.js?v=...: 200 (served as a static file, no 404)');
 
     // CSRF token must round-trip through the session (via the cookie jar), not the URL - every
     // POST below extracts it fresh from whatever page it's reacting to.
@@ -308,9 +316,15 @@ try {
     assert_contains('body.hide-tool-calls .entry-tool-use-only', $result['body'], 'GET /session.php: a second hide-tool-calls rule hides whole entries left with nothing but a hidden tool_use');
     assert_contains('.new-content-divider.fading', $result['body'], 'GET /session.php: the new-content divider fade rule is shipped');
     assert_contains('.new-content-highlight.fading', $result['body'], 'GET /session.php: the new-content highlight fade rule is shipped (two-class pattern, not a plain classList.remove, so `transition` survives the fade)');
-    assert_contains('<script src="/js/session.js">', $result['body'], 'GET /session.php: loads the static session.js file (extracted from the old inline <script> block)');
-    $sessionJs = curl_request('GET', "{$baseUrl}/js/session.js");
-    assert_equal(200, $sessionJs['status'], 'GET /js/session.js: 200 (served as a static file, no 404)');
+    assert_true(
+        preg_match('#<script src="(/js/common\.js\?v=\d+)"></script>\s*<script src="(/js/session\.js\?v=\d+)"></script>#', $result['body'], $sessionScriptMatch) === 1,
+        'GET /session.php: loads common.js then session.js, both cache-busted with a ?v=<mtime> query string (App\Assets::versioned_url())'
+    );
+    $commonJs = curl_request('GET', "{$baseUrl}{$sessionScriptMatch[1]}");
+    assert_equal(200, $commonJs['status'], 'GET /js/common.js?v=...: 200 (served as a static file, no 404)');
+    assert_contains('function parseJsonResponse(', $commonJs['body'], 'GET /js/common.js: parseJsonResponse() (shared between session.js and index.js) is shipped');
+    $sessionJs = curl_request('GET', "{$baseUrl}{$sessionScriptMatch[2]}");
+    assert_equal(200, $sessionJs['status'], 'GET /js/session.js?v=...: 200 (served as a static file, no 404)');
     assert_contains('function markNewContent(', $sessionJs['body'], 'GET /js/session.js: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
     assert_contains('>Tool output<', $result['body'], 'GET /session.php: the canned tool_result entry ("done") is labeled "Tool output", not "User"');
     assert_contains('>Tool call<', $result['body'], 'GET /session.php: the canned tool_use entry ("Bash(pwd)") is labeled "Tool call", not "Assistant"');
