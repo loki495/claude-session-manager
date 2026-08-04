@@ -3,8 +3,6 @@ says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
 Quick wins (small surface area, bug fixes / high annoyance relief):
 
-- Prevent invalid CSRF token errors when coming back to a page that's been
-  open for a while.
 - Prevent swipe triggers (nav gestures) from firing on the compose box and
   prompt textarea when the user is just text-selecting/scrolling within
   them.

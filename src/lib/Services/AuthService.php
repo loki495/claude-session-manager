@@ -13,6 +13,8 @@ namespace App\Services;
  */
 class AuthService
 {
+    private const SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 30;
+
     /* ---------- CSRF guards ---------- */
     /* Two independent layers, both required on every state-changing POST:
        same_origin_or_no_origin() (a same-origin check, no token involved) plus
@@ -57,12 +59,25 @@ class AuthService
      * navigation after a code change, no reload needed to trigger it. A short
      * max-age keeps normal navigations fresh while still avoiding no-store,
      * so the bfcache fix above still holds.
+     *
+     * Also overrides PHP's default 24-minute session.gc_maxlifetime (and
+     * matches the cookie's own lifetime to it, via SESSION_LIFETIME_SECONDS)
+     * - found live: a tab left open past that (e.g. backgrounded on a
+     * phone, polling paused) still holds the CSRF token from its original
+     * page load, but the server-side session backing it had already been
+     * garbage-collected, so the next POST 403'd with "invalid or missing
+     * CSRF token" for no reason visible to Andres. As this class's own doc
+     * comment notes, there's no login here - the real access boundary is
+     * the LAN-only network binding, and CSRF just blocks a stray cross-site
+     * POST - so there's no security reason for a short-lived session.
      */
     public static function start_app_session(): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
             session_cache_expire(1);
             session_cache_limiter('private_no_expire');
+            ini_set('session.gc_maxlifetime', (string)self::SESSION_LIFETIME_SECONDS);
+            ini_set('session.cookie_lifetime', (string)self::SESSION_LIFETIME_SECONDS);
             session_start();
         }
     }
