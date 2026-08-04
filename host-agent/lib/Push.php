@@ -481,12 +481,88 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
 }
 
 /**
+ * "Is everything this app needs actually installed/configured" - one
+ * combined check for the dashboard's health box, instead of leaving
+ * Andres to discover each missing piece separately (a stale/never-set
+ * VAPID key, a missing claude-quota binary, tmux's socket dir wiped by a
+ * reboot, etc.). Lives here rather than Sessions.php despite covering
+ * plenty of non-push things, since it needs push_configured() and
+ * Sessions.php can't require this file back without a cycle - same
+ * reasoning as dispatch_push_action() below.
+ *
+ * @return array{ok:bool, checks:array<int, array{key:string, label:string, ok:bool, detail:?string}>}
+ */
+function health_check(): array
+{
+    $settings = [];
+    $settingsOk = true;
+    $settingsMessage = null;
+    $raw = @file_get_contents(claude_settings_path());
+
+    if ($raw !== false) {
+        $decoded = json_decode($raw, true);
+
+        if (is_array($decoded)) {
+            $settings = $decoded;
+        } else {
+            $settingsOk = false;
+            $settingsMessage = '~/.claude/settings.json exists but is not valid JSON';
+        }
+    }
+
+    $checks = [];
+
+    foreach (app_hooks_status($settings) as $hook) {
+        $checks[] = [
+            'key' => 'hook_' . strtolower($hook['event']),
+            'label' => $hook['event'] . ' hook',
+            'ok' => $settingsOk && $hook['present'],
+            'detail' => $settingsOk ? null : $settingsMessage,
+        ];
+    }
+
+    $quotaBin = claude_quota_bin();
+    $checks[] = [
+        'key' => 'claude_quota_bin',
+        'label' => 'claude-quota binary',
+        'ok' => is_file($quotaBin) && is_executable($quotaBin),
+        'detail' => $quotaBin,
+    ];
+
+    $tmuxSocketDir = dirname(tmux_socket());
+    $checks[] = [
+        'key' => 'tmux_socket_dir',
+        'label' => 'tmux socket dir',
+        'ok' => is_dir($tmuxSocketDir),
+        'detail' => $tmuxSocketDir,
+    ];
+
+    $checks[] = [
+        'key' => 'vapid_keys',
+        'label' => 'VAPID push keys',
+        'ok' => push_configured(),
+        'detail' => null,
+    ];
+
+    $vendorAutoload = csm_repo_root() . '/vendor/autoload.php';
+    $checks[] = [
+        'key' => 'composer_vendor',
+        'label' => 'Composer vendor/',
+        'ok' => is_file($vendorAutoload),
+        'detail' => $vendorAutoload,
+    ];
+
+    return ['ok' => true, 'checks' => $checks];
+}
+
+/**
  * Push-related actions, dispatched separately from Sessions.php's own
  * dispatch_action() (see agent.php) rather than folded into it - Push.php
  * already requires Sessions.php for csm_config()/csm_repo_root(), so the
  * reverse dependency would make it a require cycle for no real benefit.
- * Returns null for any action this doesn't recognize, so agent.php can
- * fall through to dispatch_action() for everything else.
+ * health_check() above rides along in this same dispatcher for the same
+ * reason. Returns null for any action this doesn't recognize, so
+ * agent.php can fall through to dispatch_action() for everything else.
  *
  * @param array<string, mixed> $request
  * @return array<string, mixed>|null
@@ -512,6 +588,9 @@ function dispatch_push_action(array $request): ?array
             remove_push_subscription((string)($request['endpoint'] ?? ''));
 
             return ['ok' => true];
+
+        case 'health_check':
+            return health_check();
 
         default:
             return null;

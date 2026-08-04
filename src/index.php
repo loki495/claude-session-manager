@@ -90,6 +90,9 @@ $hookInstalled = (bool)($hookResult['installed'] ?? false);
 $pushResult = $agentReachable ? agent_call(['action' => 'push_public_key']) : ['ok' => false];
 $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
 
+$healthResult = $agentReachable ? agent_call(['action' => 'health_check']) : ['ok' => false];
+$healthChecks = (bool)($healthResult['ok'] ?? false) ? ($healthResult['checks'] ?? []) : [];
+
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 $flashMsg = is_array($flash) ? (string)($flash['msg'] ?? '') : null;
@@ -156,6 +159,8 @@ $csrfToken = csrf_token();
       <p class="mt-1 text-amber-300/90"><?= htmlspecialchars((string)($hookResult['message'] ?? 'Unknown error'), ENT_QUOTES) ?></p>
     </div>
   <?php endif; ?>
+
+  <?= health_box_html($healthChecks) ?>
 
   <details id="new-session-details" class="mb-3 rounded-xl border border-slate-800 bg-slate-900/50">
     <summary id="new-session-summary" class="min-h-[3rem] flex items-center justify-center rounded-xl bg-indigo-600 active:bg-indigo-700 font-medium text-base px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
