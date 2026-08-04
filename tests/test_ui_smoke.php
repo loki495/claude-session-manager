@@ -308,7 +308,10 @@ try {
     assert_contains('body.hide-tool-calls .entry-tool-use-only', $result['body'], 'GET /session.php: a second hide-tool-calls rule hides whole entries left with nothing but a hidden tool_use');
     assert_contains('.new-content-divider.fading', $result['body'], 'GET /session.php: the new-content divider fade rule is shipped');
     assert_contains('.new-content-highlight.fading', $result['body'], 'GET /session.php: the new-content highlight fade rule is shipped (two-class pattern, not a plain classList.remove, so `transition` survives the fade)');
-    assert_contains('function markNewContent(', $result['body'], 'GET /session.php: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
+    assert_contains('<script src="/js/session.js">', $result['body'], 'GET /session.php: loads the static session.js file (extracted from the old inline <script> block)');
+    $sessionJs = curl_request('GET', "{$baseUrl}/js/session.js");
+    assert_equal(200, $sessionJs['status'], 'GET /js/session.js: 200 (served as a static file, no 404)');
+    assert_contains('function markNewContent(', $sessionJs['body'], 'GET /js/session.js: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
     assert_contains('>Tool output<', $result['body'], 'GET /session.php: the canned tool_result entry ("done") is labeled "Tool output", not "User"');
     assert_contains('>Tool call<', $result['body'], 'GET /session.php: the canned tool_use entry ("Bash(pwd)") is labeled "Tool call", not "Assistant"');
     assert_contains('>Subagent call<', $result['body'], 'GET /session.php: the canned Agent tool_use entry is labeled "Subagent call", not "Tool call"');
