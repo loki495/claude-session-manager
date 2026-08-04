@@ -75,6 +75,13 @@ try {
     assert_equal(strlen($content), $saved['size'] ?? null, 'save_uploaded_file: reports the real decoded size');
     assert_equal($content, file_get_contents($fixtureWorkdir . '/.claude/uploads/note.txt'), 'save_uploaded_file: the file on disk actually contains the real (decoded) content, not the base64 text');
 
+    // .claude/ is NOT reliably already gitignored (confirmed live against
+    // the real claude-session-manager repo itself while building this
+    // feature) - a self-contained .gitignore inside the uploads dir is
+    // what actually protects an upload from showing up in `git status`.
+    assert_equal(true, is_file($fixtureWorkdir . '/.claude/uploads/.gitignore'), 'save_uploaded_file: creates a self-contained .gitignore in the uploads dir, protecting uploads regardless of the project\'s own .gitignore state');
+    assert_equal("*\n", file_get_contents($fixtureWorkdir . '/.claude/uploads/.gitignore'), 'save_uploaded_file: the .gitignore excludes everything in the directory');
+
     $savedCollision = save_uploaded_file($sessionName, 'note.txt', base64_encode('second file'));
     assert_equal('note-1.txt', $savedCollision['filename'] ?? null, 'save_uploaded_file: a second upload with the same name gets suffixed, not overwritten');
     assert_equal($content, file_get_contents($fixtureWorkdir . '/.claude/uploads/note.txt'), 'save_uploaded_file: the original file is still intact after the collision');
@@ -100,9 +107,10 @@ try {
     // limit), so only note.txt, note-1.txt, and big.bin actually exist on
     // disk - confirms list_uploaded_files() reflects real files, not save
     // attempts.
-    assert_equal(3, count($listed['files'] ?? []), 'list_uploaded_files: lists exactly the files actually saved (note.txt, note-1.txt, big.bin) - not the rejected big2.bin');
+    assert_equal(3, count($listed['files'] ?? []), 'list_uploaded_files: lists exactly the files actually saved (note.txt, note-1.txt, big.bin) - not the rejected big2.bin, and not the internal .gitignore');
+    assert_equal(false, in_array('.gitignore', array_column($listed['files'], 'name'), true), 'list_uploaded_files: never lists the internal .gitignore as if it were a real upload');
     $expectedTotal = strlen($content) + strlen('second file') + 1000;
-    assert_equal($expectedTotal, $listed['total_size'] ?? null, 'list_uploaded_files: total_size is the real sum of every file\'s size');
+    assert_equal($expectedTotal, $listed['total_size'] ?? null, 'list_uploaded_files: total_size is the real sum of every file\'s size (the .gitignore\'s own bytes are not counted)');
 
     $namesInOrder = array_column($listed['files'], 'name');
     assert_equal(true, array_search('big.bin', $namesInOrder, true) < array_search('note.txt', $namesInOrder, true), 'list_uploaded_files: newest file (big.bin, saved last) sorts before the oldest (note.txt, saved first)');
@@ -130,13 +138,18 @@ try {
     assert_equal(false, $deleteTraversal['ok'] ?? null, 'delete_uploaded_file: refuses a path-traversal filename');
     assert_equal(true, file_exists('/etc/hosts'), 'delete_uploaded_file: /etc/hosts (sanity target) still exists - the traversal attempt genuinely did nothing');
 
+    $deleteGitignore = delete_uploaded_file($sessionName, '.gitignore');
+    assert_equal(false, $deleteGitignore['ok'] ?? null, 'delete_uploaded_file: refuses to delete the internal .gitignore directly');
+    assert_equal(true, is_file($fixtureWorkdir . '/.claude/uploads/.gitignore'), 'delete_uploaded_file: the .gitignore genuinely survives the attempt');
+
     // --- delete_all_uploaded_files(): clears everything, reports a count ---
 
     $beforeDeleteAllCount = count(list_uploaded_files($sessionName)['files'] ?? []);
     $deleteAllResult = delete_all_uploaded_files($sessionName);
     assert_equal(true, $deleteAllResult['ok'] ?? null, 'delete_all_uploaded_files: ok=true');
-    assert_equal($beforeDeleteAllCount, $deleteAllResult['deleted'] ?? null, 'delete_all_uploaded_files: reports exactly how many files it removed');
-    assert_equal([], list_uploaded_files($sessionName)['files'] ?? null, 'delete_all_uploaded_files: the directory is genuinely empty afterward');
+    assert_equal($beforeDeleteAllCount, $deleteAllResult['deleted'] ?? null, 'delete_all_uploaded_files: reports exactly how many files it removed (not counting .gitignore)');
+    assert_equal([], list_uploaded_files($sessionName)['files'] ?? null, 'delete_all_uploaded_files: the directory is genuinely empty of real uploads afterward');
+    assert_equal(true, is_file($fixtureWorkdir . '/.claude/uploads/.gitignore'), 'delete_all_uploaded_files: the .gitignore protection survives a "delete all" - a follow-up save doesn\'t need to recreate it from an unprotected window');
 
     $deleteAllOnMissingDir = delete_all_uploaded_files($sessionName); // uploads dir itself still exists (now empty), re-running should still be a safe no-op
     assert_equal(true, $deleteAllOnMissingDir['ok'] ?? null, 'delete_all_uploaded_files: safe to call again on an already-empty directory');

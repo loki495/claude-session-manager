@@ -515,6 +515,11 @@ function render_transcript_entry(array $entry): string
     <div class="max-w-2xl mx-auto">
       <div id="compose-input-row" class="<?= $composeBlocked ? 'hidden' : '' ?>">
         <div class="flex items-stretch gap-2">
+          <button type="button" id="compose-attach-btn" aria-label="Attach file"
+            class="min-h-[2.75rem] w-11 shrink-0 rounded-lg bg-slate-800 border border-slate-700 active:bg-slate-700 disabled:opacity-50 text-slate-300 text-xl leading-none">
+            +
+          </button>
+          <input type="file" id="compose-file-input" class="hidden" multiple>
           <textarea id="compose-textarea" rows="1" placeholder="Message&hellip;"
             class="flex-1 resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 px-3 py-2 max-h-32 overflow-y-auto focus:outline-none focus:border-slate-500"></textarea>
           <button type="button" id="compose-send-btn"
@@ -522,6 +527,7 @@ function render_transcript_entry(array $entry): string
             Send
           </button>
         </div>
+        <div id="compose-upload-status" class="hidden text-xs text-slate-500 mt-1"></div>
         <div id="compose-status" class="hidden text-xs text-red-400 mt-1"></div>
       </div>
       <div id="compose-blocked-note" class="<?= $composeBlocked ? '' : 'hidden' ?> text-xs text-slate-500 py-2">
@@ -2287,6 +2293,103 @@ function render_transcript_entry(array $entry): string
         sendComposedMessage();
       }
     });
+
+    // --- attach files: uploads via /upload_file.php (relayed to the
+    // host-agent, which writes into the session's own project workdir -
+    // see save_uploaded_file() in Sessions.php), then appends each
+    // resulting path into the compose text so Claude can Read() it like
+    // any other file once the message is sent - no special terminal/
+    // paste support needed, a path mentioned in plain text is enough. ---
+    var composeAttachBtn = document.getElementById('compose-attach-btn');
+    var composeFileInput = document.getElementById('compose-file-input');
+    var composeUploadStatus = document.getElementById('compose-upload-status');
+
+    if (composeAttachBtn && composeFileInput && composeUploadStatus) {
+      function setUploadStatus(text) {
+        if (text) {
+          composeUploadStatus.textContent = text;
+          composeUploadStatus.classList.remove('hidden');
+        } else {
+          composeUploadStatus.textContent = '';
+          composeUploadStatus.classList.add('hidden');
+        }
+      }
+
+      function appendAttachmentPath(path) {
+        var line = '[Attached: ' + path + ']';
+        composeTextarea.value = composeTextarea.value
+          ? composeTextarea.value.replace(/\s*$/, '') + '\n' + line
+          : line;
+        autoGrowCompose();
+        saveComposeDraft();
+      }
+
+      // Resolves to true/false (success), never rejects - each file's
+      // failure is reported via setUploadStatus() and shouldn't stop the
+      // rest of a multi-file selection from still being attempted.
+      function uploadOneFile(file) {
+        var formData = new FormData();
+        formData.append('session', sessionName);
+        formData.append('csrf_token', csrfToken);
+        formData.append('file', file);
+
+        return fetch('/upload_file.php', { method: 'POST', credentials: 'same-origin', body: formData })
+          .then(function (r) { return parseJsonResponse(r, 'upload-file'); })
+          .then(function (data) {
+            if (data && data.ok) {
+              appendAttachmentPath(data.path);
+              return true;
+            }
+
+            setUploadStatus('Failed to upload ' + file.name + ': ' + ((data && data.message) || 'Unknown error'));
+            return false;
+          })
+          .catch(function () {
+            setUploadStatus('Network error - ' + file.name + ' not uploaded.');
+            return false;
+          });
+      }
+
+      composeAttachBtn.addEventListener('click', function () {
+        composeFileInput.click();
+      });
+
+      composeFileInput.addEventListener('change', function () {
+        var files = Array.prototype.slice.call(composeFileInput.files || []);
+
+        if (files.length === 0) {
+          return;
+        }
+
+        composeAttachBtn.disabled = true;
+        var hadError = false;
+
+        // Sequential, not Promise.all - keeps the appended attachment
+        // lines in a stable, predictable order even if individual upload
+        // response times vary, and avoids hammering the host-agent with
+        // N simultaneous file writes for one multi-file selection.
+        files.reduce(function (chain, file, index) {
+          return chain.then(function () {
+            setUploadStatus('Uploading ' + file.name + ' (' + (index + 1) + '/' + files.length + ')…');
+
+            return uploadOneFile(file).then(function (ok) {
+              if (!ok) {
+                hadError = true;
+              }
+            });
+          });
+        }, Promise.resolve())
+          .then(function () {
+            if (!hadError) {
+              setUploadStatus('');
+            }
+          })
+          .finally(function () {
+            composeAttachBtn.disabled = false;
+            composeFileInput.value = '';
+          });
+      });
+    }
   }
 
   // --- mode select: jumps directly to the chosen mode (set_mode() in

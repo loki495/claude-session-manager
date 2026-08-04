@@ -141,6 +141,9 @@ $response = match ($action) {
     'navigate_prompt' => in_array($request['session'] ?? null, [CANNED_SESSION_NAME, CANNED_BLOCKED_SESSION_NAME], true) && in_array($request['direction'] ?? null, ['left', 'right'], true)
         ? ['ok' => true, 'message' => 'Sent ' . ucfirst((string)$request['direction']) . ' to ' . $request['session']]
         : ['ok' => false, 'message' => 'Rejected: this session is not currently showing a multi-question prompt'],
+    'save_uploaded_file' => ($request['session'] ?? null) === CANNED_SESSION_NAME && trim((string)($request['filename'] ?? '')) !== ''
+        ? ['ok' => true, 'filename' => $request['filename'], 'path' => '.claude/uploads/' . $request['filename'], 'size' => strlen(base64_decode((string)($request['content_base64'] ?? ''), true) ?: '')]
+        : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
     'push_public_key' => ['ok' => true, 'configured' => true, 'public_key' => CANNED_VAPID_PUBLIC_KEY],
     'push_subscribe' => is_array($request['subscription'] ?? null) && is_string($request['subscription']['endpoint'] ?? null)
         ? ['ok' => true]

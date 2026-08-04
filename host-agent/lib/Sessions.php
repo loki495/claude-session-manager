@@ -1853,6 +1853,26 @@ function uploads_dir(string $workdir): string
 }
 
 /**
+ * A self-contained .gitignore ("*") inside the uploads dir itself,
+ * rather than touching the project's own root .gitignore - found live
+ * testing this feature that .claude/ is NOT reliably already gitignored
+ * (checked this very repo: it wasn't), so without this an uploaded file
+ * would show up as untracked in `git status` in any project that hasn't
+ * already excluded .claude/ itself. Self-healing: called on every save
+ * (cheap - just an is_file() check in the common case), not only when
+ * the directory is first created, so it survives a delete_all wiping
+ * the directory back to empty.
+ */
+function ensure_uploads_gitignore(string $dir): void
+{
+    $path = $dir . '/.gitignore';
+
+    if (!is_file($path)) {
+        @file_put_contents($path, "*\n");
+    }
+}
+
+/**
  * Resolves a session name to its known project working directory - the
  * same sidecar-backed value build_session_entry() exposes as 'workdir'
  * elsewhere, fetched directly here since uploads only ever need this one
@@ -1941,6 +1961,8 @@ function save_uploaded_file(string $sessionName, string $filename, string $base6
         return ['ok' => false, 'message' => 'Could not create the uploads directory'];
     }
 
+    ensure_uploads_gitignore($dir);
+
     $finalName = unique_upload_filename($dir, sanitize_upload_filename($filename));
 
     if (@file_put_contents($dir . '/' . $finalName, $decoded) === false) {
@@ -1976,7 +1998,7 @@ function list_uploaded_files(string $sessionName): array
     $totalSize = 0;
 
     foreach (scandir($dir) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..') {
+        if ($entry === '.' || $entry === '..' || $entry === '.gitignore') {
             continue;
         }
 
@@ -2027,6 +2049,10 @@ function resolve_upload_path(string $workdir, string $filename): ?string
  */
 function delete_uploaded_file(string $sessionName, string $filename): array
 {
+    if (basename($filename) === '.gitignore') {
+        return ['ok' => false, 'message' => 'File not found']; // internal bookkeeping, not a real upload - same not-found response as any other name that isn't a real uploaded file, no need to expose that this one's special
+    }
+
     $workdir = session_workdir($sessionName);
 
     if ($workdir === null) {
@@ -2066,7 +2092,7 @@ function delete_all_uploaded_files(string $sessionName): array
     $deleted = 0;
 
     foreach (scandir($dir) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..') {
+        if ($entry === '.' || $entry === '..' || $entry === '.gitignore') {
             continue;
         }
 

@@ -419,6 +419,8 @@ try {
     $result = curl_request('GET', "{$baseUrl}/session.php?session=cc-20260101-1200");
     assert_contains('id="compose-bar"', $result['body'], 'GET /session.php: message compose bar present');
     assert_contains('id="compose-textarea"', $result['body'], 'GET /session.php: compose textarea present');
+    assert_contains('id="compose-attach-btn"', $result['body'], 'GET /session.php: attach-file button present');
+    assert_contains('id="compose-file-input"', $result['body'], 'GET /session.php: hidden file input present for the attach button');
     assert_true(
         preg_match('/id="compose-textarea"[^>]*class="[^"]*\btext-base\b/', $result['body']) === 1,
         'GET /session.php: compose textarea uses a >=16px font size, so focusing it does not trigger iOS zoom'
@@ -591,6 +593,39 @@ try {
     assert_equal(200, $result['status'], 'POST /push_unsubscribe.php with valid CSRF: 200 (JSON, not a redirect)');
     $unsubscribeBody = json_decode($result['body'], true);
     assert_true(is_array($unsubscribeBody) && ($unsubscribeBody['ok'] ?? false), 'POST /push_unsubscribe.php: canned agent accepts it, response decodes as ok=true JSON');
+
+    // --- upload_file.php: GET not allowed, CSRF enforced, a real file upload relayed to the canned agent ---
+    $result = curl_request('GET', "{$baseUrl}/upload_file.php");
+    assert_equal(405, $result['status'], 'GET /upload_file.php: 405 (POST required)');
+
+    $uploadFixturePath = sys_get_temp_dir() . '/csm-test-upload-' . bin2hex(random_bytes(4)) . '.txt';
+    file_put_contents($uploadFixturePath, 'fixture upload content');
+
+    $result = curl_request('POST', "{$baseUrl}/upload_file.php", [
+        '-F', 'session=cc-20260101-1200',
+        '-F', 'csrf_token=not-the-real-token',
+        '-F', 'file=@' . $uploadFixturePath,
+    ]);
+    assert_equal(403, $result['status'], 'POST /upload_file.php with a wrong csrf_token: 403');
+
+    $result = curl_request('POST', "{$baseUrl}/upload_file.php", [
+        '-F', 'session=cc-20260101-1200',
+        '-F', 'csrf_token=' . (string)$csrfForSend,
+        '-F', 'file=@' . $uploadFixturePath,
+    ], $cookieJar);
+    assert_equal(200, $result['status'], 'POST /upload_file.php with valid CSRF: 200 (JSON, not a redirect)');
+    $uploadBody = json_decode($result['body'], true);
+    assert_true(is_array($uploadBody) && ($uploadBody['ok'] ?? false), 'POST /upload_file.php: canned agent accepts the upload, response decodes as ok=true JSON');
+    assert_equal(strlen('fixture upload content'), $uploadBody['size'] ?? null, 'POST /upload_file.php: the real file content was read and its true (decoded) size relayed through to the agent action, not e.g. the base64 length');
+
+    $result = curl_request('POST', "{$baseUrl}/upload_file.php", [
+        '-F', 'session=cc-20260101-1200',
+        '-F', 'csrf_token=' . (string)$csrfForSend,
+    ], $cookieJar);
+    $noFileBody = json_decode($result['body'], true);
+    assert_equal(false, $noFileBody['ok'] ?? null, 'POST /upload_file.php: rejects a request with no file field at all');
+
+    @unlink($uploadFixturePath);
 
     // --- cross-origin POST rejected ---
     $result = curl_request('POST', "{$baseUrl}/", [

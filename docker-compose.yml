@@ -16,6 +16,15 @@ services:
         ARG APP_GID=1001
         RUN addgroup -g "${APP_GID}" appgroup \
             && adduser -D -H -u "${APP_UID}" -G appgroup appuser
+        # Default upload_max_filesize=2M/post_max_size=8M rejects a
+        # typical phone-camera photo outright - raised for the file-
+        # uploads feature (upload_file.php). App-level max_upload_bytes()
+        # in host-agent/lib/Sessions.php independently enforces a
+        # friendlier-error 25MB cap on top of this.
+        RUN { \
+                echo 'upload_max_filesize = 30M'; \
+                echo 'post_max_size = 32M'; \
+            } > /usr/local/etc/php/conf.d/uploads.ini
         WORKDIR /var/www/html
         USER appuser
         ENV HOME=/tmp
