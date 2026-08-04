@@ -115,15 +115,6 @@ Tier 2 - bigger or investigative items:
   Needs more detail to reproduce - which messages (his own compose sends,
   or ones typed directly into a real Claude Code session outside the app?),
   how soon after sending, whether a poll cycle happens in between.
-- index.php: answering a prompt from the dashboard (both the plain-option
-  handler and submitFreetextReply(), lines ~280/324) just replaces the
-  prompt UI with a static "Sent - refresh to see the result" note instead
-  of actually showing the result - the code's own comment notes there's
-  "no live poll on this page yet" for individual session rows. Andres
-  wants this fixed; probably means having the dashboard actually poll/
-  refresh that session's row after a send instead of leaving a manual-
-  refresh note, but worth confirming the exact desired behavior before
-  implementing.
 - Add a badge to the home-screen icon (via the Badging API,
   navigator.setAppBadge()/clearAppBadge() from src/sw.js's push handler)
   when a push notification has been sent but not yet cleared/seen.
