@@ -1,0 +1,1 @@
+<img src="data:<?= $this->e($mediaType) ?>;base64,<?= $this->e($data) ?>" loading="lazy" alt="Image" class="transcript-image mt-1.5 rounded border border-slate-800 cursor-pointer w-24 h-24 object-cover">

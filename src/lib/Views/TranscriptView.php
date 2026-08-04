@@ -11,7 +11,7 @@ namespace App\Views;
  * since they all feed the same page and its matching JS-side mirrors (see
  * the comments on each method pointing at their session.js counterpart).
  */
-class TranscriptView
+class TranscriptView extends View
 {
     /**
      * Mirrors CLAUDE_CODE_MODE_STATUS_PHRASES's key order in Sessions.php
@@ -31,10 +31,10 @@ class TranscriptView
     // classes for w-full h-auto object-contain, not a separate lightbox/modal.
     public static function render_transcript_image_html(array $image): string
     {
-        $mediaType = htmlspecialchars($image['media_type'], ENT_QUOTES);
-        $data = htmlspecialchars($image['data'], ENT_QUOTES);
-
-        return '<img src="data:' . $mediaType . ';base64,' . $data . '" loading="lazy" alt="Image" class="transcript-image mt-1.5 rounded border border-slate-800 cursor-pointer w-24 h-24 object-cover">';
+        return self::render('transcript/image', [
+            'mediaType' => $image['media_type'],
+            'data' => $image['data'],
+        ]);
     }
 
     /**
@@ -42,27 +42,25 @@ class TranscriptView
      */
     public static function render_transcript_block(array $block): string
     {
-        $text = htmlspecialchars($block['text'], ENT_QUOTES);
         $imageHtml = isset($block['image']) ? self::render_transcript_image_html($block['image']) : '';
 
-        // break-words (not break-all, used elsewhere for compact collapsed
-        // summary lines) - this is prose, so only a genuinely too-long token
-        // (a long constant name, URL, hash, ...) should ever break mid-word;
-        // normal short words shouldn't. Found live: a message containing
-        // "FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE" (no spaces,
-        // 51 chars) widened the whole page horizontally without this.
-        return match ($block['kind']) {
-            'text' => '<p class="whitespace-pre-wrap break-words text-sm text-slate-100">' . $text . '</p>',
-            'tool_use' => '<div class="tool-use-block">' . BlockedPromptView::render_collapsible_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; ') . '</div>',
-            // The image (a browser-automation screenshot, most likely) is a
-            // SIBLING of .tool-detail, not nested inside it - unlike the raw
-            // text output, Andres wants a screenshot visible regardless of
-            // the show/hide-tool-details toggle, since it's often the whole
-            // point of having run the tool in the first place.
-            'tool_result' => '<div class="tool-detail">' . BlockedPromptView::render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', '') . '</div>' . $imageHtml,
-            'image' => $imageHtml !== '' ? $imageHtml : ($text !== '' ? '<p class="break-words text-xs text-slate-600">' . $text . '</p>' : ''),
-            default => $text !== '' ? '<p class="break-words text-xs text-slate-600">' . $text . '</p>' : '',
+        // The image (a browser-automation screenshot, most likely) is a
+        // SIBLING of .tool-detail, not nested inside it - unlike the raw
+        // text output, Andres wants a screenshot visible regardless of
+        // the show/hide-tool-details toggle, since it's often the whole
+        // point of having run the tool in the first place.
+        $collapsibleHtml = match ($block['kind']) {
+            'tool_use' => BlockedPromptView::render_collapsible_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; '),
+            'tool_result' => BlockedPromptView::render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', ''),
+            default => '',
         };
+
+        return self::render('transcript/block', [
+            'kind' => $block['kind'],
+            'text' => $block['text'],
+            'collapsibleHtml' => $collapsibleHtml,
+            'imageHtml' => $imageHtml,
+        ]);
     }
 
     /**
@@ -76,20 +74,13 @@ class TranscriptView
      */
     public static function render_session_static_info_html(array $detail): string
     {
-        $html = '<div class="text-base font-medium truncate">' . htmlspecialchars((string)($detail['title'] ?? $detail['name']), ENT_QUOTES) . '</div>';
-        $html .= '<div class="font-mono text-xs text-slate-500 truncate mt-0.5">' . htmlspecialchars((string)$detail['name'], ENT_QUOTES) . '</div>';
-
-        if (!empty($detail['workdir'])) {
-            $html .= '<div class="text-xs text-slate-500 truncate mt-0.5">' . htmlspecialchars((string)$detail['workdir'], ENT_QUOTES) . '</div>';
-        }
-
-        $html .= '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2">';
-        $html .= '<span>' . htmlspecialchars(SessionRowView::relative_time((int)$detail['activity']), ENT_QUOTES) . '</span>';
-        $html .= '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>';
-        $html .= $detail['attached'] ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>';
-        $html .= '</div>';
-
-        return $html;
+        return self::render('transcript/session-static-info', [
+            'title' => (string)($detail['title'] ?? $detail['name']),
+            'name' => (string)$detail['name'],
+            'workdir' => $detail['workdir'] ?? null,
+            'relativeTime' => SessionRowView::relative_time((int)$detail['activity']),
+            'attached' => (bool)$detail['attached'],
+        ]);
     }
 
     /**
@@ -120,17 +111,7 @@ class TranscriptView
             return '';
         }
 
-        return '<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 flex items-center justify-between gap-2">'
-            . '<span class="flex items-center gap-2">'
-            . '<span class="flex items-center gap-1">'
-            . '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:0ms"></span>'
-            . '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:150ms"></span>'
-            . '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:300ms"></span>'
-            . '</span>'
-            . '<span>Thinking&hellip;</span>'
-            . '</span>'
-            . '<button type="button" id="stop-btn" class="rounded border border-red-800/60 bg-red-950/40 active:bg-red-900/60 text-red-300 text-xs font-medium px-2 py-1">Stop</button>'
-            . '</div>';
+        return self::render('transcript/thinking-indicator');
     }
 
     /**
@@ -145,20 +126,10 @@ class TranscriptView
     {
         $mode = is_string($detail['current_mode'] ?? null) ? $detail['current_mode'] : null;
 
-        $options = '';
-        foreach (self::MODE_OPTIONS as $key => $label) {
-            $selected = $key === $mode ? ' selected' : '';
-            $options .= '<option value="' . htmlspecialchars($key, ENT_QUOTES) . '"' . $selected . '>' . htmlspecialchars($label, ENT_QUOTES) . '</option>';
-        }
-
-        if ($mode === null) {
-            $options = '<option value="" selected>Mode unknown</option>' . $options;
-        }
-
-        return '<select id="mode-select"' . ($mode === null ? ' disabled' : '')
-            . ' class="text-xs font-medium pl-2 pr-6 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-300 disabled:opacity-50">'
-            . $options
-            . '</select>';
+        return self::render('transcript/mode-toggle', [
+            'mode' => $mode,
+            'options' => self::MODE_OPTIONS,
+        ]);
     }
 
     /**
@@ -257,10 +228,10 @@ class TranscriptView
             'tool_result' => 'Tool output',
             'subagent_call' => 'Subagent call',
             'subagent_result' => 'Subagent report',
-            default => htmlspecialchars(ucfirst((string)$role), ENT_QUOTES),
+            default => ucfirst((string)$role),
         };
         $parsedTimestamp = is_string($entry['timestamp'] ?? null) ? strtotime($entry['timestamp']) : false;
-        $timestamp = $parsedTimestamp !== false ? htmlspecialchars(SessionRowView::relative_time($parsedTimestamp), ENT_QUOTES) : '';
+        $timestamp = $parsedTimestamp !== false ? SessionRowView::relative_time($parsedTimestamp) : '';
         $colors = self::entry_color_classes($colorKind);
         // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
         // block) once the matching "Show tool outputs"/"Show tool calls"
@@ -291,12 +262,14 @@ class TranscriptView
 
         $blocksHtml = implode('', array_map([self::class, 'render_transcript_block'], $entry['blocks']));
 
-        return '<div class="rounded-lg border ' . $colors['border'] . ' ' . $colors['bg'] . ' px-3 py-2' . $extraClass . '">'
-            . '<div class="mb-1 flex items-center gap-2 text-xs text-slate-500">'
-            . '<span class="font-medium ' . $colors['label'] . '">' . $roleLabel . '</span>'
-            . ($timestamp !== '' ? '<span>' . $timestamp . '</span>' : '')
-            . '</div>'
-            . '<div class="flex flex-col gap-1.5">' . $blocksHtml . '</div>'
-            . '</div>';
+        return self::render('transcript/entry', [
+            'borderClass' => $colors['border'],
+            'bgClass' => $colors['bg'],
+            'labelClass' => $colors['label'],
+            'extraClass' => $extraClass,
+            'roleLabel' => $roleLabel,
+            'timestamp' => $timestamp,
+            'blocksHtml' => $blocksHtml,
+        ]);
     }
 }
