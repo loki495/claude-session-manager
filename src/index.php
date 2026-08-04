@@ -226,15 +226,26 @@ $csrfToken = csrf_token();
 
 </div>
 <script>
+// Reassigned once the live-poll IIFE further down actually defines
+// pollOnce() (a no-op stub until then, and permanently if the agent is
+// unreachable - see there) - lets the answer-prompt/freetext handlers
+// above it in this file trigger an immediate re-sync right after a
+// successful send, instead of leaving the user looking at a stale
+// confirmation note for however long is left on the regular interval
+// (up to 15s, if they've picked a slower one).
+var requestSessionsPollNow = function () {};
+
 // Answer-prompt buttons (see blocked_prompt_rich_html() in AgentClient.php)
 // use data-confirm-label the same way session.php's do - one delegated
 // listener here instead of inline onsubmit, since these forms are
 // rendered per-row and their count varies with how many sessions are
 // currently blocked. AJAX, not a real form submission - answering a
-// prompt shouldn't reload the whole dashboard. There's no live poll here
-// yet (see the "poll for updates" todo item) to pick up the session's
-// new state, so a successful answer just swaps the buttons for a quick
-// confirmation note rather than fully re-syncing the row.
+// prompt shouldn't reload the whole dashboard. The dashboard's own live
+// poll (sessions_fragment.php, see the IIFE further down) picks up the
+// session's new state and replaces this row entirely - a successful
+// answer shows a brief confirmation note and immediately requests a poll
+// (requestSessionsPollNow()) rather than waiting for the next scheduled
+// tick.
 // Shared with session.php's sidebar checkbox (same localStorage key) -
 // this page has no sidebar of its own to host the toggle, but still
 // respects whatever the user set there.
@@ -289,8 +300,9 @@ document.addEventListener('submit', function (e) {
     .then(function (data) {
       if (data && data.ok) {
         if (container) {
-          container.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - refresh to see the result</span>';
+          container.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
         }
+        requestSessionsPollNow();
       } else {
         alert((data && data.message) || 'Failed to send answer.');
         buttons.forEach(function (b) { b.disabled = false; });
@@ -304,8 +316,9 @@ document.addEventListener('submit', function (e) {
 
 // --- free-text reply (the "Type something." option) - see session.php's
 // matching handler; skips the confirm() dialog since revealing the
-// textarea is already a deliberate step. No live poll on this page yet,
-// so a successful send swaps the same way the plain-option case above does.
+// textarea is already a deliberate step. A successful send swaps the
+// same way the plain-option case above does, requesting an immediate
+// poll rather than waiting for the next scheduled tick.
 function submitFreetextReply(replyDiv) {
   var wrapper = replyDiv.closest('.prompt-options-wrapper');
   var textarea = replyDiv.querySelector('.freetext-reply-textarea');
@@ -333,7 +346,8 @@ function submitFreetextReply(replyDiv) {
     .then(function (r) { return parseJsonResponse(r, 'dashboard-answer-prompt-freetext'); })
     .then(function (data) {
       if (data && data.ok) {
-        wrapper.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - refresh to see the result</span>';
+        wrapper.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
+        requestSessionsPollNow();
       } else {
         alert((data && data.message) || 'Failed to send reply.');
         textarea.disabled = false;
@@ -671,6 +685,11 @@ document.addEventListener('keydown', function (e) {
       })
       .catch(function () {});
   }
+
+  // Lets the answer-prompt/freetext-reply handlers (defined earlier in
+  // this file, before pollOnce exists) trigger an immediate sync right
+  // after a successful send - see requestSessionsPollNow's own comment.
+  requestSessionsPollNow = pollOnce;
 
   function startPolling() {
     if (pollingActive) {
