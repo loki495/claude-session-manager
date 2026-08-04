@@ -7,16 +7,16 @@ declare(strict_types=1);
  * iOS's flaky push subscription lifecycle - see the README). The real
  * PushSubscription object (from PushManager.subscribe().toJSON()) is
  * sent as a JSON-encoded string in a normal form field rather than as
- * the raw POST body, so this can reuse require_csrf() unchanged like
+ * the raw POST body, so this can reuse AuthService::require_csrf() unchanged like
  * every other endpoint here (that only ever reads $_POST).
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Services\AuthService;
 
-start_app_session();
+AuthService::start_app_session();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -25,13 +25,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-if (!same_origin_or_no_origin()) {
+if (!AuthService::same_origin_or_no_origin()) {
     http_response_code(403);
     echo "Rejected: cross-origin request.";
     exit;
 }
 
-require_csrf();
+AuthService::require_csrf();
 
 header('Content-Type: application/json');
 

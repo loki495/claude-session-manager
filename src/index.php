@@ -2,23 +2,23 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Services\AuthService;
 use App\Views\PageView;
 
-start_app_session();
+AuthService::start_app_session();
 
 /* ---------- handle actions (POST) ---------- */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!same_origin_or_no_origin()) {
+    if (!AuthService::same_origin_or_no_origin()) {
         http_response_code(403);
         echo "Rejected: cross-origin request.";
         exit;
     }
 
-    require_csrf();
+    AuthService::require_csrf();
 
     $action = $_POST['action'] ?? '';
     $message = '';
@@ -113,7 +113,7 @@ unset($_SESSION['flash']);
 $flashMsg = is_array($flash) ? (string)($flash['msg'] ?? '') : null;
 $flashOk = !is_array($flash) || ($flash['ok'] ?? true);
 
-$csrfToken = csrf_token();
+$csrfToken = AuthService::csrf_token();
 
 echo PageView::render_index_page([
     'agentReachable' => $agentReachable,

@@ -99,7 +99,7 @@ class TranscriptView extends View
 
     /**
      * A single, transient "Claude is thinking…" indicator - never the actual
-     * thinking content (Transcript.php drops that entirely), just a live
+     * thinking content (TranscriptService drops that entirely), just a live
      * "something is happening right now" signal sourced from the pane title's
      * spinner glyph (see pane_title_is_working() in Sessions.php). Mutually
      * exclusive with the blocked-prompt section: a session that's actively
@@ -167,7 +167,7 @@ class TranscriptView extends View
         }
 
         // A subagent launch/report (Claude Code's "Agent" tool - see
-        // agent_type in Transcript.php's summarize_content_block()/
+        // agent_type in TranscriptService's summarize_content_block()/
         // parse_transcript_line()) gets its own kind, ahead of the generic
         // tool_use/tool_result check below, so it reads as a distinct "this
         // is a subagent" thing rather than just another tool call.

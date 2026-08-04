@@ -13,11 +13,11 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Services\AuthService;
 
-start_app_session();
+AuthService::start_app_session();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -26,13 +26,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-if (!same_origin_or_no_origin()) {
+if (!AuthService::same_origin_or_no_origin()) {
     http_response_code(403);
     echo "Rejected: cross-origin request.";
     exit;
 }
 
-require_csrf();
+AuthService::require_csrf();
 
 header('Content-Type: application/json');
 

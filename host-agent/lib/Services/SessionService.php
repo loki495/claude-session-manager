@@ -7,8 +7,6 @@ namespace HostAgent\Services;
 use HostAgent\Stores\SidecarStore;
 use HostAgent\Stores\PendingToolStore;
 
-require_once __DIR__ . '/../Transcript.php';
-
 /**
  * Session lifecycle and control: listing, detail/history snapshots,
  * creating/killing cc-* tmux sessions, and sending input to a live
@@ -104,13 +102,13 @@ class SessionService
             return null;
         }
 
-        $path = find_transcript_path($claudeSessionId);
+        $path = TranscriptService::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
             return null;
         }
 
-        $page = read_transcript_page($path, null, 1);
+        $page = TranscriptService::read_transcript_page($path, null, 1);
 
         if (!($page['ok'] ?? false) || empty($page['entries'])) {
             return null;
@@ -190,7 +188,7 @@ class SessionService
         }
 
         $entry = self::build_session_entry($tmuxSession, ProcessInspector::find_claude_processes(), ProcessInspector::build_ppid_map());
-        $transcriptPath = $entry['claude_session_id'] !== null ? find_transcript_path($entry['claude_session_id']) : null;
+        $transcriptPath = $entry['claude_session_id'] !== null ? TranscriptService::find_transcript_path($entry['claude_session_id']) : null;
 
         return ['ok' => true] + $entry + ['has_transcript' => $transcriptPath !== null];
     }
@@ -207,20 +205,20 @@ class SessionService
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];
         }
 
-        $path = find_transcript_path($claudeSessionId);
+        $path = TranscriptService::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];
         }
 
-        return read_transcript_page($path, $before, max(1, min($limit, 200)));
+        return TranscriptService::read_transcript_page($path, $before, max(1, min($limit, 200)));
     }
 
     /**
      * A random (v4) UUID, RFC 4122 §4.4 - used as the --session-id passed to
      * `claude` at launch, so this app controls the id up front instead of
      * having to discover whatever Claude Code would have picked on its own.
-     * That's what makes find_transcript_path() a plain glob instead of having
+     * That's what makes TranscriptService::find_transcript_path() a plain glob instead of having
      * to reproduce Claude Code's own cwd -> directory-name encoding.
      */
     public static function generate_uuid_v4(): string

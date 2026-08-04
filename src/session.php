@@ -2,12 +2,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Services\AuthService;
 use App\Views\PageView;
 
-start_app_session();
+AuthService::start_app_session();
 
 $sessionName = trim((string)($_GET['session'] ?? $_POST['session'] ?? ''));
 
@@ -16,7 +16,7 @@ if ($sessionName === '') {
     exit;
 }
 
-$csrfToken = csrf_token();
+$csrfToken = AuthService::csrf_token();
 
 $detail = AgentClient::agent_call(['action' => 'session_detail', 'session' => $sessionName]);
 $found = (bool)($detail['ok'] ?? false);

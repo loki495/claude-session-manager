@@ -8,11 +8,11 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Services\AuthService;
 
-start_app_session();
+AuthService::start_app_session();
 
 header('Cache-Control: no-store');
 header('Content-Type: application/json');

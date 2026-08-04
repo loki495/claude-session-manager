@@ -7,19 +7,19 @@ declare(strict_types=1);
  * mutated here), so no CSRF/same-origin check is needed - matching GET /
  * itself and quota.php/browse.php, which also have none.
  *
- * start_app_session() here keeps the session (and its CSRF token) alive
+ * AuthService::start_app_session() here keeps the session (and its CSRF token) alive
  * for as long as this page is open and polling - see session_detail.php
  * for the full story on why that matters.
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Services\AuthService;
 
-start_app_session();
+AuthService::start_app_session();
 
-// start_app_session() sets PHP's session cache limiter headers
+// AuthService::start_app_session() sets PHP's session cache limiter headers
 // (Cache-Control: private, max-age=60), tuned for session.php's own HTML
 // page to stay bfcache-friendly - but the exact same header on THIS
 // polling endpoint means a browser can legally serve a stale cached

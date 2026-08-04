@@ -8,7 +8,7 @@ declare(strict_types=1);
  * check is needed - matching GET / itself and quota.php/browse.php, which
  * also have none.
  *
- * start_app_session() here isn't for CSRF (nothing to protect on a GET) -
+ * AuthService::start_app_session() here isn't for CSRF (nothing to protect on a GET) -
  * it's so a tab left open just watching (polling, never sending/answering)
  * still touches the session on every poll, keeping it alive. Without this,
  * a long-idle-but-open tab's session (and the CSRF token session.php
@@ -22,13 +22,13 @@ declare(strict_types=1);
  * the same JS session for hours.
  */
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Services\AuthService;
 
-start_app_session();
+AuthService::start_app_session();
 
-// Overrides the Cache-Control: private, max-age=60 that start_app_session()
+// Overrides the Cache-Control: private, max-age=60 that AuthService::start_app_session()
 // itself sets (fine for session.php's own HTML, wrong here) - see
 // session_history.php for the full story on why a browser can otherwise
 // serve a stale cached response to this exact fetch() URL for up to 60s.
