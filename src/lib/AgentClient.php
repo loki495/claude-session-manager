@@ -175,7 +175,16 @@ function blocked_prompt_options_html(array $session, string $csrfToken): string
 
         if (stripos((string)$opt['label'], 'type something') !== false) {
             $hasFreeText = true;
-            $optionsHtml .= '<button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-option="' . $number . '">'
+            // break-words + max-w-full: an AskUserQuestion option label has
+            // no length limit imposed by the tool itself - a long unbroken
+            // one (a pasted identifier/URL, say) would otherwise widen this
+            // button (and the whole page with it) instead of wrapping.
+            // Verified live that break-words ALONE isn't enough: a flex
+            // item's width is still its own shrink-to-fit content size
+            // unless something caps it, so overflow-wrap never gets a
+            // narrower box to actually wrap within - max-w-full is what
+            // forces that cap, matching the button's flex-wrap row.
+            $optionsHtml .= '<button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full" data-option="' . $number . '">'
                 . $number . '. ' . $label
                 . '</button>';
             continue;
@@ -185,7 +194,7 @@ function blocked_prompt_options_html(array $session, string $csrfToken): string
             . '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($csrfToken, ENT_QUOTES) . '">'
             . '<input type="hidden" name="session" value="' . htmlspecialchars($sessionName, ENT_QUOTES) . '">'
             . '<input type="hidden" name="option" value="' . $number . '">'
-            . '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2">'
+            . '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full">'
             . $number . '. ' . $label
             . '</button>'
             . '</form>';

@@ -1541,7 +1541,12 @@ function render_transcript_entry(array $entry): string
 
         if (opt.label.toLowerCase().indexOf('type something') !== -1) {
           hasFreeText = true;
-          optionsHtml += '<button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-option="' + opt.number + '">'
+          // break-words + max-w-full - see blocked_prompt_options_html() in
+          // AgentClient.php (PHP) for why both are needed together (an
+          // option label has no length limit imposed by the tool itself,
+          // and break-words alone doesn't help without max-w-full capping
+          // the flex item's width first).
+          optionsHtml += '<button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full" data-option="' + opt.number + '">'
             + opt.number + '. ' + label
             + '</button>';
           return;
@@ -1551,7 +1556,7 @@ function render_transcript_entry(array $entry): string
           + '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">'
           + '<input type="hidden" name="session" value="' + escapeHtml(sessionName) + '">'
           + '<input type="hidden" name="option" value="' + opt.number + '">'
-          + '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2">'
+          + '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full">'
           + opt.number + '. ' + label
           + '</button></form>';
       });
