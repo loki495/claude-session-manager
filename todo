@@ -1,15 +1,7 @@
 Work queue (in this order, per Andres - new items get appended at the end unless he
 says otherwise). Reordered 2026-08-02.
 
-Tier 1 - self-contained features/fixes:
-
-- session.php/index.php: check whether the "Show tool usage details" toggle's label
-  should actually read "toggle tool outputs" instead - verify against what it really
-  does (hides tool_result blocks via the hide-tool-details CSS class; tool_use blocks
-  are unaffected) before renaming, since the current name may already be accurate for
-  half of what people expect it to do.
-
-Tier 2 - bigger or investigative items:
+Bigger or investigative items:
 
 - index.php: make the whole session-row "card" a link to its transcript page,
   except for known interactive bits (Kill button, show-last-3 toggle, blocked-prompt
