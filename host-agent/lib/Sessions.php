@@ -1838,6 +1838,249 @@ function browse_dir(string $path): array
 }
 
 /**
+ * Uploads for a session are kept inside its OWN project working dir
+ * under .claude/uploads/ (Andres's own suggestion) rather than some
+ * app-managed location elsewhere - that way an uploaded file's path is
+ * naturally already something Claude Code can read directly (relative
+ * to its own cwd) without needing to be told about an app-specific
+ * location, and .claude/ already reads as tooling-owned rather than
+ * real project content (likely already gitignored in most projects that
+ * use Claude Code at all).
+ */
+function uploads_dir(string $workdir): string
+{
+    return rtrim($workdir, '/') . '/.claude/uploads';
+}
+
+/**
+ * Resolves a session name to its known project working directory - the
+ * same sidecar-backed value build_session_entry() exposes as 'workdir'
+ * elsewhere, fetched directly here since uploads only ever need this one
+ * field. Only ever set for app-spawned sessions (see write_sidecar() in
+ * create_cc_session()) - a bare/manually-attached session has no sidecar
+ * and so no known workdir, same limitation every other workdir-dependent
+ * feature in this app already has.
+ */
+function session_workdir(string $name): ?string
+{
+    $sidecar = read_sidecar($name);
+    $workdir = $sidecar['workdir'] ?? null;
+
+    return is_string($workdir) && $workdir !== '' ? $workdir : null;
+}
+
+/**
+ * Matches the upload_max_filesize/post_max_size raised in docker-
+ * compose.yml's php.ini override - an independent, friendlier-error
+ * check rather than relying solely on PHP silently truncating/rejecting
+ * an oversized request.
+ */
+function max_upload_bytes(): int
+{
+    return (int)csm_config('MAX_UPLOAD_BYTES', (string)(25 * 1024 * 1024));
+}
+
+/**
+ * Strips any directory components and control characters from a
+ * client-supplied filename down to a safe basename - a client could
+ * send "../../etc/passwd" or similar as the filename field.
+ */
+function sanitize_upload_filename(string $filename): string
+{
+    $base = basename(trim($filename));
+    $base = preg_replace('/[\x00-\x1f]/', '', $base) ?? $base;
+    $base = ltrim($base, '.'); // no leading dot - avoid a hidden file, or matching '.'/'..' after stripping
+
+    return $base !== '' ? $base : 'upload';
+}
+
+/**
+ * Appends a numeric suffix before the extension until the name no
+ * longer collides with an existing file - never silently overwrites an
+ * earlier upload that happens to share a name.
+ */
+function unique_upload_filename(string $dir, string $filename): string
+{
+    $ext = pathinfo($filename, PATHINFO_EXTENSION);
+    $base = pathinfo($filename, PATHINFO_FILENAME);
+    $candidate = $filename;
+    $i = 1;
+
+    while (file_exists($dir . '/' . $candidate)) {
+        $candidate = $ext !== '' ? "{$base}-{$i}.{$ext}" : "{$base}-{$i}";
+        $i++;
+    }
+
+    return $candidate;
+}
+
+/**
+ * @return array{ok:bool, message?:string, filename?:string, path?:string, size?:int}
+ */
+function save_uploaded_file(string $sessionName, string $filename, string $base64Content): array
+{
+    $workdir = session_workdir($sessionName);
+
+    if ($workdir === null) {
+        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+    }
+
+    $decoded = base64_decode($base64Content, true);
+
+    if ($decoded === false) {
+        return ['ok' => false, 'message' => 'Malformed upload data'];
+    }
+
+    if (strlen($decoded) > max_upload_bytes()) {
+        return ['ok' => false, 'message' => 'File too large (max ' . intdiv(max_upload_bytes(), 1024 * 1024) . 'MB)'];
+    }
+
+    $dir = uploads_dir($workdir);
+
+    if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+        return ['ok' => false, 'message' => 'Could not create the uploads directory'];
+    }
+
+    $finalName = unique_upload_filename($dir, sanitize_upload_filename($filename));
+
+    if (@file_put_contents($dir . '/' . $finalName, $decoded) === false) {
+        return ['ok' => false, 'message' => 'Failed to write the uploaded file'];
+    }
+
+    return [
+        'ok' => true,
+        'filename' => $finalName,
+        'path' => '.claude/uploads/' . $finalName,
+        'size' => strlen($decoded),
+    ];
+}
+
+/**
+ * @return array{ok:bool, message?:string, files?:array<int, array{name:string, size:int, mtime:int}>, total_size?:int}
+ */
+function list_uploaded_files(string $sessionName): array
+{
+    $workdir = session_workdir($sessionName);
+
+    if ($workdir === null) {
+        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+    }
+
+    $dir = uploads_dir($workdir);
+
+    if (!is_dir($dir)) {
+        return ['ok' => true, 'files' => [], 'total_size' => 0];
+    }
+
+    $files = [];
+    $totalSize = 0;
+
+    foreach (scandir($dir) ?: [] as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+
+        $full = $dir . '/' . $entry;
+
+        if (!is_file($full)) {
+            continue;
+        }
+
+        $size = filesize($full);
+        $size = $size !== false ? $size : 0;
+
+        $files[] = ['name' => $entry, 'size' => $size, 'mtime' => filemtime($full) ?: 0];
+        $totalSize += $size;
+    }
+
+    usort($files, fn(array $a, array $b): int => $b['mtime'] <=> $a['mtime']);
+
+    return ['ok' => true, 'files' => $files, 'total_size' => $totalSize];
+}
+
+/**
+ * Resolves $filename against the uploads dir with a realpath boundary
+ * check (same discipline as browse_dir()) - basename() alone already
+ * stops plain "../" traversal in the filename itself, but not e.g. a
+ * symlink planted inside the uploads dir pointing elsewhere.
+ */
+function resolve_upload_path(string $workdir, string $filename): ?string
+{
+    $dir = uploads_dir($workdir);
+    $realDir = realpath($dir);
+
+    if ($realDir === false) {
+        return null;
+    }
+
+    $real = realpath($dir . '/' . basename($filename));
+
+    if ($real === false || !str_starts_with($real, $realDir . '/')) {
+        return null;
+    }
+
+    return $real;
+}
+
+/**
+ * @return array{ok:bool, message?:string}
+ */
+function delete_uploaded_file(string $sessionName, string $filename): array
+{
+    $workdir = session_workdir($sessionName);
+
+    if ($workdir === null) {
+        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+    }
+
+    $real = resolve_upload_path($workdir, $filename);
+
+    if ($real === null || !is_file($real)) {
+        return ['ok' => false, 'message' => 'File not found'];
+    }
+
+    if (!@unlink($real)) {
+        return ['ok' => false, 'message' => 'Failed to delete the file'];
+    }
+
+    return ['ok' => true];
+}
+
+/**
+ * @return array{ok:bool, message?:string, deleted?:int}
+ */
+function delete_all_uploaded_files(string $sessionName): array
+{
+    $workdir = session_workdir($sessionName);
+
+    if ($workdir === null) {
+        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+    }
+
+    $dir = uploads_dir($workdir);
+
+    if (!is_dir($dir)) {
+        return ['ok' => true, 'deleted' => 0];
+    }
+
+    $deleted = 0;
+
+    foreach (scandir($dir) ?: [] as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+
+        $full = $dir . '/' . $entry;
+
+        if (is_file($full) && @unlink($full)) {
+            $deleted++;
+        }
+    }
+
+    return ['ok' => true, 'deleted' => $deleted];
+}
+
+/**
  * claude-quota's "Resets" text is whatever Claude Code's own /usage panel
  * prints - either a bare time ("3pm", presumed to be the next occurrence
  * of that time - today unless that's already passed, then tomorrow) or a
@@ -2276,6 +2519,22 @@ function dispatch_action(array $request): array
 
         case 'install_session_hook':
             return install_session_hook();
+
+        case 'save_uploaded_file':
+            return save_uploaded_file(
+                (string)($request['session'] ?? ''),
+                (string)($request['filename'] ?? ''),
+                (string)($request['content_base64'] ?? '')
+            );
+
+        case 'list_uploaded_files':
+            return list_uploaded_files((string)($request['session'] ?? ''));
+
+        case 'delete_uploaded_file':
+            return delete_uploaded_file((string)($request['session'] ?? ''), (string)($request['filename'] ?? ''));
+
+        case 'delete_all_uploaded_files':
+            return delete_all_uploaded_files((string)($request['session'] ?? ''));
 
         default:
             return ['ok' => false, 'message' => 'Unknown action'];
