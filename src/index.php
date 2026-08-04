@@ -1,13 +1,10 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
-require_once __DIR__ . '/lib/Views/QuotaFooterView.php';
-require_once __DIR__ . '/lib/Views/PushNotifyView.php';
-require_once __DIR__ . '/lib/Views/HealthBoxView.php';
-require_once __DIR__ . '/lib/Views/SessionRowView.php';
 
+use App\AgentClient;
 use App\Views\HealthBoxView;
 use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
@@ -33,27 +30,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     switch ($action) {
         case 'new':
             $workdir = trim((string)($_POST['workdir'] ?? ''));
-            $result = agent_call(['action' => 'create', 'workdir' => $workdir]);
+            $result = AgentClient::agent_call(['action' => 'create', 'workdir' => $workdir]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
             break;
 
         case 'kill':
             $requested = (string)($_POST['session'] ?? '');
-            $result = agent_call(['action' => 'kill', 'session' => $requested]);
+            $result = AgentClient::agent_call(['action' => 'kill', 'session' => $requested]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
             break;
 
         case 'kill_bare':
             $pid = (int)($_POST['pid'] ?? 0);
-            $result = agent_call(['action' => 'kill_bare', 'pid' => $pid]);
+            $result = AgentClient::agent_call(['action' => 'kill_bare', 'pid' => $pid]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
             break;
 
         case 'cleanup':
-            $result = agent_call(['action' => 'cleanup']);
+            $result = AgentClient::agent_call(['action' => 'cleanup']);
             $killed = $result['killed'] ?? [];
             $failed = $result['failed'] ?? [];
             $ok = (bool)($result['ok'] ?? false);
@@ -66,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
 
         case 'install_hook':
-            $result = agent_call(['action' => 'install_session_hook']);
+            $result = AgentClient::agent_call(['action' => 'install_session_hook']);
             $ok = (bool)($result['ok'] ?? false);
             $message = $ok
                 ? 'App hooks installed in ~/.claude/settings.json.'
@@ -75,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         case 'set_push_timer_interval':
             $seconds = (int)($_POST['seconds'] ?? 0);
-            $result = agent_call(['action' => 'set_push_timer_interval', 'seconds' => $seconds]);
+            $result = AgentClient::agent_call(['action' => 'set_push_timer_interval', 'seconds' => $seconds]);
             $ok = (bool)($result['ok'] ?? false);
             $message = $ok
                 ? "Push-check interval set to {$seconds}s."
@@ -94,24 +91,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 /* ---------- render (GET) ---------- */
 
-$listResult = agent_call(['action' => 'list']);
+$listResult = AgentClient::agent_call(['action' => 'list']);
 $agentReachable = (bool)($listResult['ok'] ?? false);
 $sessions = $agentReachable ? ($listResult['sessions'] ?? []) : [];
 $bare = $agentReachable ? ($listResult['bare'] ?? []) : [];
 
 // Only checked when the agent is reachable at all - no point surfacing a
 // second, redundant warning about host state we already can't see.
-$hookResult = $agentReachable ? agent_call(['action' => 'check_session_hook']) : ['ok' => false];
+$hookResult = $agentReachable ? AgentClient::agent_call(['action' => 'check_session_hook']) : ['ok' => false];
 $hookCheckOk = (bool)($hookResult['ok'] ?? false);
 $hookInstalled = (bool)($hookResult['installed'] ?? false);
 
-$pushResult = $agentReachable ? agent_call(['action' => 'push_public_key']) : ['ok' => false];
+$pushResult = $agentReachable ? AgentClient::agent_call(['action' => 'push_public_key']) : ['ok' => false];
 $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
 
-$healthResult = $agentReachable ? agent_call(['action' => 'health_check']) : ['ok' => false];
+$healthResult = $agentReachable ? AgentClient::agent_call(['action' => 'health_check']) : ['ok' => false];
 $healthChecks = (bool)($healthResult['ok'] ?? false) ? ($healthResult['checks'] ?? []) : [];
 
-$pushTimerResult = $agentReachable ? agent_call(['action' => 'get_push_timer_interval']) : ['ok' => false];
+$pushTimerResult = $agentReachable ? AgentClient::agent_call(['action' => 'get_push_timer_interval']) : ['ok' => false];
 $pushTimerIntervalSeconds = (bool)($pushTimerResult['ok'] ?? false) ? (int)($pushTimerResult['interval_seconds'] ?? 0) : null;
 
 $flash = $_SESSION['flash'] ?? null;

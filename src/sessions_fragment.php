@@ -18,10 +18,10 @@ declare(strict_types=1);
  * for the full story on why that matters.
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
-require_once __DIR__ . '/lib/Views/SessionRowView.php';
 
+use App\AgentClient;
 use App\Views\SessionRowView;
 
 start_app_session();
@@ -34,7 +34,7 @@ header('Cache-Control: no-store');
 header('Content-Type: application/json');
 
 $csrfToken = csrf_token();
-$listResult = agent_call(['action' => 'list']);
+$listResult = AgentClient::agent_call(['action' => 'list']);
 $agentReachable = (bool)($listResult['ok'] ?? false);
 
 if (!$agentReachable) {

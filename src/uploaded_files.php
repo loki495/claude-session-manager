@@ -7,8 +7,10 @@ declare(strict_types=1);
  * pattern as sessions_list.php/quota.php/browse.php.
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -17,4 +19,4 @@ header('Content-Type: application/json');
 
 $sessionName = trim((string)($_GET['session'] ?? ''));
 
-echo json_encode(agent_call(['action' => 'list_uploaded_files', 'session' => $sessionName]));
+echo json_encode(AgentClient::agent_call(['action' => 'list_uploaded_files', 'session' => $sessionName]));

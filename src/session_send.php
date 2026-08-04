@@ -9,8 +9,10 @@ declare(strict_types=1);
  * UX. Called via fetch() instead.
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -34,4 +36,4 @@ header('Content-Type: application/json');
 $sessionName = trim((string)($_POST['session'] ?? ''));
 $text = (string)($_POST['message'] ?? '');
 
-echo json_encode(agent_call(['action' => 'send_message', 'session' => $sessionName, 'text' => $text]));
+echo json_encode(AgentClient::agent_call(['action' => 'send_message', 'session' => $sessionName, 'text' => $text]));

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Views;
 
-require_once __DIR__ . '/BlockedPromptView.php';
-
 /**
  * The dashboard's session/bare-process list rows - shared between
  * index.php's SSR render and sessions_fragment.php's poll response so

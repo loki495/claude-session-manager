@@ -12,8 +12,10 @@ declare(strict_types=1);
  * save_uploaded_file() in host-agent/lib/Sessions.php).
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -66,7 +68,7 @@ if ($content === false) {
     exit;
 }
 
-echo json_encode(agent_call([
+echo json_encode(AgentClient::agent_call([
     'action' => 'save_uploaded_file',
     'session' => $sessionName,
     'filename' => (string)($file['name'] ?? 'upload'),

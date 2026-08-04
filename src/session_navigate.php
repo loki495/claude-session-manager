@@ -9,8 +9,10 @@ declare(strict_types=1);
  * session_mode.php/session_escape.php.
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -34,4 +36,4 @@ header('Content-Type: application/json');
 $sessionName = trim((string)($_POST['session'] ?? ''));
 $direction = trim((string)($_POST['direction'] ?? ''));
 
-echo json_encode(agent_call(['action' => 'navigate_prompt', 'session' => $sessionName, 'direction' => $direction]));
+echo json_encode(AgentClient::agent_call(['action' => 'navigate_prompt', 'session' => $sessionName, 'direction' => $direction]));

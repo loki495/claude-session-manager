@@ -1,13 +1,10 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
-require_once __DIR__ . '/lib/Views/QuotaFooterView.php';
-require_once __DIR__ . '/lib/Views/PushNotifyView.php';
-require_once __DIR__ . '/lib/Views/BlockedPromptView.php';
-require_once __DIR__ . '/lib/Views/SessionRowView.php';
 
+use App\AgentClient;
 use App\Views\BlockedPromptView;
 use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
@@ -24,13 +21,13 @@ if ($sessionName === '') {
 
 $csrfToken = csrf_token();
 
-$detail = agent_call(['action' => 'session_detail', 'session' => $sessionName]);
+$detail = AgentClient::agent_call(['action' => 'session_detail', 'session' => $sessionName]);
 $found = (bool)($detail['ok'] ?? false);
 
-$pushResult = agent_call(['action' => 'push_public_key']);
+$pushResult = AgentClient::agent_call(['action' => 'push_public_key']);
 $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
 
-$history = $found ? agent_call(['action' => 'session_history', 'session' => $sessionName, 'before' => null, 'limit' => 30]) : ['ok' => false];
+$history = $found ? AgentClient::agent_call(['action' => 'session_history', 'session' => $sessionName, 'before' => null, 'limit' => 30]) : ['ok' => false];
 $historyOk = (bool)($history['ok'] ?? false);
 $entries = $historyOk ? ($history['entries'] ?? []) : [];
 $nextBefore = $historyOk ? ($history['next_before'] ?? null) : null;

@@ -9,8 +9,10 @@ declare(strict_types=1);
  * page reload per answer was poor UX, same reasoning as compose send).
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -39,7 +41,7 @@ $text = trim((string)($_POST['text'] ?? ''));
 // staged and submitted alongside the option - see answer_prompt_with_text()
 // in Sessions.php. Every other option just sends the bare numbered choice.
 if ($text !== '') {
-    echo json_encode(agent_call(['action' => 'answer_prompt_with_text', 'session' => $sessionName, 'option' => $option, 'text' => $text]));
+    echo json_encode(AgentClient::agent_call(['action' => 'answer_prompt_with_text', 'session' => $sessionName, 'option' => $option, 'text' => $text]));
 } else {
-    echo json_encode(agent_call(['action' => 'answer_prompt', 'session' => $sessionName, 'option' => $option]));
+    echo json_encode(AgentClient::agent_call(['action' => 'answer_prompt', 'session' => $sessionName, 'option' => $option]));
 }

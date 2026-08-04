@@ -6,8 +6,10 @@ declare(strict_types=1);
  * same CSRF/origin-checked, fetch()-called pattern as session_send.php.
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -31,4 +33,4 @@ header('Content-Type: application/json');
 $sessionName = trim((string)($_POST['session'] ?? ''));
 $filename = (string)($_POST['filename'] ?? '');
 
-echo json_encode(agent_call(['action' => 'delete_uploaded_file', 'session' => $sessionName, 'filename' => $filename]));
+echo json_encode(AgentClient::agent_call(['action' => 'delete_uploaded_file', 'session' => $sessionName, 'filename' => $filename]));

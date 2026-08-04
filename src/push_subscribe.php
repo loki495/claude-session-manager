@@ -11,8 +11,10 @@ declare(strict_types=1);
  * every other endpoint here (that only ever reads $_POST).
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -40,4 +42,4 @@ if (!is_array($subscription)) {
     exit;
 }
 
-echo json_encode(agent_call(['action' => 'push_subscribe', 'subscription' => $subscription]));
+echo json_encode(AgentClient::agent_call(['action' => 'push_subscribe', 'subscription' => $subscription]));

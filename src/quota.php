@@ -13,8 +13,10 @@ declare(strict_types=1);
  * for the full story on why that matters.
  */
 
-require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -27,4 +29,4 @@ start_app_session();
 // unrelated to this HTTP response header.
 header('Cache-Control: no-store');
 header('Content-Type: application/json');
-echo json_encode(agent_call(['action' => 'quota']));
+echo json_encode(AgentClient::agent_call(['action' => 'quota']));

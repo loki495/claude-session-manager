@@ -1,5 +1,8 @@
 <?php
+
 declare(strict_types=1);
+
+namespace App;
 
 /**
  * The container never touches tmux or the host process table directly.
@@ -10,40 +13,41 @@ declare(strict_types=1);
  * whichever process first talks to an unstarted socket, so that process
  * must always be a genuine host process, never this container.
  */
-
-function agent_socket_path(): string
+class AgentClient
 {
-    $path = getenv('CSM_AGENT_SOCKET');
-    return $path !== false && $path !== '' ? $path : '/run/csm-agent.sock';
-}
-
-/**
- * @param array<string, mixed> $request
- * @return array<string, mixed>
- */
-function agent_call(array $request): array
-{
-    $socket = @stream_socket_client('unix://' . agent_socket_path(), $errno, $errstr, 5);
-
-    if ($socket === false) {
-        return [
-            'ok' => false,
-            'message' => "Cannot reach host agent ({$errstr}). Is the csm-agent.socket systemd unit running on the host?",
-        ];
+    public static function agent_socket_path(): string
+    {
+        $path = getenv('CSM_AGENT_SOCKET');
+        return $path !== false && $path !== '' ? $path : '/run/csm-agent.sock';
     }
 
-    fwrite($socket, json_encode($request));
-    stream_socket_shutdown($socket, STREAM_SHUT_WR);
+    /**
+     * @param array<string, mixed> $request
+     * @return array<string, mixed>
+     */
+    public static function agent_call(array $request): array
+    {
+        $socket = @stream_socket_client('unix://' . self::agent_socket_path(), $errno, $errstr, 5);
 
-    $raw = stream_get_contents($socket);
-    fclose($socket);
+        if ($socket === false) {
+            return [
+                'ok' => false,
+                'message' => "Cannot reach host agent ({$errstr}). Is the csm-agent.socket systemd unit running on the host?",
+            ];
+        }
 
-    $decoded = json_decode((string)$raw, true);
+        fwrite($socket, json_encode($request));
+        stream_socket_shutdown($socket, STREAM_SHUT_WR);
 
-    if (!is_array($decoded)) {
-        return ['ok' => false, 'message' => 'Malformed response from host agent'];
+        $raw = stream_get_contents($socket);
+        fclose($socket);
+
+        $decoded = json_decode((string)$raw, true);
+
+        if (!is_array($decoded)) {
+            return ['ok' => false, 'message' => 'Malformed response from host agent'];
+        }
+
+        return $decoded;
     }
-
-    return $decoded;
 }
-

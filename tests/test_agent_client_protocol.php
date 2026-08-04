@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Tests src/lib/AgentClient.php's agent_call() against the *real*
+ * Tests src/lib/AgentClient.php's AgentClient::agent_call() against the *real*
  * host-agent/agent.php + Sessions.php, over a real Unix socket, using
  * tests/lib/socket_harness.php to stand in for systemd's Accept=yes
  * socket activation. Runs against the isolated fixtures from
@@ -13,7 +13,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib/assert.php';
 require __DIR__ . '/lib/harness.php';
-require dirname(__DIR__) . '/src/lib/AgentClient.php';
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+use App\AgentClient;
 
 $socketPath = sys_get_temp_dir() . '/csm-test-agent-protocol.sock';
 $agentPhp = dirname(__DIR__) . '/host-agent/agent.php';
@@ -23,32 +25,32 @@ putenv("CSM_AGENT_SOCKET={$socketPath}");
 
 try {
     // --- list ---
-    $result = agent_call(['action' => 'list']);
+    $result = AgentClient::agent_call(['action' => 'list']);
     assert_true($result['ok'] ?? false, 'list: ok=true');
     assert_true(is_array($result['sessions'] ?? null), 'list: sessions is an array');
     assert_equal([], $result['sessions'], 'list: no sessions on a fresh isolated tmux socket');
 
     // --- browse_dir: no path -> defaults to WWW_ROOT ---
-    $result = agent_call(['action' => 'browse_dir', 'path' => '']);
+    $result = AgentClient::agent_call(['action' => 'browse_dir', 'path' => '']);
     assert_true($result['ok'] ?? false, 'browse_dir (default): ok=true');
     assert_equal(getenv('WWW_ROOT'), $result['path'] ?? null, 'browse_dir (default): path defaults to WWW_ROOT');
     assert_equal(['.hidden-dir', 'project-a', 'project-b'], $result['dirs'] ?? null, 'browse_dir (default): includes hidden dirs, sorted');
     assert_equal(getenv('HOME_ROOT'), $result['parent'] ?? null, 'browse_dir (default): parent is HOME_ROOT');
 
     // --- browse_dir: outside HOME_ROOT is rejected ---
-    $result = agent_call(['action' => 'browse_dir', 'path' => '/etc']);
+    $result = AgentClient::agent_call(['action' => 'browse_dir', 'path' => '/etc']);
     assert_equal(false, $result['ok'] ?? null, 'browse_dir (/etc): rejected as outside the home directory');
 
     // --- session_detail / session_history: wired over the socket (deeper
     // coverage, incl. the actual create -> transcript-not-found path, lives
     // in test_sessions_lifecycle.php against real tmux) ---
-    $result = agent_call(['action' => 'session_detail', 'session' => 'cc-not-a-real-session']);
+    $result = AgentClient::agent_call(['action' => 'session_detail', 'session' => 'cc-not-a-real-session']);
     assert_equal(false, $result['ok'] ?? null, 'session_detail: ok=false for a session that does not exist on a fresh isolated tmux socket');
 
-    $result = agent_call(['action' => 'session_history', 'session' => 'cc-not-a-real-session', 'before' => null, 'limit' => 10]);
+    $result = AgentClient::agent_call(['action' => 'session_history', 'session' => 'cc-not-a-real-session', 'before' => null, 'limit' => 10]);
     assert_equal(false, $result['ok'] ?? null, 'session_history: ok=false for a session with no sidecar');
 
-    // --- malformed request (raw socket, bypassing agent_call()'s own encoding) ---
+    // --- malformed request (raw socket, bypassing AgentClient::agent_call()'s own encoding) ---
     $conn = stream_socket_client('unix://' . $socketPath, $errno, $errstr, 5);
     assert_true($conn !== false, 'malformed: connected to harness');
     fwrite($conn, 'not valid json{');
@@ -61,7 +63,7 @@ try {
 
     // --- unreachable socket ---
     putenv('CSM_AGENT_SOCKET=' . sys_get_temp_dir() . '/csm-test-does-not-exist.sock');
-    $result = agent_call(['action' => 'list']);
+    $result = AgentClient::agent_call(['action' => 'list']);
     assert_equal(false, $result['ok'] ?? null, 'unreachable: ok=false');
     assert_contains('Cannot reach host agent', $result['message'] ?? '', 'unreachable: message explains the failure');
 } finally {
