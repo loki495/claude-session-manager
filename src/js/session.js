@@ -63,8 +63,26 @@
       return;
     }
 
-    composeInputRow.classList.toggle('hidden', !!detail.blocked_reason);
-    composeBlockedNote.classList.toggle('hidden', !detail.blocked_reason);
+    var wasHidden = composeInputRow.classList.contains('hidden');
+    var isBlocked = !!detail.blocked_reason;
+
+    composeInputRow.classList.toggle('hidden', isBlocked);
+    composeBlockedNote.classList.toggle('hidden', !isBlocked);
+
+    // Andres reported the textarea sometimes coming back too short (a
+    // sliver, not its normal auto-grown height) right after a mid-typing
+    // prompt cleared. The auto-grown height is a plain inline style on
+    // #compose-textarea, unaffected in principle by the row's own
+    // display:none while hidden - but autoGrowCompose() (defined further
+    // down, in scope here via the enclosing IIFE) is only ever invoked by
+    // direct user interaction (typing, sending, attaching), never on this
+    // row becoming visible again, so nothing re-measures it at that point.
+    // Re-running it right on the hidden->visible transition is a cheap,
+    // self-correcting fix regardless of the exact browser mechanism that
+    // left the stale height behind.
+    if (wasHidden && !isBlocked && typeof autoGrowCompose === 'function') {
+      autoGrowCompose();
+    }
   }
 
   // The compose bar's height varies (quota footer collapsed/expanded, textarea

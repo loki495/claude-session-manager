@@ -6,14 +6,6 @@ Quick wins (small surface area, bug fixes / high annoyance relief):
 - Prevent swipe triggers (nav gestures) from firing on the compose box and
   prompt textarea when the user is just text-selecting/scrolling within
   them.
-- session.php: after answering a prompt that popped up mid-typing (covering
-  the compose textarea while it's focused), the compose textarea sometimes
-  comes back too short once the prompt clears - text still there but only a
-  sliver of it visible, not the normal auto-grown height. Andres currently
-  has to navigate to the dashboard and back to get a normal-sized textarea
-  again. Likely related to autoGrowCompose() not re-running (or running
-  against a stale/zeroed scrollHeight) at the right moment when the compose
-  bar's visibility is toggled back on by renderComposeVisibility().
 - session.php: the new-content glow shouldn't start fading until it's
   actually been confirmed visible on screen - entries above the current
   viewport should stay glowing until Andres scrolls up and sees them,
