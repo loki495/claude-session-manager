@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/Sessions.php';
 
 use HostAgent\Services\Config;
+use HostAgent\Services\ProcessRunner;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
 
@@ -222,7 +223,7 @@ function push_notification_title(array $session): string
     if ($title !== '') {
         // Claude Code prefixes its idle/non-working pane title with a
         // static icon (e.g. "✳ Fix login bug", U+2733 - distinct from the
-        // animated braille spinner clean_pane_title() already strips,
+        // animated braille spinner PromptParser::clean_pane_title() already strips,
         // which only appears while actively working). Fine in a terminal
         // title bar, out of place at the start of a phone notification -
         // \p{So} (Symbol, other) covers this and similar single-glyph
@@ -292,7 +293,7 @@ function push_finished_body(?array $lastMessage): string
  * Claude Code itself writes alongside every Bash tool_input, e.g. "Run
  * full test suite after X changes") IS prefixed when present, though -
  * real per-command context rather than a stale session-wide label, and
- * already the exact same source format_pending_tool_input() uses for the
+ * already the exact same source PromptParser::format_pending_tool_input() uses for the
  * in-app blocked-prompt card (see there). Confirmed live: this is the
  * same descriptive text Anthropic's own Claude app shows (without a
  * command) for the identical permission prompt - this combines both.
@@ -761,17 +762,17 @@ function set_push_timer_interval(int $seconds): array
         return ['ok' => false, 'message' => 'Failed to write the updated timer unit - check file permissions'];
     }
 
-    $reload = run_process(['systemctl', '--user', 'daemon-reload']);
+    $reload = ProcessRunner::run_process(['systemctl', '--user', 'daemon-reload']);
 
     if ($reload['exit'] !== 0) {
         return ['ok' => false, 'message' => 'systemctl daemon-reload failed: ' . trim($reload['stderr'])];
     }
 
     $unitName = push_timer_unit_name();
-    $isActive = run_process(['systemctl', '--user', 'is-active', $unitName]);
+    $isActive = ProcessRunner::run_process(['systemctl', '--user', 'is-active', $unitName]);
 
     if (trim($isActive['stdout']) === 'active') {
-        $restart = run_process(['systemctl', '--user', 'restart', $unitName]);
+        $restart = ProcessRunner::run_process(['systemctl', '--user', 'restart', $unitName]);
 
         if ($restart['exit'] !== 0) {
             return ['ok' => false, 'message' => 'Interval updated but restarting the timer failed: ' . trim($restart['stderr'])];

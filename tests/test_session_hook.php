@@ -17,6 +17,7 @@ require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
 use HostAgent\Services\Config;
+use HostAgent\Services\PromptParser;
 
 const REAL_HOME_ROOT = '/home/andres';
 
@@ -142,37 +143,37 @@ try {
     assert_equal(false, pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => 'something-unrelated.sh']]]]]]), 'pre_tool_use_hook_present: false for an unrelated PreToolUse hook');
     assert_equal(true, pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => Config::pre_tool_use_hook_command()]]]]]]), 'pre_tool_use_hook_present: true when our command is present under any matcher');
 
-    // --- format_pending_tool_input(): full-text preview per tool shape ---
+    // --- PromptParser::format_pending_tool_input(): full-text preview per tool shape ---
 
     assert_equal(
         "npm test",
-        format_pending_tool_input('Bash', ['command' => 'npm test']),
+        PromptParser::format_pending_tool_input('Bash', ['command' => 'npm test']),
         'format_pending_tool_input: Bash with no description is just the command'
     );
     assert_equal(
         "Run tests\n\nnpm test",
-        format_pending_tool_input('Bash', ['command' => 'npm test', 'description' => 'Run tests']),
+        PromptParser::format_pending_tool_input('Bash', ['command' => 'npm test', 'description' => 'Run tests']),
         'format_pending_tool_input: Bash description is prepended when present'
     );
-    assert_equal(null, format_pending_tool_input('Bash', []), 'format_pending_tool_input: Bash with no command returns null');
+    assert_equal(null, PromptParser::format_pending_tool_input('Bash', []), 'format_pending_tool_input: Bash with no command returns null');
     assert_equal(
         "Write /tmp/foo.txt\n\nline1\nline2",
-        format_pending_tool_input('Write', ['file_path' => '/tmp/foo.txt', 'content' => "line1\nline2"]),
+        PromptParser::format_pending_tool_input('Write', ['file_path' => '/tmp/foo.txt', 'content' => "line1\nline2"]),
         'format_pending_tool_input: Write shows the full file content, not truncated'
     );
-    assert_equal(null, format_pending_tool_input('Write', ['file_path' => '/tmp/foo.txt']), 'format_pending_tool_input: Write with no content returns null');
+    assert_equal(null, PromptParser::format_pending_tool_input('Write', ['file_path' => '/tmp/foo.txt']), 'format_pending_tool_input: Write with no content returns null');
     assert_equal(
         "Edit /tmp/foo.txt\n\n--- old ---\nfoo\n\n--- new ---\nbar",
-        format_pending_tool_input('Edit', ['file_path' => '/tmp/foo.txt', 'old_string' => 'foo', 'new_string' => 'bar']),
+        PromptParser::format_pending_tool_input('Edit', ['file_path' => '/tmp/foo.txt', 'old_string' => 'foo', 'new_string' => 'bar']),
         'format_pending_tool_input: Edit shows old/new'
     );
-    assert_equal(null, format_pending_tool_input('Edit', []), 'format_pending_tool_input: Edit with no file_path returns null');
+    assert_equal(null, PromptParser::format_pending_tool_input('Edit', []), 'format_pending_tool_input: Edit with no file_path returns null');
     assert_true(
-        str_starts_with(format_pending_tool_input('WebFetch', ['url' => 'https://example.com']) ?? '', "WebFetch\n\n"),
+        str_starts_with(PromptParser::format_pending_tool_input('WebFetch', ['url' => 'https://example.com']) ?? '', "WebFetch\n\n"),
         'format_pending_tool_input: unrecognized tool falls back to a labeled JSON dump'
     );
 
-    // --- augment_prompt_with_pending_tool(): only replaces context when the pending tool matches the pane's own marker ---
+    // --- PromptParser::augment_prompt_with_pending_tool(): only replaces context when the pending tool matches the pane's own marker ---
 
     $basePrompt = [
         'question' => 'Do you want to proceed?',
@@ -184,21 +185,21 @@ try {
 
     assert_equal(
         $basePrompt,
-        augment_prompt_with_pending_tool($basePrompt, null),
+        PromptParser::augment_prompt_with_pending_tool($basePrompt, null),
         'augment_prompt_with_pending_tool: no pending-tool file leaves the pane-scraped prompt untouched'
     );
     assert_equal(
         $basePrompt,
-        augment_prompt_with_pending_tool($basePrompt, ['tool_name' => 'Write', 'tool_input' => ['file_path' => '/x', 'content' => 'y']]),
+        PromptParser::augment_prompt_with_pending_tool($basePrompt, ['tool_name' => 'Write', 'tool_input' => ['file_path' => '/x', 'content' => 'y']]),
         'augment_prompt_with_pending_tool: a tool-name mismatch against the pane marker is left untouched (stale/wrong pending file)'
     );
     assert_equal(
         $basePrompt,
-        augment_prompt_with_pending_tool($basePrompt, ['tool_name' => 'Bash', 'tool_input' => null]),
+        PromptParser::augment_prompt_with_pending_tool($basePrompt, ['tool_name' => 'Bash', 'tool_input' => null]),
         'augment_prompt_with_pending_tool: a malformed pending-tool entry (no tool_input) is left untouched'
     );
 
-    $augmented = augment_prompt_with_pending_tool($basePrompt, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'npm test --full-real-command-not-truncated']]);
+    $augmented = PromptParser::augment_prompt_with_pending_tool($basePrompt, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'npm test --full-real-command-not-truncated']]);
     assert_equal('npm test --full-real-command-not-truncated', $augmented['context'], 'augment_prompt_with_pending_tool: a matching tool name replaces the truncated pane context with the full hook-sourced one');
     assert_equal('Do you want to proceed?', $augmented['question'], 'augment_prompt_with_pending_tool: only context is replaced, question/options/etc are untouched');
     assert_equal('Bash', $augmented['tool_name'] ?? null, 'augment_prompt_with_pending_tool: exposes tool_name so callers (push body) can tell a permission prompt from a real question');
@@ -218,7 +219,7 @@ try {
         'is_folder_trust' => false,
     ];
     $questionInput = ['questions' => [['question' => 'Which color do you prefer?', 'header' => 'Color', 'options' => [['label' => 'Red'], ['label' => 'Blue']]]]];
-    $augmentedQuestion = augment_prompt_with_pending_tool($questionPrompt, ['tool_name' => 'AskUserQuestion', 'tool_input' => $questionInput]);
+    $augmentedQuestion = PromptParser::augment_prompt_with_pending_tool($questionPrompt, ['tool_name' => 'AskUserQuestion', 'tool_input' => $questionInput]);
     assert_equal($questionPrompt['context'], $augmentedQuestion['context'], 'augment_prompt_with_pending_tool: AskUserQuestion context is left untouched, not replaced with a raw JSON dump');
     assert_equal('AskUserQuestion', $augmentedQuestion['tool_name'] ?? null, 'augment_prompt_with_pending_tool: AskUserQuestion still exposes tool_name');
     assert_equal($questionInput, $augmentedQuestion['tool_input'] ?? null, 'augment_prompt_with_pending_tool: AskUserQuestion still exposes tool_input');

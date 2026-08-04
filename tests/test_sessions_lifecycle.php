@@ -14,6 +14,9 @@ require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
 use HostAgent\Services\Config;
+use HostAgent\Services\ProcessInspector;
+use HostAgent\Services\PromptParser;
+use HostAgent\Services\TmuxService;
 
 const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
 
@@ -37,7 +40,7 @@ $promptTestSession = null;
 /** @var string|null $sendTestSession a cc-* session used to test send_message(), for the finally-block safety net */
 $sendTestSession = null;
 
-/** @var string|null $wrapTestSession a cc-* session used to test tmux_capture_pane()'s line-wrap rejoin, for the finally-block safety net */
+/** @var string|null $wrapTestSession a cc-* session used to test TmuxService::tmux_capture_pane()'s line-wrap rejoin, for the finally-block safety net */
 $wrapTestSession = null;
 
 /** @var string|null $quotaTestSession a cc-* session used to test quota_from_live_pane(), for the finally-block safety net */
@@ -70,48 +73,48 @@ function find_session(string $name): ?array
     return null;
 }
 
-// --- clean_pane_title(): strips Claude Code's animated spinner glyph,
+// --- PromptParser::clean_pane_title(): strips Claude Code's animated spinner glyph,
 // leaving the short task description it sets via terminal title escapes ---
-assert_equal('Fix login bug', clean_pane_title('⠂ Fix login bug'), 'clean_pane_title: strips a leading spinner glyph');
-assert_equal('Fix login bug', clean_pane_title('⠐ Fix login bug'), 'clean_pane_title: strips a different spinner frame');
-assert_equal('No spinner here', clean_pane_title('No spinner here'), 'clean_pane_title: leaves a plain title untouched');
-assert_equal(null, clean_pane_title(''), 'clean_pane_title: empty title -> null (caller falls back to session name)');
-assert_equal(null, clean_pane_title('   '), 'clean_pane_title: whitespace-only title -> null');
+assert_equal('Fix login bug', PromptParser::clean_pane_title('⠂ Fix login bug'), 'clean_pane_title: strips a leading spinner glyph');
+assert_equal('Fix login bug', PromptParser::clean_pane_title('⠐ Fix login bug'), 'clean_pane_title: strips a different spinner frame');
+assert_equal('No spinner here', PromptParser::clean_pane_title('No spinner here'), 'clean_pane_title: leaves a plain title untouched');
+assert_equal(null, PromptParser::clean_pane_title(''), 'clean_pane_title: empty title -> null (caller falls back to session name)');
+assert_equal(null, PromptParser::clean_pane_title('   '), 'clean_pane_title: whitespace-only title -> null');
 
-// --- pane_title_is_working(): the live "is it doing something right now"
-// signal - the same leading spinner glyph clean_pane_title() strips off ---
-assert_true(pane_title_is_working('⠂ Fix login bug'), 'pane_title_is_working: true when the spinner glyph is present');
-assert_true(pane_title_is_working('⠐ Fix login bug'), 'pane_title_is_working: true for a different spinner frame');
-assert_equal(false, pane_title_is_working('No spinner here'), 'pane_title_is_working: false for a plain title');
-assert_equal(false, pane_title_is_working(''), 'pane_title_is_working: false for an empty title');
+// --- PromptParser::pane_title_is_working(): the live "is it doing something right now"
+// signal - the same leading spinner glyph PromptParser::clean_pane_title() strips off ---
+assert_true(PromptParser::pane_title_is_working('⠂ Fix login bug'), 'pane_title_is_working: true when the spinner glyph is present');
+assert_true(PromptParser::pane_title_is_working('⠐ Fix login bug'), 'pane_title_is_working: true for a different spinner frame');
+assert_equal(false, PromptParser::pane_title_is_working('No spinner here'), 'pane_title_is_working: false for a plain title');
+assert_equal(false, PromptParser::pane_title_is_working(''), 'pane_title_is_working: false for an empty title');
 
-// --- detect_blocking_prompt(): flags a session stuck on an interactive
+// --- PromptParser::detect_blocking_prompt(): flags a session stuck on an interactive
 // prompt (folder trust, tool permission, ...) via the leading "❯ N."
 // cursor Claude Code renders on the selected option, regardless of the
 // exact prompt wording ---
-assert_equal(null, detect_blocking_prompt("Just some normal output\nmore output\n"), 'detect_blocking_prompt: plain output -> not blocked');
+assert_equal(null, PromptParser::detect_blocking_prompt("Just some normal output\nmore output\n"), 'detect_blocking_prompt: plain output -> not blocked');
 assert_equal(
     'Do you trust the files in this folder?',
-    detect_blocking_prompt("Do you trust the files in this folder?\n\n❯ 1. Yes, proceed\n  2. No, exit\n"),
+    PromptParser::detect_blocking_prompt("Do you trust the files in this folder?\n\n❯ 1. Yes, proceed\n  2. No, exit\n"),
     'detect_blocking_prompt: finds the question line directly above the choice list'
 );
 assert_equal(
     'Do you want to proceed?',
-    detect_blocking_prompt("Some other line\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n"),
+    PromptParser::detect_blocking_prompt("Some other line\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n"),
     'detect_blocking_prompt: works for the tool-permission prompt shape too (a blank line separates it from unrelated context above, like a real capture)'
 );
 assert_equal(
     'no question line here',
-    detect_blocking_prompt("no question line here\n❯ 1. Yes\n  2. No\n"),
+    PromptParser::detect_blocking_prompt("no question line here\n❯ 1. Yes\n  2. No\n"),
     'detect_blocking_prompt: falls back to the nearest context line, even without a "?", rather than a bare generic message'
 );
 assert_equal(
     'Waiting on an interactive prompt (permission or trust dialog)',
-    detect_blocking_prompt("❯ 1. Yes\n  2. No\n"),
+    PromptParser::detect_blocking_prompt("❯ 1. Yes\n  2. No\n"),
     'detect_blocking_prompt: only falls back to the generic message when there is truly no context above the choices'
 );
 
-// --- parse_blocking_prompt(): the fuller parse behind detect_blocking_prompt(),
+// --- PromptParser::parse_blocking_prompt(): the fuller parse behind PromptParser::detect_blocking_prompt(),
 // also extracting the surrounding context (the actual tool call / command /
 // trust-dialog explanation, not just the bare question) and every numbered
 // option, so a caller can render real Approve/Deny buttons with enough
@@ -122,7 +125,7 @@ assert_equal(
 // "line ending in ?" heuristic silently failed to find the real trust
 // dialog's question (it wraps: the "?" lands mid-line, not at the end of
 // any single one). ---
-assert_equal(null, parse_blocking_prompt("Just some normal output\nmore output\n"), 'parse_blocking_prompt: plain output -> null');
+assert_equal(null, PromptParser::parse_blocking_prompt("Just some normal output\nmore output\n"), 'parse_blocking_prompt: plain output -> null');
 
 $realTrustDialog = " Accessing workspace:\n"
     . "\n"
@@ -140,7 +143,7 @@ $realTrustDialog = " Accessing workspace:\n"
     . "   2. No, exit\n"
     . "\n"
     . " Enter to confirm · Esc to cancel\n";
-$trustParsed = parse_blocking_prompt($realTrustDialog);
+$trustParsed = PromptParser::parse_blocking_prompt($realTrustDialog);
 assert_equal(
     "Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.",
     $trustParsed['question'] ?? null,
@@ -168,7 +171,7 @@ $realPermissionPrompt = "● Bash(echo hello-permission-test > /tmp/csm-permissi
     . "   3. No\n"
     . "\n"
     . " Esc to cancel · Tab to amend · ctrl+e to explain\n";
-$permissionParsed = parse_blocking_prompt($realPermissionPrompt);
+$permissionParsed = PromptParser::parse_blocking_prompt($realPermissionPrompt);
 assert_equal('Do you want to proceed?', $permissionParsed['question'] ?? null, 'parse_blocking_prompt: real permission prompt - question found directly');
 assert_true(str_contains($permissionParsed['context'] ?? '', 'echo hello-permission-test > /tmp/csm-permission-test.txt'), 'parse_blocking_prompt: real permission prompt - context includes the actual command being approved');
 assert_true(str_contains($permissionParsed['context'] ?? '', 'Write test string to a temp file'), 'parse_blocking_prompt: real permission prompt - context includes the tool-provided description');
@@ -179,7 +182,7 @@ assert_equal(
     'parse_blocking_prompt: real permission prompt - all three options extracted'
 );
 
-// --- parse_blocking_prompt(): a command/preview taller than the old fixed
+// --- PromptParser::parse_blocking_prompt(): a command/preview taller than the old fixed
 // BLOCKING_PROMPT_CONTEXT_WINDOW (15 lines) used to have its earlier lines
 // silently cut off - found live (Andres reported a truncated command).
 // Fixed by finding the real top of the block via Claude Code's own "● "
@@ -200,11 +203,11 @@ $realLongPermissionPrompt = "● Bash(run a 20-step deploy script)\n"
     . " Do you want to proceed?\n"
     . " ❯ 1. Yes\n"
     . "   2. No\n";
-$longPermissionParsed = parse_blocking_prompt($realLongPermissionPrompt);
+$longPermissionParsed = PromptParser::parse_blocking_prompt($realLongPermissionPrompt);
 assert_true(str_contains($longPermissionParsed['context'] ?? '', 'step 1"'), 'parse_blocking_prompt: a long (>15-line) command preview includes its FIRST line - the old fixed window would have cut this off');
 assert_true(str_contains($longPermissionParsed['context'] ?? '', 'step 20"'), 'parse_blocking_prompt: a long command preview also includes its last line');
 
-$parsedNoQuestion = parse_blocking_prompt("no question line here\n❯ 1. Yes\n  2. No\n");
+$parsedNoQuestion = PromptParser::parse_blocking_prompt("no question line here\n❯ 1. Yes\n  2. No\n");
 assert_equal(
     [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => 'No']],
     $parsedNoQuestion['options'] ?? null,
@@ -212,7 +215,7 @@ assert_equal(
 );
 assert_equal(false, $parsedNoQuestion['multi_question'] ?? null, 'parse_blocking_prompt: not multi_question when there is no tab bar');
 
-// --- parse_blocking_prompt(): a real, live capture of a multi-question
+// --- PromptParser::parse_blocking_prompt(): a real, live capture of a multi-question
 // AskUserQuestion prompt - a tabbed interface (one tab per question plus
 // a trailing Submit tab, cycled with Left/Right - see navigate_prompt()),
 // where each numbered option is followed by its own indented description
@@ -237,7 +240,7 @@ $realMultiQuestion = "❯ Use the AskUserQuestion tool right now to ask me two s
     . "  4. Chat about this\n"
     . "\n"
     . "Enter to select · Tab/Arrow keys to navigate · Esc to cancel\n";
-$multiQuestionParsed = parse_blocking_prompt($realMultiQuestion);
+$multiQuestionParsed = PromptParser::parse_blocking_prompt($realMultiQuestion);
 assert_equal("What's your favorite color?", $multiQuestionParsed['question'] ?? null, 'parse_blocking_prompt: real multi-question prompt - question for the current tab found');
 assert_equal(
     [
@@ -251,19 +254,19 @@ assert_equal(
 );
 assert_equal(true, $multiQuestionParsed['multi_question'] ?? null, 'parse_blocking_prompt: real multi-question prompt - tab bar detected');
 
-// --- parse_current_mode(): reads Claude Code's own bottom status line -
+// --- PromptParser::parse_current_mode(): reads Claude Code's own bottom status line -
 // mode names and cycle order confirmed live against a real running
 // session (Shift+Tab cycles manual -> accept edits -> plan -> auto). ---
-assert_equal('manual', parse_current_mode("  andres@work ~\n  \xE2\x8F\xB8 manual mode on \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: manual');
-assert_equal('accept edits', parse_current_mode("  \xE2\x8F\xB5\xE2\x8F\xB5 accept edits on (shift+tab to cycle) \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: accept edits - the one mode whose status line omits the word "mode" entirely');
-assert_equal('plan', parse_current_mode("  \xE2\x8F\xB8 plan mode on (shift+tab to cycle) \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: plan');
-assert_equal('auto', parse_current_mode("  \xE2\x8F\xB5\xE2\x8F\xB5 auto mode on (shift+tab to cycle) \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: auto');
-assert_equal(null, parse_current_mode("Just some normal output\nmore output\n"), 'parse_current_mode: no status line -> null');
-assert_equal(null, parse_current_mode($realTrustDialog), 'parse_current_mode: a blocking prompt covering the status line -> null, not a false match');
+assert_equal('manual', PromptParser::parse_current_mode("  andres@work ~\n  \xE2\x8F\xB8 manual mode on \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: manual');
+assert_equal('accept edits', PromptParser::parse_current_mode("  \xE2\x8F\xB5\xE2\x8F\xB5 accept edits on (shift+tab to cycle) \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: accept edits - the one mode whose status line omits the word "mode" entirely');
+assert_equal('plan', PromptParser::parse_current_mode("  \xE2\x8F\xB8 plan mode on (shift+tab to cycle) \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: plan');
+assert_equal('auto', PromptParser::parse_current_mode("  \xE2\x8F\xB5\xE2\x8F\xB5 auto mode on (shift+tab to cycle) \xC2\xB7 \xE2\x86\x90 for agents\n"), 'parse_current_mode: auto');
+assert_equal(null, PromptParser::parse_current_mode("Just some normal output\nmore output\n"), 'parse_current_mode: no status line -> null');
+assert_equal(null, PromptParser::parse_current_mode($realTrustDialog), 'parse_current_mode: a blocking prompt covering the status line -> null, not a false match');
 
-// --- tmux_attach_hint(): the exact command shown to a human to go answer
+// --- TmuxService::tmux_attach_hint(): the exact command shown to a human to go answer
 // a blocked prompt themselves ---
-assert_equal('tmux -S ' . Config::tmux_socket() . ' attach -t cc-example', tmux_attach_hint('cc-example'), 'tmux_attach_hint: uses the configured socket path');
+assert_equal('tmux -S ' . Config::tmux_socket() . ' attach -t cc-example', TmuxService::tmux_attach_hint('cc-example'), 'tmux_attach_hint: uses the configured socket path');
 
 // --- generate_uuid_v4(): the id passed to `claude --session-id` at launch ---
 $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/';
@@ -312,7 +315,7 @@ try {
     // fake_claude (behaves like /bin/cat) never sets a terminal title like the
     // real claude CLI does, so its content isn't asserted here - only that
     // list_all_sessions() always includes the key. The stripping behavior
-    // itself is covered deterministically by the clean_pane_title() checks above.
+    // itself is covered deterministically by the PromptParser::clean_pane_title() checks above.
     assert_true(array_key_exists('title', $session ?? []), 'list: title key present');
     assert_true(preg_match($uuidPattern, (string)($session['claude_session_id'] ?? '')) === 1, 'list: claude_session_id recorded via sidecar, uuid-shaped');
 
@@ -358,9 +361,9 @@ try {
     // --- self-healing: the tmux socket's parent directory can vanish
     // entirely (e.g. a host reboot wipes /tmp) since it's addressed via an
     // explicit -S path, which - unlike tmux's own default $TMPDIR/tmux-$UID
-    // naming - tmux never auto-creates. tmux_run() must recreate it on
+    // naming - tmux never auto-creates. TmuxService::tmux_run() must recreate it on
     // demand rather than every command failing until someone notices. ---
-    tmux_run(['kill-server']); // empties the isolated test socket dir so it can be removed
+    TmuxService::tmux_run(['kill-server']); // empties the isolated test socket dir so it can be removed
     $socketDir = dirname(Config::tmux_socket());
     foreach (glob("{$socketDir}/*") ?: [] as $leftover) {
         @unlink($leftover);
@@ -428,7 +431,7 @@ try {
     usleep(300000);
 
     $stillThere = false;
-    foreach (find_claude_processes() as $p) {
+    foreach (ProcessInspector::find_claude_processes() as $p) {
         if ($p['pid'] === $barePid) {
             $stillThere = true;
         }
@@ -447,10 +450,10 @@ try {
     // SIGTERM the pid ---
     $adhocName = 'csm-test-adhoc-' . getmypid();
     $adhocCwd = Config::www_root() . '/project-b';
-    $adhocCreate = tmux_run(['new-session', '-d', '-s', $adhocName, '-c', $adhocCwd, Config::claude_bin()]);
+    $adhocCreate = TmuxService::tmux_run(['new-session', '-d', '-s', $adhocName, '-c', $adhocCwd, Config::claude_bin()]);
     assert_equal(0, $adhocCreate['exit'], 'bare setup: created an ad-hoc (non-cc-*) tmux session');
     usleep(300000);
-    tmux_run(['select-pane', '-t', $adhocName, '-T', 'Adhoc bare title']);
+    TmuxService::tmux_run(['select-pane', '-t', $adhocName, '-T', 'Adhoc bare title']);
     usleep(100000);
 
     $adhocEntry = null;
@@ -468,7 +471,7 @@ try {
     $killResult = $adhocPid !== null ? kill_bare_process($adhocPid) : ['ok' => false];
     assert_true($killResult['ok'] ?? false, 'kill_bare_process: ok=true for a tmux-hosted bare process');
 
-    $hasSession = tmux_run(['has-session', '-t', $adhocName]);
+    $hasSession = TmuxService::tmux_run(['has-session', '-t', $adhocName]);
     assert_true($hasSession['exit'] !== 0, 'kill_bare_process: ad-hoc tmux session no longer exists');
     $adhocName = null;
 
@@ -478,17 +481,17 @@ try {
     // so a raw pane running `cat` with local echo disabled (stty -echo)
     // stands in here - crafted prompt text is typed via send-keys (which
     // cat echoes back exactly once, since nothing else is echoing it),
-    // giving parse_blocking_prompt() something real to detect via an
+    // giving PromptParser::parse_blocking_prompt() something real to detect via an
     // actual capture-pane call, not a hand-fed string like the pure
-    // parse_blocking_prompt() tests above. ---
+    // PromptParser::parse_blocking_prompt() tests above. ---
     $promptTestSession = 'cc-test-answer-prompt-' . getmypid();
-    $promptSetup = tmux_run(['new-session', '-d', '-s', $promptTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $promptSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $promptTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $promptSetup['exit'], 'answer_prompt setup: created a live cc-* session to answer a prompt in');
     usleep(300000);
 
-    tmux_run(['send-keys', '-t', $promptTestSession, 'Do you want to proceed?', 'Enter']);
-    tmux_run(['send-keys', '-t', $promptTestSession, '❯ 1. Yes', 'Enter']);
-    tmux_run(['send-keys', '-t', $promptTestSession, '  2. No', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'Do you want to proceed?', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '❯ 1. Yes', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '  2. No', 'Enter']);
     usleep(300000);
 
     assert_equal(
@@ -516,17 +519,17 @@ try {
     assert_true($answered['ok'] ?? false, 'answer_prompt: ok=true for a currently-offered option');
     usleep(300000);
 
-    $paneAfterAnswer = trim(tmux_capture_pane($promptTestSession));
+    $paneAfterAnswer = trim(TmuxService::tmux_capture_pane($promptTestSession));
     assert_true(str_ends_with($paneAfterAnswer, '1'), 'answer_prompt: the option number was actually sent into the pane (echoed back by cat)');
 
     // --- navigate_prompt(): accept path, against a tab-bar-shaped pane
     // (same session, fresh content) - verifies the real Left/Right
     // keypress actually reaches the pane, the same way the answer_prompt()
     // check above verifies a numbered option does. ---
-    tmux_run(['send-keys', '-t', $promptTestSession, "←  ☐ Color  ☐ Animal  ✔ Submit  →", 'Enter']);
-    tmux_run(['send-keys', '-t', $promptTestSession, 'Pick one', 'Enter']);
-    tmux_run(['send-keys', '-t', $promptTestSession, '❯ 1. A', 'Enter']);
-    tmux_run(['send-keys', '-t', $promptTestSession, '  2. B', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, "←  ☐ Color  ☐ Animal  ✔ Submit  →", 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'Pick one', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '❯ 1. A', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '  2. B', 'Enter']);
     usleep(300000);
 
     // Unlike answer_prompt()'s digit case, a "Right" arrow keypress is an
@@ -551,7 +554,7 @@ try {
     // printable byte cat echoes back visibly - same as navigate_prompt()'s
     // arrow-key case above), but here the *count* of presses is
     // independently verifiable: seed the pane with a real status line
-    // (echoed back by cat) so parse_current_mode() reads a known starting
+    // (echoed back by cat) so PromptParser::parse_current_mode() reads a known starting
     // mode, then confirm ok=true for the multi-step jump. ---
     assert_equal(false, set_mode($promptTestSession, 'not-a-real-mode')['ok'] ?? null, 'set_mode: rejects an unrecognized mode');
     assert_equal(false, set_mode('cc-not-a-real-session', 'plan')['ok'] ?? null, 'set_mode: rejects a session name that is not currently live');
@@ -561,37 +564,37 @@ try {
         'set_mode: rejects when the current mode cannot be read from the pane (no real Claude Code status line here yet)'
     );
 
-    tmux_run(['send-keys', '-t', $promptTestSession, 'manual mode on', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'manual mode on', 'Enter']);
     usleep(300000);
     $modeSet = set_mode($promptTestSession, 'auto'); // manual -> auto is 3 steps, the largest possible jump
     assert_true($modeSet['ok'] ?? false, 'set_mode: ok=true once the current mode is readable, for a live session');
 
-    tmux_run(['kill-session', '-t', $promptTestSession]);
+    TmuxService::tmux_run(['kill-session', '-t', $promptTestSession]);
     $promptTestSession = null;
 
-    // --- tmux_capture_pane(): a long single logical line (e.g. the command
+    // --- TmuxService::tmux_capture_pane(): a long single logical line (e.g. the command
     // in a permission prompt) that the terminal soft-wraps across several
     // pane rows must come back rejoined into one line, not split mid-word -
-    // this is what parse_blocking_prompt() relies on to show the real,
+    // this is what PromptParser::parse_blocking_prompt() relies on to show the real,
     // complete command rather than a mangled fragment. Verified against a
     // real narrow pane, not a hand-fed string. ---
     $wrapTestSession = 'cc-test-capture-wrap-' . getmypid();
-    $wrapSetup = tmux_run(['new-session', '-d', '-x', '60', '-y', '20', '-s', $wrapTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $wrapSetup = TmuxService::tmux_run(['new-session', '-d', '-x', '60', '-y', '20', '-s', $wrapTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $wrapSetup['exit'], 'tmux_capture_pane wrap test setup: created a narrow live pane');
     usleep(300000);
 
     $longCommand = "ssh media 'rm /tmp/apply_dashboard.py /tmp/another_very_long_filename_that_will_definitely_wrap_across_the_narrow_pane_width.py'";
-    tmux_run(['set-buffer', '--', $longCommand]);
-    tmux_run(['paste-buffer', '-t', $wrapTestSession]);
-    tmux_run(['send-keys', '-t', $wrapTestSession, 'Enter']);
+    TmuxService::tmux_run(['set-buffer', '--', $longCommand]);
+    TmuxService::tmux_run(['paste-buffer', '-t', $wrapTestSession]);
+    TmuxService::tmux_run(['send-keys', '-t', $wrapTestSession, 'Enter']);
     usleep(300000);
 
     assert_true(
-        str_contains(tmux_capture_pane($wrapTestSession), $longCommand),
+        str_contains(TmuxService::tmux_capture_pane($wrapTestSession), $longCommand),
         'tmux_capture_pane: a long line the terminal soft-wrapped across multiple pane rows is rejoined intact (-J), not split mid-word'
     );
 
-    tmux_run(['kill-session', '-t', $wrapTestSession]);
+    TmuxService::tmux_run(['kill-session', '-t', $wrapTestSession]);
     $wrapTestSession = null;
 
     // --- send_message(): sends free text to a session's pane via tmux
@@ -601,7 +604,7 @@ try {
     // split into separate premature submits the way send-keys with the
     // raw text would (each embedded newline acting as its own Enter). ---
     $sendTestSession = 'cc-test-send-message-' . getmypid();
-    $sendSetup = tmux_run(['new-session', '-d', '-s', $sendTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $sendSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $sendTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $sendSetup['exit'], 'send_message setup: created a live cc-* session to send a message to');
     usleep(300000);
 
@@ -612,13 +615,13 @@ try {
     assert_true($sent['ok'] ?? false, 'send_message: ok=true for a live session');
     usleep(300000);
 
-    $paneAfterSend = tmux_capture_pane($sendTestSession);
+    $paneAfterSend = TmuxService::tmux_capture_pane($sendTestSession);
     assert_true(
         str_contains($paneAfterSend, 'Line one') && str_contains($paneAfterSend, 'Line two'),
         'send_message: the full multi-line message landed in the pane (echoed back by cat), not split into separate premature submits'
     );
 
-    tmux_run(['kill-session', '-t', $sendTestSession]);
+    TmuxService::tmux_run(['kill-session', '-t', $sendTestSession]);
     $sendTestSession = null;
 
     // --- quota_from_live_pane()/get_quota(): prefers a live session's own
@@ -626,13 +629,13 @@ try {
     // a raw `cat` pane like the wrap-test above, since fake_claude never
     // renders a real status line. ---
     $quotaTestSession = 'cc-test-quota-' . getmypid();
-    $quotaSetup = tmux_run(['new-session', '-d', '-s', $quotaTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $quotaSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $quotaTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $quotaSetup['exit'], 'quota_from_live_pane setup: created a live cc-* session');
     usleep(300000);
 
     assert_equal(null, quota_from_live_pane(), 'quota_from_live_pane: null while no live session shows a quota line yet');
 
-    tmux_run(['send-keys', '-t', $quotaTestSession, 'andres@work /some/workdir | Sonnet 5 | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40% (5d 8h)', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $quotaTestSession, 'andres@work /some/workdir | Sonnet 5 | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40% (5d 8h)', 'Enter']);
     usleep(300000);
 
     $liveQuota = quota_from_live_pane();
@@ -645,7 +648,7 @@ try {
     assert_equal(51, $getQuotaResult['quota']['session']['pct'] ?? null, 'get_quota(): prefers the live pane reading over the cache/scrape fallback');
     assert_equal(false, $getQuotaResult['cached'] ?? null, 'get_quota(): a live pane reading is never reported as cached');
 
-    tmux_run(['kill-session', '-t', $quotaTestSession]);
+    TmuxService::tmux_run(['kill-session', '-t', $quotaTestSession]);
     $quotaTestSession = null;
 } finally {
     // Defense in depth - tests/run.sh's `tmux kill-server` on the isolated
@@ -655,19 +658,19 @@ try {
         kill_cc_session($leftover);
     }
     if ($adhocName !== null) {
-        tmux_run(['kill-session', '-t', $adhocName]);
+        TmuxService::tmux_run(['kill-session', '-t', $adhocName]);
     }
     if ($promptTestSession !== null) {
-        tmux_run(['kill-session', '-t', $promptTestSession]);
+        TmuxService::tmux_run(['kill-session', '-t', $promptTestSession]);
     }
     if ($sendTestSession !== null) {
-        tmux_run(['kill-session', '-t', $sendTestSession]);
+        TmuxService::tmux_run(['kill-session', '-t', $sendTestSession]);
     }
     if ($wrapTestSession !== null) {
-        tmux_run(['kill-session', '-t', $wrapTestSession]);
+        TmuxService::tmux_run(['kill-session', '-t', $wrapTestSession]);
     }
     if ($quotaTestSession !== null) {
-        tmux_run(['kill-session', '-t', $quotaTestSession]);
+        TmuxService::tmux_run(['kill-session', '-t', $quotaTestSession]);
     }
     if ($bareProc !== null && is_resource($bareProc)) {
         proc_terminate($bareProc);

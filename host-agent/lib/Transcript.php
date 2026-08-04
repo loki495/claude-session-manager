@@ -476,7 +476,7 @@ function parse_transcript_line(string $line): ?array
     // ends up with zero blocks here and is treated the same as a
     // meta-only line, not an empty bubble with a role header and nothing
     // in it. The live "is it thinking right now" state is a separate,
-    // transient signal - see pane_title_is_working() in Sessions.php.
+    // transient signal - see PromptParser::pane_title_is_working() in Sessions.php.
     if ($blocks === []) {
         return null;
     }
