@@ -135,3 +135,14 @@ Tier 2 - bigger or investigative items:
   (standalone display) mode rather than an app-side bug, but needs
   confirming live on Andres's actual device before assuming that's really
   the cause or looking for a workaround.
+- session.php: adjust .new-content-highlight (the amber ring just shipped
+  on new entries, see commit fc3bf43) to read more like a glow than a
+  crisp 2px ring - "gradient from 100 to 0 alpha". CSS box-shadow has no
+  literal multi-stop alpha gradient; the practical equivalent is a
+  blurred shadow (e.g. `box-shadow: 0 0 12px 2px rgba(251,191,36,0.5)` -
+  this was actually one of the three options originally offered, "drop-
+  shadow glow instead of a ring", not picked at the time) or stacking a
+  couple of shadows at decreasing alpha/increasing spread to fake a
+  falloff. Worth a quick visual comparison of a couple variants rather
+  than guessing which reads as "glow enough" - Andres hasn't seen it yet
+  to confirm this is far enough beyond the box-shadow ring approach.
