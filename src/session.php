@@ -567,6 +567,8 @@ function render_transcript_entry(array $entry): string
   // for THIS entry specifically than generic content-matching.
   var answerPendingHistoryEl = null;
   var lastRenderedBlockedKey; // undefined, not null - see renderBlockedSection()
+  var lastRenderedThinkingShown; // undefined, not null - see renderThinkingIndicator()
+  var lastRenderedStaticInfoKey; // undefined, not null - see renderStaticInfo()
 
   // The most recent "new since you last looked" markers (see
   // markNewContent()) - a divider above the batch plus a highlight ring on
@@ -1338,24 +1340,47 @@ function render_transcript_entry(array $entry): string
   // Mirrors render_session_static_info_html() in session.php - kept
   // alongside renderEntry()/renderBlock() as the JS-side counterpart of
   // the same PHP renderer, both feeding this one visibility-gated poll.
+  //
+  // Only rebuilds the block when title/name/workdir/attached actually
+  // change - same reasoning as renderBlockedSection()'s skip-if-unchanged
+  // key, here for a lower-stakes reason (no focus/scroll to protect, just
+  // an in-progress text selection inside the box - e.g. copying the
+  // session name or workdir path - that a full innerHTML replacement
+  // would silently clear on every poll for no reason, since none of this
+  // actually changes poll to poll in the common case). The relative-time
+  // label is genuinely time-varying though (its DISPLAYED text can change
+  // even with no new poll data at all), so it's always updated via its
+  // own stable id rather than being covered by the skip.
   function renderStaticInfo(detail) {
-    var html = '<div class="text-base font-medium truncate">' + escapeHtml(detail.title || detail.name) + '</div>'
-      + '<div class="font-mono text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(detail.name) + '</div>';
+    var key = JSON.stringify([detail.title || null, detail.name, detail.workdir || null, !!detail.attached]);
 
-    if (detail.workdir) {
-      html += '<div class="text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(detail.workdir) + '</div>';
+    if (key !== lastRenderedStaticInfoKey) {
+      lastRenderedStaticInfoKey = key;
+
+      var html = '<div class="text-base font-medium truncate">' + escapeHtml(detail.title || detail.name) + '</div>'
+        + '<div class="font-mono text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(detail.name) + '</div>';
+
+      if (detail.workdir) {
+        html += '<div class="text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(detail.workdir) + '</div>';
+      }
+
+      html += '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2">'
+        + '<span id="static-info-activity"></span>'
+        + '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
+        + (detail.attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>')
+        + '</div>';
+
+      infoBox.innerHTML = html;
+
+      if (headerTitle) {
+        headerTitle.textContent = detail.title || detail.name;
+      }
     }
 
-    html += '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2">'
-      + '<span>' + escapeHtml(relativeTimeLabel(detail.activity)) + '</span>'
-      + '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
-      + (detail.attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>')
-      + '</div>';
+    var activityEl = document.getElementById('static-info-activity');
 
-    infoBox.innerHTML = html;
-
-    if (headerTitle) {
-      headerTitle.textContent = detail.title || detail.name;
+    if (activityEl) {
+      activityEl.textContent = relativeTimeLabel(detail.activity);
     }
   }
 
@@ -1363,12 +1388,34 @@ function render_transcript_entry(array $entry): string
   // doing something right now" signal, never the actual thinking content
   // (that's dropped entirely server-side), and never shown at the same
   // time as the blocked-prompt section.
+  //
+  // Skips the rebuild when the shown/hidden state hasn't actually changed
+  // - same "no-op unless something real changed" pattern as
+  // renderBlockedSection(). Found live: rebuilding on every single poll
+  // (the previous behavior) tore out and replaced the Stop button on
+  // every cycle even while a session just sat "working" poll after poll
+  // with nothing new to show - if that landed while a stop click's own
+  // fetch was still in flight, the disabled state from the click handler
+  // (see the delegated #stop-btn listener below) applied to the OLD,
+  // now-detached button; the freshly rebuilt one showed up enabled again
+  // mid-request, opening a real double-submit window. Only mattered while
+  // working (never while blocked, per the two states' own mutual
+  // exclusion above), so the key is just the shown/hidden boolean, not
+  // the (static, unchanging) markup itself.
   function renderThinkingIndicator(detail) {
     if (!thinkingIndicator) {
       return;
     }
 
-    if (!detail.working || detail.blocked_reason) {
+    var shouldShow = !!detail.working && !detail.blocked_reason;
+
+    if (shouldShow === lastRenderedThinkingShown) {
+      return;
+    }
+
+    lastRenderedThinkingShown = shouldShow;
+
+    if (!shouldShow) {
       thinkingIndicator.innerHTML = '';
       return;
     }
