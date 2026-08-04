@@ -3,20 +3,11 @@ says otherwise). Reordered 2026-08-02.
 
 Tier 1 - self-contained features/fixes:
 
-- Audit both pages for any long unbroken string (URLs, paths, tokens, etc.) that could
-  widen the viewport horizontally - most text already uses truncate/break-all/
-  break-words, but sweep for gaps rather than assuming full coverage.
 - session.php/index.php: check whether the "Show tool usage details" toggle's label
   should actually read "toggle tool outputs" instead - verify against what it really
   does (hides tool_result blocks via the hide-tool-details CSS class; tool_use blocks
   are unaffected) before renaming, since the current name may already be accurate for
   half of what people expect it to do.
-- session.php: audit renderStaticInfo()/renderThinkingIndicator()/renderModeToggle()
-  for the same "rebuilds on every poll even when nothing changed" issue already fixed
-  in renderBlockedSection() - renderModeToggle() in particular rebuilds a <select>,
-  so an open/mid-interaction dropdown could plausibly suffer the same kind of
-  disruption. Not confirmed as an actual bug yet, just the same risky pattern in
-  three more places.
 
 Tier 2 - bigger or investigative items:
 
@@ -109,13 +100,6 @@ Tier 2 - bigger or investigative items:
   again. Likely related to autoGrowCompose() not re-running (or running
   against a stale/zeroed scrollHeight) at the right moment when the compose
   bar's visibility is toggled back on by renderComposeVisibility().
-- Top-right sidebar status icon should distinguish severity, not just
-  "something needs you": yellow if at least one session is waiting for
-  input. Else green if at least one session is done with all its tasks
-  AND hasn't been seen yet (once that session has been seen, it no longer
-  counts toward the green icon). Else no icon at all over the sidebar
-  button. To do right after the notification work (title fix + finished-
-  notification feature) is fully wrapped up.
 - Research: now that this app has a PreToolUse hook (see the pending-tool
   full-command-preview feature), survey whether other Claude Code hook events
   (PostToolUse, Notification, UserPromptSubmit, etc) could replace/improve any
@@ -131,12 +115,6 @@ Tier 2 - bigger or investigative items:
   Needs more detail to reproduce - which messages (his own compose sends,
   or ones typed directly into a real Claude Code session outside the app?),
   how soon after sending, whether a poll cycle happens in between.
-- Add a health box (dashboard or a dedicated page) showing whether
-  everything the site needs is actually installed/configured - host agent
-  reachable, SessionStart/PreToolUse hooks installed, claude-quota binary
-  present, tmux socket dir OK, VAPID push keys configured, Composer vendor/
-  installed, etc. - one place to see setup status at a glance instead of
-  discovering each piece is missing separately.
 - csm-push-check systemd timer: log more per tick than it does today - not
   just that a send happened, but the actual result the push service (Apple)
   returned (ok vs error/reason), so a failing send isn't silently invisible.
