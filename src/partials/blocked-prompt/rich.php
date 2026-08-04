@@ -1,0 +1,1 @@
+<div class="mt-2 rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60"><?= $lastMessageHtml ?><p class="font-medium break-words">Waiting on input: <?= $this->e($blockedReason) ?></p><?php if ($promptContextHtml !== ''): ?><div class="mt-2"><?= $promptContextHtml ?></div><?php endif ?><?= $optionsHtml ?></div>
