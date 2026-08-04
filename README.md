@@ -145,12 +145,13 @@ claude-session-manager/
 ├── .env.example           # copy to .env, fill in real values, never commit .env
 ├── .gitignore
 ├── README.md
-├── src/                    # bind-mounted into the container at /var/www/html
+├── src/                    # bind-mounted into the container at /var/www/src (vendor/ alongside it at /var/www/vendor)
 │   ├── index.php           # action handling, HTML/Tailwind UI
 │   ├── quota.php           # GET-only JSON endpoint, polled by the footer's fetch()
 │   └── lib/
-│       ├── AgentClient.php  # talks to the host agent over a UNIX socket
-│       └── Auth.php         # same-origin check + CSRF token, shared by every entry point
+│       ├── AgentClient.php  # App\AgentClient - talks to the host agent over a UNIX socket
+│       ├── Auth.php         # same-origin check + CSRF token, shared by every entry point
+│       └── Views/           # App\Views\* - dashboard/session-detail render classes
 ├── host-agent/             # installed natively on the HOST, not in Docker
 │   ├── agent.php            # per-connection entry point (systemd socket activation)
 │   ├── quota_refresh.php    # standalone entry point for a background quota scrape

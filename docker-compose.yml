@@ -25,11 +25,11 @@ services:
                 echo 'upload_max_filesize = 30M'; \
                 echo 'post_max_size = 32M'; \
             } > /usr/local/etc/php/conf.d/uploads.ini
-        WORKDIR /var/www/html
+        WORKDIR /var/www/src
         USER appuser
         ENV HOME=/tmp
         EXPOSE 80
-        CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/html"]
+        CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/src"]
     restart: unless-stopped
     environment:
       CSM_AGENT_SOCKET: /run/csm-agent.sock
@@ -41,8 +41,17 @@ services:
       PHP_CLI_SERVER_WORKERS: 4
     volumes:
       # Code is mounted, not copied into the image, so edits show up on the
-      # next request with no rebuild/restart needed.
-      - ./src:/var/www/html
+      # next request with no rebuild/restart needed. Mounted at /var/www/src
+      # (matching the host's own src/ name), with vendor/ mounted alongside
+      # it as a sibling /var/www/vendor - composer's generated autoloader
+      # (vendor/composer/autoload_psr4.php) computes App\'s src/lib/ target
+      # as dirname(vendor-dir) . '/src/lib' at runtime, so the container's
+      # layout has to mirror the host's repo_root/{src,vendor} structure
+      # for that resolution to land on the right directory. Every entry
+      # point's own require_once __DIR__ . '/../vendor/autoload.php' relies
+      # on the same mirroring.
+      - ./src:/var/www/src
+      - ./vendor:/var/www/vendor
       # The ONLY thing the container can reach on the host: a UNIX socket
       # served by the host-native agent (see host-agent/). That agent must
       # already be installed and running (host-agent/install.sh) BEFORE
