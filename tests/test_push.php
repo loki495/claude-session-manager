@@ -14,6 +14,9 @@ declare(strict_types=1);
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Push.php';
 
+use HostAgent\Stores\PushSessionStateStore;
+use HostAgent\Stores\PushSubscriptionStore;
+
 const REAL_PUSH_SUBSCRIPTIONS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-subscriptions.json';
 const REAL_PUSH_STATE_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-session-state.json';
 const REAL_PUSH_CHECK_STATUS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-check-status.json';
@@ -33,8 +36,8 @@ putenv('PUSH_TIMER_UNIT_PATH=' . $fixtureDir . '/csm-push-check.timer');
 putenv('PUSH_TIMER_UNIT_NAME=csm-test-fake-push-timer-' . bin2hex(random_bytes(4)) . '.timer');
 
 if (
-    push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE
-    || push_state_file() === REAL_PUSH_STATE_FILE
+    PushSubscriptionStore::push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE
+    || PushSessionStateStore::push_state_file() === REAL_PUSH_STATE_FILE
     || push_check_status_file() === REAL_PUSH_CHECK_STATUS_FILE
     || push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
 ) {
@@ -55,37 +58,37 @@ try {
     putenv('VAPID_PRIVATE_KEY=fake-private-key');
     assert_equal(true, push_configured(), 'push_configured: true once both keys are set');
 
-    // --- read/write/add/remove_push_subscription(): round-trip, dedupe by endpoint ---
+    // --- PushSubscriptionStore read/write/add/remove_push_subscription(): round-trip, dedupe by endpoint ---
 
-    assert_equal([], read_push_subscriptions(), 'read_push_subscriptions: empty when no file exists yet');
+    assert_equal([], PushSubscriptionStore::read_push_subscriptions(), 'read_push_subscriptions: empty when no file exists yet');
 
     $subA = ['endpoint' => 'https://push.example/a', 'keys' => ['p256dh' => 'p256dh-a', 'auth' => 'auth-a']];
     $subB = ['endpoint' => 'https://push.example/b', 'keys' => ['p256dh' => 'p256dh-b', 'auth' => 'auth-b']];
 
-    assert_true(add_push_subscription($subA), 'add_push_subscription: accepts a well-formed subscription');
-    assert_true(add_push_subscription($subB), 'add_push_subscription: accepts a second, different subscription');
-    assert_equal(2, count(read_push_subscriptions()), 'add_push_subscription: both subscriptions stored');
+    assert_true(PushSubscriptionStore::add_push_subscription($subA), 'add_push_subscription: accepts a well-formed subscription');
+    assert_true(PushSubscriptionStore::add_push_subscription($subB), 'add_push_subscription: accepts a second, different subscription');
+    assert_equal(2, count(PushSubscriptionStore::read_push_subscriptions()), 'add_push_subscription: both subscriptions stored');
 
-    assert_equal(false, add_push_subscription(['endpoint' => 'https://push.example/c']), 'add_push_subscription: rejects a subscription missing keys');
-    assert_equal(false, add_push_subscription(['keys' => ['p256dh' => 'x', 'auth' => 'y']]), 'add_push_subscription: rejects a subscription missing an endpoint');
-    assert_equal(2, count(read_push_subscriptions()), 'add_push_subscription: a rejected subscription is not stored');
+    assert_equal(false, PushSubscriptionStore::add_push_subscription(['endpoint' => 'https://push.example/c']), 'add_push_subscription: rejects a subscription missing keys');
+    assert_equal(false, PushSubscriptionStore::add_push_subscription(['keys' => ['p256dh' => 'x', 'auth' => 'y']]), 'add_push_subscription: rejects a subscription missing an endpoint');
+    assert_equal(2, count(PushSubscriptionStore::read_push_subscriptions()), 'add_push_subscription: a rejected subscription is not stored');
 
     // Resubscribing under the SAME endpoint with new keys replaces, not duplicates -
     // this is exactly what the frontend's resubscribe-on-every-open call relies on.
     $subAUpdated = ['endpoint' => 'https://push.example/a', 'keys' => ['p256dh' => 'p256dh-a-NEW', 'auth' => 'auth-a-NEW']];
-    add_push_subscription($subAUpdated);
-    $stored = read_push_subscriptions();
+    PushSubscriptionStore::add_push_subscription($subAUpdated);
+    $stored = PushSubscriptionStore::read_push_subscriptions();
     assert_equal(2, count($stored), 'add_push_subscription: resubscribing under the same endpoint does not duplicate');
     $storedA = array_values(array_filter($stored, fn(array $s) => $s['endpoint'] === 'https://push.example/a'))[0] ?? null;
     assert_equal('p256dh-a-NEW', $storedA['keys']['p256dh'] ?? null, 'add_push_subscription: resubscribing under the same endpoint updates the stored keys');
 
-    remove_push_subscription('https://push.example/a');
-    $afterRemove = read_push_subscriptions();
+    PushSubscriptionStore::remove_push_subscription('https://push.example/a');
+    $afterRemove = PushSubscriptionStore::read_push_subscriptions();
     assert_equal(1, count($afterRemove), 'remove_push_subscription: removes exactly the matching subscription');
     assert_equal('https://push.example/b', $afterRemove[0]['endpoint'] ?? null, 'remove_push_subscription: the other subscription survives');
 
-    remove_push_subscription('https://push.example/b');
-    assert_equal([], read_push_subscriptions(), 'remove_push_subscription: file is empty after removing the last subscription');
+    PushSubscriptionStore::remove_push_subscription('https://push.example/b');
+    assert_equal([], PushSubscriptionStore::read_push_subscriptions(), 'remove_push_subscription: file is empty after removing the last subscription');
 
     // --- push_session_state(): classification used for transition detection ---
 
@@ -108,7 +111,7 @@ try {
         return $result;
     })(), 'check_and_send_pushes: a harmless no-op when VAPID keys are not configured');
 
-    @unlink(push_state_file());
+    @unlink(PushSessionStateStore::push_state_file());
 
     $first = check_and_send_pushes([
         ['name' => 'cc-blocked', 'blocked_reason' => 'Proceed?', 'working' => false],
@@ -250,7 +253,7 @@ try {
     // - a genuinely new case (previously ZERO notification coverage for a
     // session that finishes without ever needing input at all) ---
 
-    @unlink(push_state_file());
+    @unlink(PushSessionStateStore::push_state_file());
     putenv('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY=60');
 
     $t0 = 1_000_000;
@@ -263,7 +266,7 @@ try {
     $finishedTooSoon = check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => false]], $t0 + 15);
     assert_equal([], $finishedTooSoon['notified'], 'check_and_send_pushes: finished after only 15s of work - below the 60s threshold, not notified (avoids noise for quick replies)');
 
-    @unlink(push_state_file());
+    @unlink(PushSessionStateStore::push_state_file());
     $workingStart2 = check_and_send_pushes([['name' => 'cc-long-task', 'blocked_reason' => null, 'working' => true]], $t0);
     assert_equal([], $workingStart2['notified'], 'check_and_send_pushes (long task): starting to work is never itself notification-worthy');
 
@@ -283,7 +286,7 @@ try {
     // A blocked prompt appearing takes priority over (and is a completely
     // separate concern from) the finished-working case - both paths must
     // coexist correctly in the same pass.
-    @unlink(push_state_file());
+    @unlink(PushSessionStateStore::push_state_file());
     check_and_send_pushes([['name' => 'cc-mixed', 'blocked_reason' => null, 'working' => true]], $t0);
     $mixedResult = check_and_send_pushes([
         ['name' => 'cc-mixed', 'blocked_reason' => 'A follow-up question', 'working' => false],
@@ -321,8 +324,8 @@ try {
     $sendResult = send_push_notification($unreachableSubscription, 'Title', 'Body');
     assert_equal(false, $sendResult['ok'], 'send_push_notification: a real (failed) send against an unreachable endpoint reports ok=false, not an uncaught exception');
 
-    add_push_subscription($unreachableSubscription);
-    @unlink(push_state_file());
+    PushSubscriptionStore::add_push_subscription($unreachableSubscription);
+    @unlink(PushSessionStateStore::push_state_file());
     $withRealSubscriber = check_and_send_pushes([['name' => 'cc-real-send', 'blocked_reason' => 'Proceed?', 'working' => false]]);
     assert_equal(['cc-real-send'], $withRealSubscriber['notified'], 'check_and_send_pushes: still reports the transition even though the actual send to the one subscriber failed');
 
@@ -340,12 +343,12 @@ try {
     assert_equal(false, $deliveryCheckAfterFailure['ok'], 'push_delivery_check: ok=false right after a tick with a real send failure');
     assert_equal(true, str_contains($deliveryCheckAfterFailure['detail'], '1 send(s) failed'), 'push_delivery_check: detail mentions the failure count');
 
-    remove_push_subscription($unreachableSubscription['endpoint']);
+    PushSubscriptionStore::remove_push_subscription($unreachableSubscription['endpoint']);
 
     // A tick with nothing to send (no subscribers, no transitions) still
     // records a heartbeat, and clears the previous failure - the failure
     // record reflects only the MOST RECENT tick, not history piling up.
-    @unlink(push_state_file());
+    @unlink(PushSessionStateStore::push_state_file());
     check_and_send_pushes([['name' => 'cc-quiet', 'blocked_reason' => null, 'working' => false]]);
     $statusAfterQuietTick = json_decode((string)file_get_contents(push_check_status_file()), true);
     assert_equal(0, $statusAfterQuietTick['sent'] ?? null, 'record_push_check_result: a tick with nothing to send still records (0 sent), proving the timer ran');
@@ -422,7 +425,7 @@ try {
 
     $subscribeResponse = dispatch_push_action(['action' => 'push_subscribe', 'subscription' => $subA]);
     assert_equal(true, $subscribeResponse['ok'] ?? null, 'dispatch_push_action: push_subscribe accepts a well-formed subscription');
-    assert_equal(1, count(read_push_subscriptions()), 'dispatch_push_action: push_subscribe actually stored it');
+    assert_equal(1, count(PushSubscriptionStore::read_push_subscriptions()), 'dispatch_push_action: push_subscribe actually stored it');
 
     $malformedSubscribeResponse = dispatch_push_action(['action' => 'push_subscribe', 'subscription' => ['endpoint' => 'no-keys-here']]);
     assert_equal(false, $malformedSubscribeResponse['ok'] ?? null, 'dispatch_push_action: push_subscribe rejects a malformed subscription');
@@ -432,7 +435,7 @@ try {
 
     $unsubscribeResponse = dispatch_push_action(['action' => 'push_unsubscribe', 'endpoint' => $subA['endpoint']]);
     assert_equal(true, $unsubscribeResponse['ok'] ?? null, 'dispatch_push_action: push_unsubscribe ok=true');
-    assert_equal(0, count(read_push_subscriptions()), 'dispatch_push_action: push_unsubscribe actually removed it');
+    assert_equal(0, count(PushSubscriptionStore::read_push_subscriptions()), 'dispatch_push_action: push_unsubscribe actually removed it');
 } finally {
     putenv('VAPID_PUBLIC_KEY');
     putenv('VAPID_PRIVATE_KEY');

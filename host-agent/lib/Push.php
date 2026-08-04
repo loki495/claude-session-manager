@@ -17,6 +17,8 @@ require_once __DIR__ . '/Sessions.php';
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
 use HostAgent\Services\ProcessRunner;
+use HostAgent\Stores\PushSessionStateStore;
+use HostAgent\Stores\PushSubscriptionStore;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
 
@@ -57,23 +59,6 @@ function push_configured(): bool
 }
 
 /**
- * Persistent, unlike the sidecar/quota-cache files this app otherwise
- * keeps under /run/user/1000 (tmpfs, wiped every reboot) - a phone's
- * subscription shouldn't need to be redone just because the host
- * rebooted, so this lives inside the repo checkout itself instead
- * (host-agent/state/, gitignored).
- */
-function push_subscriptions_file(): string
-{
-    return Config::csm_config('PUSH_SUBSCRIPTIONS_FILE', Config::csm_repo_root() . '/host-agent/state/push-subscriptions.json');
-}
-
-function push_state_file(): string
-{
-    return Config::csm_config('PUSH_STATE_FILE', Config::csm_repo_root() . '/host-agent/state/push-session-state.json');
-}
-
-/**
  * Last-tick outcome of check_and_send_pushes() - written on EVERY tick
  * (even ones with nothing to send), so its timestamp doubles as a
  * heartbeat proving the csm-push-check timer is actually running, not
@@ -83,104 +68,6 @@ function push_state_file(): string
 function push_check_status_file(): string
 {
     return Config::csm_config('PUSH_CHECK_STATUS_FILE', Config::csm_repo_root() . '/host-agent/state/push-check-status.json');
-}
-
-/**
- * @return array<int, array{endpoint:string, keys:array{p256dh:string, auth:string}}>
- */
-function read_push_subscriptions(): array
-{
-    $raw = @file_get_contents(push_subscriptions_file());
-
-    if ($raw === false) {
-        return [];
-    }
-
-    $decoded = json_decode($raw, true);
-
-    return is_array($decoded) ? $decoded : [];
-}
-
-/**
- * @param array<int, array{endpoint:string, keys:array{p256dh:string, auth:string}}> $subscriptions
- */
-function write_push_subscriptions(array $subscriptions): void
-{
-    $dir = dirname(push_subscriptions_file());
-
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0700, true);
-    }
-
-    @file_put_contents(push_subscriptions_file(), json_encode(array_values($subscriptions), JSON_PRETTY_PRINT));
-}
-
-/**
- * Adds a subscription, or replaces an existing one with the same
- * endpoint (a browser can resubscribe with new keys under the same
- * endpoint - the frontend does this on every page load to self-heal iOS's
- * flaky subscription lifecycle) - deduped by endpoint, the only field
- * guaranteed unique per device+browser install.
- *
- * @param array{endpoint?:mixed, keys?:mixed} $subscription
- */
-function add_push_subscription(array $subscription): bool
-{
-    $endpoint = (string)($subscription['endpoint'] ?? '');
-    $keys = $subscription['keys'] ?? null;
-
-    if ($endpoint === '' || !is_array($keys) || !is_string($keys['p256dh'] ?? null) || !is_string($keys['auth'] ?? null)) {
-        return false;
-    }
-
-    $subscriptions = read_push_subscriptions();
-    $subscriptions = array_values(array_filter($subscriptions, fn(array $s): bool => ($s['endpoint'] ?? null) !== $endpoint));
-    $subscriptions[] = ['endpoint' => $endpoint, 'keys' => ['p256dh' => $keys['p256dh'], 'auth' => $keys['auth']]];
-
-    write_push_subscriptions($subscriptions);
-
-    return true;
-}
-
-function remove_push_subscription(string $endpoint): void
-{
-    $subscriptions = read_push_subscriptions();
-    $subscriptions = array_values(array_filter($subscriptions, fn(array $s): bool => ($s['endpoint'] ?? null) !== $endpoint));
-    write_push_subscriptions($subscriptions);
-}
-
-/**
- * @return array<string, array{state:string, since:int}> sessionName =>
- *   last-known state ('blocked'|'working'|'idle') plus the timestamp it's
- *   been in that state continuously since - the "since" half is what lets
- *   check_and_send_pushes() tell a session that just finished a genuinely
- *   long task apart from one that only worked for a couple of seconds.
- */
-function read_push_session_state(): array
-{
-    $raw = @file_get_contents(push_state_file());
-
-    if ($raw === false) {
-        return [];
-    }
-
-    $decoded = json_decode($raw, true);
-
-    return is_array($decoded) ? $decoded : [];
-}
-
-/**
- * @param array<string, array{state:string, since:int}> $state
- */
-function write_push_session_state(array $state): void
-{
-    $dir = dirname(push_state_file());
-
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0700, true);
-    }
-
-    @file_put_contents(push_state_file(), json_encode($state));
 }
 
 /**
@@ -534,10 +421,10 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
     }
 
     $now ??= time();
-    $previousState = read_push_session_state();
+    $previousState = PushSessionStateStore::read_push_session_state();
     $currentState = [];
     $notified = [];
-    $subscriptions = read_push_subscriptions();
+    $subscriptions = PushSubscriptionStore::read_push_subscriptions();
     $expiredEndpoints = [];
     $sendResults = [];
     $minWorkingSeconds = push_min_working_seconds_for_finish_notify();
@@ -602,10 +489,10 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
 
     if ($expiredEndpoints !== []) {
         $subscriptions = array_values(array_filter($subscriptions, fn(array $s): bool => !in_array($s['endpoint'], $expiredEndpoints, true)));
-        write_push_subscriptions($subscriptions);
+        PushSubscriptionStore::write_push_subscriptions($subscriptions);
     }
 
-    write_push_session_state($currentState);
+    PushSessionStateStore::write_push_session_state($currentState);
     record_push_check_result($sendResults);
 
     return ['ok' => true, 'notified' => $notified, 'pruned' => count($expiredEndpoints)];
@@ -885,12 +772,12 @@ function dispatch_push_action(array $request): ?array
                 return ['ok' => false, 'message' => 'Missing subscription'];
             }
 
-            return add_push_subscription($subscription)
+            return PushSubscriptionStore::add_push_subscription($subscription)
                 ? ['ok' => true]
                 : ['ok' => false, 'message' => 'Malformed subscription'];
 
         case 'push_unsubscribe':
-            remove_push_subscription((string)($request['endpoint'] ?? ''));
+            PushSubscriptionStore::remove_push_subscription((string)($request['endpoint'] ?? ''));
 
             return ['ok' => true];
 
