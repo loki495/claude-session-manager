@@ -1,12 +1,6 @@
 Work queue (in this order, per Andres - new items get appended at the end unless he
 says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
-Quick wins (small surface area, bug fixes / high annoyance relief):
-
-- Prevent swipe triggers (nav gestures) from firing on the compose box and
-  prompt textarea when the user is just text-selecting/scrolling within
-  them.
-
 Small-to-medium features (good gain/effort ratio):
 
 - Show context percent usage in the footer of sessions as well.
