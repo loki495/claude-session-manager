@@ -294,7 +294,7 @@ function render_transcript_entry(array $entry): string
     $timestamp = $parsedTimestamp !== false ? htmlspecialchars(relative_time($parsedTimestamp), ENT_QUOTES) : '';
     $colors = entry_color_classes($colorKind);
     // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
-    // block) once the matching "Show tool usage details"/"Show tool calls"
+    // block) once the matching "Show tool outputs"/"Show tool calls"
     // toggle turns off, since there'd be nothing left to show otherwise (a
     // bare role-label-only bubble). Neither marker applies to an entry
     // carrying an image, regardless of its kind (found live: this was
@@ -339,7 +339,7 @@ function render_transcript_entry(array $entry): string
 <title><?= $found ? htmlspecialchars((string)($detail['title'] ?? $detail['name']), ENT_QUOTES) : 'Claude Session Manager' ?></title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* Toggled via the "Show tool usage details" sidebar setting - a body-level
+  /* Toggled via the "Show tool outputs" sidebar setting - a body-level
      class + CSS rule so it applies uniformly to blocks rendered later by the
      poll too, without needing to walk/re-tag the DOM on every render. */
   body.hide-tool-details .tool-detail { display: none; }
@@ -423,7 +423,7 @@ function render_transcript_entry(array $entry): string
     </label>
     <label class="flex items-center gap-2 text-sm text-slate-300">
       <input type="checkbox" id="show-tool-details-toggle" class="rounded border-slate-600 bg-slate-800">
-      Show tool usage details
+      Show tool outputs
     </label>
     <label class="flex items-center gap-2 text-sm text-slate-300">
       <input type="checkbox" id="show-tool-calls-toggle" class="rounded border-slate-600 bg-slate-800" checked>
