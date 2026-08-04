@@ -140,3 +140,21 @@ Bigger or investigative items:
   yet, a new poll arriving would abruptly kill its highlight, which
   could easily read as "faded on a timer" even though the actual
   mechanism is different (instant clear, not a graceful fade).
+- Recognize plan-mode entries and mode switches for better display on
+  session.php, and better push notifications for them. Two related but
+  distinct things: (1) when Claude presents a plan (ExitPlanMode), it
+  currently just renders as generic assistant text in the transcript -
+  worth its own distinct visual treatment, similar to how subagent
+  calls/reports got their own entry kind and color. (2) mode CHANGES
+  (accept edits / plan / manual / auto) aren't currently visible as
+  discrete events in the transcript at all - render_mode_toggle_html()
+  only shows the CURRENT mode, there's no record of "mode switched from
+  X to Y at this point." Needs research: does the transcript JSONL
+  actually record a plan-presentation or mode-switch as a distinguishable
+  entry/field at all (parse_transcript_line() in Transcript.php would be
+  the place to check), or would this need new detection logic (e.g.
+  matching on ExitPlanMode tool_use the same way Agent/subagent calls
+  are already detected)? For notifications: presumably a plan ready for
+  review should push-notify similarly to a blocked prompt (it's
+  functionally "waiting on you"), which check_and_send_pushes() doesn't
+  currently know how to detect at all.
