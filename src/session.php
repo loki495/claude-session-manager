@@ -365,18 +365,27 @@ function render_transcript_entry(array $entry): string
   .new-content-divider { opacity: 1; transition: opacity 0.8s ease-out; }
   .new-content-divider.fading { opacity: 0; }
   /* Highlights the actual new entry bubbles, not just the divider above
-     them - a box-shadow ring rather than a background tint, so it doesn't
+     them - a box-shadow glow rather than a background tint, so it doesn't
      fight with each entry's own role-color background/border (see
-     entry_color_classes()). Same two-class fade pattern as
+     entry_color_classes()). Three stacked shadows at decreasing alpha/
+     increasing spread fake a radial gradient falloff (100% down to 0%
+     alpha) - CSS box-shadow has no literal multi-stop gradient, this is
+     the practical equivalent (picked over a single blurred shadow after
+     a live side-by-side comparison). Same two-class fade pattern as
      .new-content-divider above and for the same reason: the `transition`
      property has to stay on the element for the whole fade, so toggling
-     .fading (which zeroes the ring's alpha) is what animates, rather than
-     removing .new-content-highlight itself mid-fade - that would strip
-     `transition` at the same instant as `box-shadow`, snapping it off
-     instead of fading (caught live: the ring vanished with no animation
-     at all before this fix). */
-  .new-content-highlight { box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.6); transition: box-shadow 1.2s ease-out; }
-  .new-content-highlight.fading { box-shadow: 0 0 0 2px rgba(251, 191, 36, 0); }
+     .fading (which zeroes every layer's alpha) is what animates, rather
+     than removing .new-content-highlight itself mid-fade - that would
+     strip `transition` at the same instant as `box-shadow`, snapping it
+     off instead of fading (caught live: the ring vanished with no
+     animation at all before this fix). */
+  .new-content-highlight {
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.8), 0 0 8px 4px rgba(251, 191, 36, 0.4), 0 0 16px 8px rgba(251, 191, 36, 0.15);
+    transition: box-shadow 1.2s ease-out;
+  }
+  .new-content-highlight.fading {
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0), 0 0 8px 4px rgba(251, 191, 36, 0), 0 0 16px 8px rgba(251, 191, 36, 0);
+  }
 </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
