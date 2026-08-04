@@ -4,7 +4,9 @@ declare(strict_types=1);
 require __DIR__ . '/lib/AgentClient.php';
 require __DIR__ . '/lib/Auth.php';
 require __DIR__ . '/lib/Views/QuotaFooterView.php';
+require __DIR__ . '/lib/Views/PushNotifyView.php';
 
+use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
 
 start_app_session();
@@ -550,7 +552,7 @@ function render_transcript_entry(array $entry): string
       </div>
       <div class="mt-2">
         <?= QuotaFooterView::quota_footer_html(render_mode_toggle_html($detail)) ?>
-        <?= push_notify_button_html($vapidPublicKey, $csrfToken) ?>
+        <?= PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
       </div>
     </div>
   </div>

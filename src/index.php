@@ -4,7 +4,9 @@ declare(strict_types=1);
 require __DIR__ . '/lib/AgentClient.php';
 require __DIR__ . '/lib/Auth.php';
 require __DIR__ . '/lib/Views/QuotaFooterView.php';
+require __DIR__ . '/lib/Views/PushNotifyView.php';
 
+use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
 
 start_app_session();
@@ -223,7 +225,7 @@ $csrfToken = csrf_token();
           Refresh
         </a>
       </div>
-      <?= push_notify_button_html($vapidPublicKey, $csrfToken) ?>
+      <?= PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
     </div>
   </div>
 
