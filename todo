@@ -115,18 +115,6 @@ Tier 2 - bigger or investigative items:
   Needs more detail to reproduce - which messages (his own compose sends,
   or ones typed directly into a real Claude Code session outside the app?),
   how soon after sending, whether a poll cycle happens in between.
-- csm-push-check systemd timer: log more per tick than it does today - not
-  just that a send happened, but the actual result the push service (Apple)
-  returned (ok vs error/reason), so a failing send isn't silently invisible.
-  Surface this on the dashboard somehow, probably folded into the health box
-  above rather than a separate UI. Also: push notification content -
-  push_permission_body() already shows the real command/action, which is
-  fine, but consider also including the title/what the overall prompt or
-  task is about (not just the bare command), since a command alone can lack
-  context about which task it belongs to. Andres's original phrasing here
-  was garbled (likely dictation) - worth a quick clarify-with-Andres pass
-  before implementing, particularly an unclear opening fragment ("file
-  downloads") that doesn't obviously connect to the rest of the note.
 - Add a way to adjust the csm-push-check systemd timer's poll interval
   (currently hardcoded 10s in the .timer unit) from the dashboard, instead
   of editing/reinstalling the unit file by hand on the host.
