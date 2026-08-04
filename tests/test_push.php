@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Exercises the Web Push logic in host-agent/lib/Push.php - subscription
  * storage, session-state transition detection, and dispatch_push_action()
  * - against isolated fixture paths, never the real subscription/state
- * files. A real send_push_notification() call is only ever exercised
+ * files. A real PushDeliveryService::send_push_notification() call is only ever exercised
  * against a guaranteed-closed local port (127.0.0.1:1), never a real push
  * service - see the "real send attempt" section below for why that's
  * still a meaningful test without actually delivering anywhere.
@@ -15,6 +15,7 @@ require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Push.php';
 
 use HostAgent\Services\NotificationContentBuilder;
+use HostAgent\Services\PushDeliveryService;
 use HostAgent\Services\PushTimerService;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
@@ -40,7 +41,7 @@ putenv('PUSH_TIMER_UNIT_NAME=csm-test-fake-push-timer-' . bin2hex(random_bytes(4
 if (
     PushSubscriptionStore::push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE
     || PushSessionStateStore::push_state_file() === REAL_PUSH_STATE_FILE
-    || push_check_status_file() === REAL_PUSH_CHECK_STATUS_FILE
+    || PushDeliveryService::push_check_status_file() === REAL_PUSH_CHECK_STATUS_FILE
     || PushTimerService::push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
 ) {
     fwrite(STDERR, "REFUSING TO RUN: push subscription/state/timer files or unit name still resolve to the real ones.\n");
@@ -48,17 +49,17 @@ if (
 }
 
 try {
-    // --- push_configured(): false until both VAPID keys are set ---
+    // --- PushDeliveryService::push_configured(): false until both VAPID keys are set ---
 
     putenv('VAPID_PUBLIC_KEY');
     putenv('VAPID_PRIVATE_KEY');
-    assert_equal(false, push_configured(), 'push_configured: false with no VAPID keys set (fresh checkout default)');
+    assert_equal(false, PushDeliveryService::push_configured(), 'push_configured: false with no VAPID keys set (fresh checkout default)');
 
     putenv('VAPID_PUBLIC_KEY=fake-public-key');
-    assert_equal(false, push_configured(), 'push_configured: still false with only the public key set');
+    assert_equal(false, PushDeliveryService::push_configured(), 'push_configured: still false with only the public key set');
 
     putenv('VAPID_PRIVATE_KEY=fake-private-key');
-    assert_equal(true, push_configured(), 'push_configured: true once both keys are set');
+    assert_equal(true, PushDeliveryService::push_configured(), 'push_configured: true once both keys are set');
 
     // --- PushSubscriptionStore read/write/add/remove_push_subscription(): round-trip, dedupe by endpoint ---
 
@@ -100,14 +101,14 @@ try {
     assert_equal('idle', NotificationContentBuilder::push_session_state(['blocked_reason' => null, 'working' => false]), 'push_session_state: neither blocked nor working -> idle');
     assert_equal('idle', NotificationContentBuilder::push_session_state([]), 'push_session_state: missing fields default to idle, not a crash');
 
-    // --- check_and_send_pushes(): transition detection, with zero
+    // --- PushDeliveryService::check_and_send_pushes(): transition detection, with zero
     // subscriptions configured so no real send is ever attempted here -
     // see the "real send attempt" section below for that part. ---
 
     assert_equal(['ok' => false, 'notified' => [], 'pruned' => 0], (function () {
         putenv('VAPID_PUBLIC_KEY');
         putenv('VAPID_PRIVATE_KEY');
-        $result = check_and_send_pushes([['name' => 'cc-x', 'blocked_reason' => 'hi', 'working' => false]]);
+        $result = PushDeliveryService::check_and_send_pushes([['name' => 'cc-x', 'blocked_reason' => 'hi', 'working' => false]]);
         putenv('VAPID_PUBLIC_KEY=fake-public-key');
         putenv('VAPID_PRIVATE_KEY=fake-private-key');
         return $result;
@@ -115,25 +116,25 @@ try {
 
     @unlink(PushSessionStateStore::push_state_file());
 
-    $first = check_and_send_pushes([
+    $first = PushDeliveryService::check_and_send_pushes([
         ['name' => 'cc-blocked', 'blocked_reason' => 'Proceed?', 'working' => false],
         ['name' => 'cc-idle', 'blocked_reason' => null, 'working' => false],
     ]);
     assert_equal(['cc-blocked'], $first['notified'], 'check_and_send_pushes: a session already blocked on the very first check counts as a fresh transition (no prior state on record)');
 
-    $second = check_and_send_pushes([
+    $second = PushDeliveryService::check_and_send_pushes([
         ['name' => 'cc-blocked', 'blocked_reason' => 'Proceed?', 'working' => false],
         ['name' => 'cc-idle', 'blocked_reason' => null, 'working' => false],
     ]);
     assert_equal([], $second['notified'], 'check_and_send_pushes: still blocked on the next check -> not notified again (same prompt, not a new one)');
 
-    $third = check_and_send_pushes([
+    $third = PushDeliveryService::check_and_send_pushes([
         ['name' => 'cc-blocked', 'blocked_reason' => null, 'working' => false],
         ['name' => 'cc-idle', 'blocked_reason' => 'A new question', 'working' => false],
     ]);
     assert_equal(['cc-idle'], $third['notified'], 'check_and_send_pushes: cc-idle transitioning into blocked is notified; cc-blocked resolving is not (that\'s not a "new prompt" event)');
 
-    $fourth = check_and_send_pushes([
+    $fourth = PushDeliveryService::check_and_send_pushes([
         ['name' => 'cc-blocked', 'blocked_reason' => 'Proceed again?', 'working' => false],
     ]);
     assert_equal(['cc-blocked'], $fourth['notified'], 'check_and_send_pushes: transitioning back into blocked after having resolved counts as a fresh transition again');
@@ -251,7 +252,7 @@ try {
         'push_finished_title: leads with "Finished", same convention as NotificationContentBuilder::push_blocked_title()'
     );
 
-    // --- check_and_send_pushes(): the "finished a long task" notification
+    // --- PushDeliveryService::check_and_send_pushes(): the "finished a long task" notification
     // - a genuinely new case (previously ZERO notification coverage for a
     // session that finishes without ever needing input at all) ---
 
@@ -259,20 +260,20 @@ try {
     putenv('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY=60');
 
     $t0 = 1_000_000;
-    $workingStart = check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => true]], $t0);
+    $workingStart = PushDeliveryService::check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => true]], $t0);
     assert_equal([], $workingStart['notified'], 'check_and_send_pushes: starting to work is never itself notification-worthy');
 
-    $stillWorkingSoon = check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => true]], $t0 + 10);
+    $stillWorkingSoon = PushDeliveryService::check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => true]], $t0 + 10);
     assert_equal([], $stillWorkingSoon['notified'], 'check_and_send_pushes: still working 10s later - no notification yet, still working');
 
-    $finishedTooSoon = check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => false]], $t0 + 15);
+    $finishedTooSoon = PushDeliveryService::check_and_send_pushes([['name' => 'cc-working', 'blocked_reason' => null, 'working' => false]], $t0 + 15);
     assert_equal([], $finishedTooSoon['notified'], 'check_and_send_pushes: finished after only 15s of work - below the 60s threshold, not notified (avoids noise for quick replies)');
 
     @unlink(PushSessionStateStore::push_state_file());
-    $workingStart2 = check_and_send_pushes([['name' => 'cc-long-task', 'blocked_reason' => null, 'working' => true]], $t0);
+    $workingStart2 = PushDeliveryService::check_and_send_pushes([['name' => 'cc-long-task', 'blocked_reason' => null, 'working' => true]], $t0);
     assert_equal([], $workingStart2['notified'], 'check_and_send_pushes (long task): starting to work is never itself notification-worthy');
 
-    $finishedLongTask = check_and_send_pushes([[
+    $finishedLongTask = PushDeliveryService::check_and_send_pushes([[
         'name' => 'cc-long-task',
         'blocked_reason' => null,
         'working' => false,
@@ -282,15 +283,15 @@ try {
     assert_equal(['cc-long-task'], $finishedLongTask['notified'], 'check_and_send_pushes: finished after 90s of continuous work - above the 60s threshold, notified');
 
     // Once notified, going idle -> idle again (nothing changed) must not re-notify.
-    $stillIdleAfter = check_and_send_pushes([['name' => 'cc-long-task', 'blocked_reason' => null, 'working' => false]], $t0 + 100);
+    $stillIdleAfter = PushDeliveryService::check_and_send_pushes([['name' => 'cc-long-task', 'blocked_reason' => null, 'working' => false]], $t0 + 100);
     assert_equal([], $stillIdleAfter['notified'], 'check_and_send_pushes: still idle on the next check -> not notified again');
 
     // A blocked prompt appearing takes priority over (and is a completely
     // separate concern from) the finished-working case - both paths must
     // coexist correctly in the same pass.
     @unlink(PushSessionStateStore::push_state_file());
-    check_and_send_pushes([['name' => 'cc-mixed', 'blocked_reason' => null, 'working' => true]], $t0);
-    $mixedResult = check_and_send_pushes([
+    PushDeliveryService::check_and_send_pushes([['name' => 'cc-mixed', 'blocked_reason' => null, 'working' => true]], $t0);
+    $mixedResult = PushDeliveryService::check_and_send_pushes([
         ['name' => 'cc-mixed', 'blocked_reason' => 'A follow-up question', 'working' => false],
         ['name' => 'cc-other', 'blocked_reason' => null, 'working' => true],
     ], $t0 + 90);
@@ -298,13 +299,13 @@ try {
 
     putenv('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY');
 
-    // --- send_push_notification(): a genuinely malformed VAPID key must
+    // --- PushDeliveryService::send_push_notification(): a genuinely malformed VAPID key must
     // report failure, not crash the whole (unattended, systemd-timer-run)
     // process - found live: minishlink/web-push throws a hard
     // ErrorException for this, not a normal failed-report return. ---
 
     $malformedKeySubscription = ['endpoint' => 'http://127.0.0.1:1/nothing-listens-here', 'keys' => ['p256dh' => 'x', 'auth' => 'y']];
-    $malformedKeyResult = send_push_notification($malformedKeySubscription, 'Title', 'Body');
+    $malformedKeyResult = PushDeliveryService::send_push_notification($malformedKeySubscription, 'Title', 'Body');
     assert_equal(false, $malformedKeyResult['ok'], 'send_push_notification: a malformed VAPID key reports ok=false, not an uncaught exception');
 
     // --- real send attempt with a structurally-valid VAPID keypair and
@@ -323,20 +324,20 @@ try {
     $fakeAuth = $b64url(random_bytes(16));
 
     $unreachableSubscription = ['endpoint' => 'http://127.0.0.1:1/nothing-listens-here', 'keys' => ['p256dh' => $fakeP256dh, 'auth' => $fakeAuth]];
-    $sendResult = send_push_notification($unreachableSubscription, 'Title', 'Body');
+    $sendResult = PushDeliveryService::send_push_notification($unreachableSubscription, 'Title', 'Body');
     assert_equal(false, $sendResult['ok'], 'send_push_notification: a real (failed) send against an unreachable endpoint reports ok=false, not an uncaught exception');
 
     PushSubscriptionStore::add_push_subscription($unreachableSubscription);
     @unlink(PushSessionStateStore::push_state_file());
-    $withRealSubscriber = check_and_send_pushes([['name' => 'cc-real-send', 'blocked_reason' => 'Proceed?', 'working' => false]]);
+    $withRealSubscriber = PushDeliveryService::check_and_send_pushes([['name' => 'cc-real-send', 'blocked_reason' => 'Proceed?', 'working' => false]]);
     assert_equal(['cc-real-send'], $withRealSubscriber['notified'], 'check_and_send_pushes: still reports the transition even though the actual send to the one subscriber failed');
 
-    // --- record_push_check_result()/push_delivery_check(): the failed
+    // --- PushDeliveryService::record_push_check_result()/push_delivery_check(): the failed
     // send just above must leave a real, readable trace - previously a
     // non-expiry send failure left NO record anywhere at all, only an
     // expired subscription being silently pruned did. ---
 
-    $statusAfterFailure = json_decode((string)file_get_contents(push_check_status_file()), true);
+    $statusAfterFailure = json_decode((string)file_get_contents(PushDeliveryService::push_check_status_file()), true);
     assert_equal(1, $statusAfterFailure['sent'] ?? null, 'record_push_check_result: counts the one send attempt from this tick');
     assert_equal(1, $statusAfterFailure['failed'] ?? null, 'record_push_check_result: counts the one failure (an unreachable endpoint is a real, non-expiry failure)');
     assert_equal(true, is_string($statusAfterFailure['last_failure_message'] ?? null) && $statusAfterFailure['last_failure_message'] !== '', 'record_push_check_result: persists a non-empty failure message, not just a bare count');
@@ -351,13 +352,13 @@ try {
     // records a heartbeat, and clears the previous failure - the failure
     // record reflects only the MOST RECENT tick, not history piling up.
     @unlink(PushSessionStateStore::push_state_file());
-    check_and_send_pushes([['name' => 'cc-quiet', 'blocked_reason' => null, 'working' => false]]);
-    $statusAfterQuietTick = json_decode((string)file_get_contents(push_check_status_file()), true);
+    PushDeliveryService::check_and_send_pushes([['name' => 'cc-quiet', 'blocked_reason' => null, 'working' => false]]);
+    $statusAfterQuietTick = json_decode((string)file_get_contents(PushDeliveryService::push_check_status_file()), true);
     assert_equal(0, $statusAfterQuietTick['sent'] ?? null, 'record_push_check_result: a tick with nothing to send still records (0 sent), proving the timer ran');
     assert_equal(0, $statusAfterQuietTick['failed'] ?? null, 'record_push_check_result: no failures on a quiet tick');
     assert_equal(true, push_delivery_check()['ok'], 'push_delivery_check: ok=true right after a clean, recent tick');
 
-    @unlink(push_check_status_file());
+    @unlink(PushDeliveryService::push_check_status_file());
     assert_equal(false, push_delivery_check()['ok'], 'push_delivery_check: ok=false when the timer has never run at all (no status file yet)');
 
     putenv('VAPID_PUBLIC_KEY');
