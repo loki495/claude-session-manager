@@ -5,6 +5,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/lib/Auth.php';
 
 use App\AgentClient;
+use App\Assets;
 use App\Views\HealthBoxView;
 use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
@@ -234,6 +235,7 @@ $csrfToken = csrf_token();
 <script>
 window.CSM_BOOTSTRAP = <?= json_encode(['agentReachable' => $agentReachable]) ?>;
 </script>
-<script src="/js/index.js"></script>
+<script src="<?= Assets::versioned_url('/js/common.js') ?>"></script>
+<script src="<?= Assets::versioned_url('/js/index.js') ?>"></script>
 </body>
 </html>
