@@ -352,30 +352,53 @@ function push_blocked_body(array $session): string
 /**
  * The title for a newly-blocked prompt's push notification - unlike
  * push_notification_title() alone (which only ever conveys WHICH session
- * this is about), this leads with WHAT KIND of prompt it is, confirmed
- * live to match how Anthropic's own Claude app titles the identical
- * underlying prompt ("Claude needs your permission: ..."). Multiple
- * simultaneous sessions is this whole app's reason to exist (unlike a
- * single-conversation mobile app), so the session's own title is still
- * folded in after the type, not dropped - "which session" still matters
- * here in a way it doesn't for a single-session app.
+ * this is about), this leads with WHAT KIND of prompt it is. No "Claude"
+ * wording (unlike an earlier version of this) - iOS already attributes
+ * every notification from this app to it via the icon and its own "from
+ * <manifest name>" line (not something the Notification API can
+ * suppress - it's OS-level attribution for any installed PWA's web
+ * push), so repeating "Claude" in the title text itself was redundant.
+ * Multiple simultaneous sessions is this whole app's reason to exist
+ * (unlike a single-conversation mobile app), so the session's own title
+ * is still folded in after the type, not dropped - "which session"
+ * still matters here in a way it doesn't for a single-session app.
+ * Every branch is type-labeled, including the folder-trust dialog and
+ * the generic fallback - no case should read as just a bare title with
+ * no hint of what kind of prompt it actually is.
  *
- * @param array{blocked_reason?:mixed, prompt_tool_name?:mixed}&array{name?:mixed, title?:mixed, workdir?:mixed} $session
+ * @param array{blocked_reason?:mixed, prompt_tool_name?:mixed, prompt_is_folder_trust?:mixed}&array{name?:mixed, title?:mixed, workdir?:mixed} $session
  */
 function push_blocked_title(array $session): string
 {
     $toolName = is_string($session['prompt_tool_name'] ?? null) ? $session['prompt_tool_name'] : null;
     $sessionTitle = push_notification_title($session);
 
+    if (!empty($session['prompt_is_folder_trust'])) {
+        return "Needs folder trust: {$sessionTitle}";
+    }
+
     if ($toolName === 'AskUserQuestion') {
-        return "Claude has a question: {$sessionTitle}";
+        return "Has a question: {$sessionTitle}";
     }
 
     if ($toolName !== null) {
-        return "Claude needs permission: {$sessionTitle}";
+        return "Needs permission: {$sessionTitle}";
     }
 
-    return $sessionTitle;
+    return "Needs input: {$sessionTitle}";
+}
+
+/**
+ * The title for a "finished working, nothing needs your input" push -
+ * same type-labeled convention as push_blocked_title(), so every
+ * notification this app sends says what KIND of event it is, not just
+ * which session.
+ *
+ * @param array{name?:mixed, title?:mixed, workdir?:mixed} $session
+ */
+function push_finished_title(array $session): string
+{
+    return "Finished: " . push_notification_title($session);
 }
 
 /**
@@ -545,7 +568,7 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
             && ($now - $previousSince) >= $minWorkingSeconds
         ) {
             $notification = [
-                'title' => push_notification_title($session),
+                'title' => push_finished_title($session),
                 'body' => push_finished_body(is_array($session['last_message'] ?? null) ? $session['last_message'] : null),
             ];
         }

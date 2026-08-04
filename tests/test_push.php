@@ -207,26 +207,43 @@ try {
         'push_blocked_body: a completely empty session still returns something, not a crash'
     );
 
-    // --- push_blocked_title(): leads with WHAT KIND of prompt this is,
-    // confirmed live to match how Anthropic's own Claude app titles the
-    // identical underlying prompt - the session's own title is still
-    // folded in after, since "which session" matters here in a way it
-    // doesn't for a single-conversation app ---
+    // --- push_blocked_title(): leads with WHAT KIND of prompt this is -
+    // no "Claude" wording (iOS already attributes the notification to
+    // this app via the icon and its own OS-level "from <manifest name>"
+    // line, not something the Notification API can suppress - repeating
+    // "Claude" in the title text was redundant, per Andres) - the
+    // session's own title is still folded in after, since "which
+    // session" matters here in a way it doesn't for a single-conversation
+    // app. Every branch is type-labeled, including the folder-trust
+    // dialog and the generic fallback. ---
 
     assert_equal(
-        'Claude needs permission: Fix the login bug',
+        'Needs permission: Fix the login bug',
         push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'Bash']),
-        'push_blocked_title: leads with "needs permission" for a permission-type prompt (any matched tool other than AskUserQuestion)'
+        'push_blocked_title: leads with "Needs permission" for a permission-type prompt (any matched tool other than AskUserQuestion)'
     );
     assert_equal(
-        'Claude has a question: Fix the login bug',
+        'Has a question: Fix the login bug',
         push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'AskUserQuestion']),
-        'push_blocked_title: leads with "has a question" for AskUserQuestion specifically'
+        'push_blocked_title: leads with "Has a question" for AskUserQuestion specifically'
     );
     assert_equal(
-        'Fix the login bug',
+        'Needs folder trust: Fix the login bug',
+        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => null, 'prompt_is_folder_trust' => true]),
+        'push_blocked_title: leads with "Needs folder trust" for the initial folder-trust dialog specifically, even though it has no matched tool'
+    );
+    assert_equal(
+        'Needs input: Fix the login bug',
         push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => null]),
-        'push_blocked_title: no matched tool at all (trust dialog, stale/missing PreToolUse record) -> just the session title, no false type claim'
+        'push_blocked_title: no matched tool and not a trust dialog (stale/missing PreToolUse record) -> generic but still type-labeled fallback, never a bare title with no hint of what kind of prompt it is'
+    );
+
+    // --- push_finished_title(): same type-labeled convention for the
+    // "finished working" notification ---
+    assert_equal(
+        'Finished: Fix the login bug',
+        push_finished_title(['name' => 'cc-1', 'title' => 'Fix the login bug']),
+        'push_finished_title: leads with "Finished", same convention as push_blocked_title()'
     );
 
     // --- check_and_send_pushes(): the "finished a long task" notification
