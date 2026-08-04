@@ -24,18 +24,26 @@ self.addEventListener('push', function (event) {
     data: { url: data.url || '/' }
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  // Both promises collected and passed to ONE event.waitUntil(Promise.all(...))
+  // - matches WebKit's own documented pattern exactly (see
+  // https://webkit.org/blog/14112/badging-for-home-screen-web-apps/), not
+  // two separate waitUntil() calls as this originally shipped. Confirmed
+  // live: the separate-calls version never actually showed a badge on
+  // Andres's real device (notification itself worked fine, so this wasn't
+  // a permissions issue) despite no thrown/caught error anywhere - iOS
+  // Safari's Badging API implementation apparently doesn't reliably honor
+  // a badge promise registered via a SECOND, separate waitUntil() call.
+  // No real per-notification unseen count is tracked (would need
+  // persistent storage across SW restarts) - a fixed 1 just flags "there's
+  // something", cleared back off entirely by clearAppBadge() below/on
+  // page load.
+  var promises = [self.registration.showNotification(title, options)];
 
-  // Badging API: flags the home-screen icon for a notification that
-  // hasn't been seen/cleared yet (see push_notify_button_html()'s
-  // navigator.clearAppBadge() on page load, and notificationclick below
-  // for the tap-to-clear path). Feature-detected, not gated on the
-  // showNotification path above at all - a separate concern, and a
-  // failure here must never affect the anti-silent-push guarantee that
-  // waitUntil() is protecting.
   if ('setAppBadge' in self.navigator) {
-    event.waitUntil(self.navigator.setAppBadge().catch(function () {}));
+    promises.push(self.navigator.setAppBadge(1).catch(function () {}));
   }
+
+  event.waitUntil(Promise.all(promises));
 });
 
 self.addEventListener('notificationclick', function (event) {
@@ -51,11 +59,9 @@ self.addEventListener('notificationclick', function (event) {
   // trying that here rather than the relative form.
   var absoluteUrl = new URL(url, self.location.origin).href;
 
-  if ('setAppBadge' in self.navigator) {
-    event.waitUntil(self.navigator.clearAppBadge().catch(function () {}));
-  }
-
-  event.waitUntil(
+  // Same single-Promise.all()-in-one-waitUntil() pattern as the push
+  // handler above, for the same reason.
+  var promises = [
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
       for (var i = 0; i < clientList.length; i++) {
         if (clientList[i].url.indexOf(url) !== -1 && 'focus' in clientList[i]) {
@@ -69,5 +75,11 @@ self.addEventListener('notificationclick', function (event) {
 
       return undefined;
     })
-  );
+  ];
+
+  if ('setAppBadge' in self.navigator) {
+    promises.push(self.navigator.clearAppBadge().catch(function () {}));
+  }
+
+  event.waitUntil(Promise.all(promises));
 });
