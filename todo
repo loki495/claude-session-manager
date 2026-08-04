@@ -1,19 +1,7 @@
 Work queue (in this order, per Andres - new items get appended at the end unless he
 says otherwise). Reordered 2026-08-02.
 
-Tier 1 - quick wins (small, isolated changes):
-
-- session.php: Andres reports command/prompt-answer text now appears centered
-  instead of left-aligned after the no-wrap/scroll change shipped. Checked live:
-  computed text-align is "start" (left) all the way up the ancestor chain
-  (<pre>/<details>/wrapping divs) for both the transcript-history path and the
-  blocked-prompt-card path, in Chromium via Playwright - could not reproduce.
-  Possibly a stale-page-cache issue (Andres's browser could have been looking at
-  HTML/JS from before some earlier fix) - worth a fresh look now that a genuinely
-  fresh load is confirmed working, before assuming it's a genuine mobile-Safari-
-  specific rendering quirk.
-
-Tier 2 - self-contained features/fixes:
+Tier 1 - self-contained features/fixes:
 
 - Audit both pages for any long unbroken string (URLs, paths, tokens, etc.) that could
   widen the viewport horizontally - most text already uses truncate/break-all/
@@ -23,40 +11,6 @@ Tier 2 - self-contained features/fixes:
   does (hides tool_result blocks via the hide-tool-details CSS class; tool_use blocks
   are unaffected) before renaming, since the current name may already be accurate for
   half of what people expect it to do.
-- RESOLVED: checkbox to show/hide tool calls - done 2026-08-02. New
-  "Show tool calls" sidebar toggle, mirroring the existing "Show tool usage
-  details" one exactly (own body class hide-tool-calls, own localStorage key
-  csm-show-tool-calls, defaults to checked/shown). Required a matching
-  entry-tool-use-only marker (entry_color_kind()==='tool_use' && no image) so
-  a tool_use-only entry disappears entirely once hidden, not just its block -
-  same reasoning as the pre-existing entry-tool-result-only marker, which
-  render_transcript_entry()/renderEntry() now compute together in one place
-  instead of two separate checks. Live-verified against a real throwaway
-  session with an actual Bash tool_use entry: toggling off hid both the block
-  and the whole entry, toggling persisted correctly across a page reload.
-- RESOLVED: default polling interval changed 15s -> 3s - done 2026-08-02, both
-  session.php and index.php (the `selected` option + the JS fallback used when
-  nothing's in localStorage yet). A previously-visited browser with 15s already
-  saved to localStorage is unaffected either way, by design.
-- RESOLVED: multi-question AskUserQuestion handling - done 2026-08-02. Root
-  cause found without needing clarification: navigate_prompt() (Left/Right
-  arrow-key send) and prompt_multi_question detection already existed in the
-  backend, but NOTHING in the frontend ever called or displayed either one -
-  grep across src/ turned up zero references. A multi-question prompt could
-  only ever be answered on whatever tab happened to already be showing;
-  reaching any other question required attaching to tmux by hand and pressing
-  arrow keys directly, defeating the point of a phone-based remote-control
-  app. Fixed: new session_navigate.php endpoint, Prev/Next buttons rendered
-  in blocked_prompt_options_html() (AgentClient.php, shared by both pages)
-  whenever prompt_multi_question is true, wired up in both session.php and
-  index.php (blocked_prompt_rich_html() renders on both). Live-verified
-  end-to-end on both pages against a real AskUserQuestion call with two
-  genuine questions: clicking Next actually sent the Right arrow key,
-  confirmed via a direct tmux capture-pane read that the pane moved from
-  "What color do you like?" to "What animal do you like?" (session.php) and
-  from "Tea or coffee?" to "Book or movie?" (index.php), with the rendered
-  option buttons correctly updating to match whichever tab was now current
-  each time (Cat/Dog, not still Red/Blue).
 - session.php: audit renderStaticInfo()/renderThinkingIndicator()/renderModeToggle()
   for the same "rebuilds on every poll even when nothing changed" issue already fixed
   in renderBlockedSection() - renderModeToggle() in particular rebuilds a <select>,
@@ -64,7 +18,7 @@ Tier 2 - self-contained features/fixes:
   disruption. Not confirmed as an actual bug yet, just the same risky pattern in
   three more places.
 
-Tier 3 - bigger or investigative items:
+Tier 2 - bigger or investigative items:
 
 - index.php: make the whole session-row "card" a link to its transcript page,
   except for known interactive bits (Kill button, show-last-3 toggle, blocked-prompt
@@ -139,22 +93,6 @@ Tier 3 - bigger or investigative items:
   picked up a lot of surface area this session alone) vs. the cost of a
   rewrite/migration for what's currently a personal single-user tool with no
   other contributors.
-- RESOLVED: compose-bar footer drift on scroll - done 2026-08-03, confirmed
-  working on Andres's phone. Reported live: the footer drifted upward while
-  scrolling even with the keyboard closed, and only stayed put when the
-  textarea had enough text to make the page tall enough. Root cause:
-  iOS Safari's position:fixed is anchored to the *layout* viewport, not the
-  *visual* one - its dynamic toolbar (hides/shows on scroll) shrinks/grows
-  the visual viewport independently, and a short page (empty textarea) sat
-  right at the toolbar's collapse threshold, making the drift obvious.
-  Fixed with a lighter version of the approach already flagged here:
-  window.visualViewport's resize/scroll events drive a translateY offset
-  on #compose-bar and #go-to-bottom-btn (both position:fixed) equal to how
-  much of the layout viewport currently sits below the visible area -
-  keeps them glued to the real screen bottom regardless of toolbar state
-  or keyboard, reusing the same visualViewport API isNearBottom() already
-  relied on. Didn't need the full #app-container/flex restructuring this
-  entry originally proposed.
 - Research: how would file uploads work (Andres wants to send an image/file
   from his phone to a session, not just receive them from the transcript).
   Needs a real look at the mechanism - tmux send-keys/paste-buffer only moves
@@ -171,112 +109,6 @@ Tier 3 - bigger or investigative items:
   again. Likely related to autoGrowCompose() not re-running (or running
   against a stale/zeroed scrollHeight) at the right moment when the compose
   bar's visibility is toggled back on by renderComposeVisibility().
-- RESOLVED, LIVE: Web Push notifications - done 2026-08-02, confirmed
-  working end-to-end same day (Andres successfully enabled notifications
-  on his phone). Full implementation per the earlier research:
-  minishlink/web-push (first Composer dependency this project has ever
-  had - agent.php now unconditionally requires vendor/autoload.php, so
-  install.sh runs `composer install` automatically if vendor/ is
-  missing), host-agent/lib/Push.php (subscription storage, VAPID send,
-  push_session_state()/check_and_send_pushes() transition detection -
-  notifies only on the transition INTO blocked, not every tick a prompt
-  sits unanswered), host-agent/push_trigger.php + a csm-push-check.timer/
-  .service pair (10s poll, tightened from an initial 30s - each tick is
-  cheap, ~24ms CPU measured live, so the real cost of going faster is
-  process-spawn/journald noise, not load), push_subscribe.php/
-  push_unsubscribe.php endpoints, src/sw.js (service worker - its push
-  handler always calls showNotification, per the research, to avoid
-  iOS's 3-silent-pushes kill), and a "Notify me" button
-  (push_notify_button_html() in AgentClient.php) on both pages that also
-  silently re-subscribes on every page load to self-heal iOS's flaky
-  subscription lifecycle. A real bug caught by tests before it could bite
-  in production: minishlink/web-push throws a hard, uncaught exception for
-  a malformed VAPID key rather than returning a normal failure - since
-  this runs unattended via the systemd timer, that would've silently
-  killed an entire tick (every session's check, not just the bad send) -
-  now caught and converted to a graceful ok:false.
-  A second real bug found only once actually trying to go live: the whole
-  feature was silently broken because the app was HTTP-only - Service
-  Workers are blocked entirely by the browser outside a secure context, no
-  error surfaced anywhere, the "Notify me" button just never appeared.
-  Fixed by adding HTTPS to the shared Traefik instance (~/www/traefik/,
-  routes ~15 other local sites too) - a real cert scoped specifically to
-  csm.dev.local.test (SAN set correctly; Traefik's own generic anonymous
-  default self-signed cert has the wrong hostname and would still fail
-  validation even once trusted), 397-day validity to stay under Apple's
-  ≤398-day cap for iOS's Certificate Trust Settings to accept it at all.
-  See the README's "Web Push notifications" section for the full
-  cert-trust steps, including the iOS-specific gotcha that clicking
-  through Safari's own "proceed anyway" warning does NOT carry over to a
-  home-screen-installed app's separate WebView context - only the actual
-  configuration-profile install does that reliably.
-  Follow-up done same day: notification titles now use
-  push_notification_title() (real session title -> workdir basename ->
-  raw cc-YYYYMMDD-HHMM name as a last resort) instead of ever showing the
-  raw session name - a real bug, since a session that hits a blocking
-  prompt within its first second or two can still have no title set yet.
-  Also added a second notification type: "finished a long task, no input
-  needed", firing on the working->idle transition, gated behind
-  PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY (default 60s) so a quick
-  reply doesn't spam a notification. check_and_send_pushes() now tracks a
-  since timestamp per session (state file schema: {state, since} instead
-  of a plain string - old string entries degrade gracefully to "no prior
-  state", no migration needed) and takes an injectable $now for
-  deterministic tests. New test coverage added for all of this in
-  tests/test_push.php; full suite green.
-  A third real bug found while live-testing this: IPv6 to
-  web.push.apple.com silently times out (30s) on this network while IPv4
-  to the exact same endpoint responds instantly - fixed by forcing IPv4
-  via clientOptions (CURLOPT_IPRESOLVE) in send_push_notification().
-  Follow-up done 2026-08-03: push_notification_title() now strips Claude
-  Code's leading idle-title icon (e.g. "✳", U+2733 - distinct from the
-  animated braille spinner shown while working, which clean_pane_title()
-  already stripped) via a generic \p{So} (Symbol, other) regex rather than
-  hardcoding just that one codepoint. Fine in a terminal title bar, looked
-  out of place at the start of a phone notification.
-- RESOLVED: better notification content for permission prompts vs real
-  questions - done 2026-08-03. push_blocked_body() now shows the real
-  command/action (push_permission_body(), sourced from the PreToolUse
-  hook's recorded tool_input) for a permission prompt (Bash/Write/Edit/
-  etc.) instead of the generic pane-scraped "Do you want to proceed?",
-  while an AskUserQuestion prompt still shows the real question text as
-  before. Distinguishing signal: prompt_tool_name, newly exposed on the
-  session array by augment_prompt_with_pending_tool()/build_session_entry().
-  A real incidental bug found and fixed along the way: AskUserQuestion
-  renders with no "●" marker line at all (verified live, unlike every
-  other tool), so the existing marker cross-check never bailed out for it
-  - prompt_context was silently getting clobbered with a raw tool_input
-  JSON dump instead of staying the clean pane-scraped question/options
-  text, on the live in-page blocked-prompt card too, not just push. Fixed
-  by skipping the context-overwrite specifically for AskUserQuestion while
-  still exposing tool_name/tool_input for callers. New test coverage in
-  tests/test_session_hook.php and tests/test_push.php; full suite green.
-  Live-verified against a real throwaway session's real AskUserQuestion
-  call (confirmed push_blocked_body() returns the real question, not a
-  JSON dump).
-- RESOLVED: subagent reports as their own entry kind - done 2026-08-02. The
-  real tool name is "Agent" (verified live against a real captured transcript
-  - not "Task"), with input {description, prompt, subagent_type,
-  run_in_background}. Two real findings baked into the fix: (1) the
-  matching tool_result's content always carries a SECOND text block of pure
-  internal bookkeeping ("agentId: xxx ... <usage>...</usage>") that the
-  Agent tool's own instructions say must never be shown to the user -
-  previously joined straight into the displayed text as if it were more of
-  the real output; now stripped (is_subagent_metadata_text() in
-  Transcript.php). (2) the tool_result has no agent-type info anywhere in
-  its own content - it only exists on the outer JSONL line's
-  toolUseResult.agentType field, so parse_transcript_line() now threads it
-  onto the block itself; the tool_use side gets it more simply, straight off
-  its own input.subagent_type. New "Subagent call"/"Subagent report" entry
-  kinds (fuchsia, entry_color_kind() in session.php, both PHP and JS) with a
-  clean "<subagent_type>: <description>" summary (summarize_agent_tool_use())
-  instead of a noisy raw param dump of the full prompt text. Also folded into
-  the existing hide-tool-calls/hide-tool-details entry-collapse markers, so
-  toggling those off hides subagent entries too, same as plain tool
-  calls/results. Live-verified against a real subagent call end-to-end:
-  correct fuchsia color/labels, confirmed zero "agentId:"/"<usage>" leakage
-  anywhere on the real rendered page, and confirmed both toggles correctly
-  hide the subagent entries.
 - Top-right sidebar status icon should distinguish severity, not just
   "something needs you": yellow if at least one session is waiting for
   input. Else green if at least one session is done with all its tasks
