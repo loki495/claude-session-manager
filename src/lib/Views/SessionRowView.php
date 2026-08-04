@@ -13,7 +13,7 @@ class SessionRowView
 {
     /**
      * A compact "Thinking…" badge for a dashboard row - the dashboard's own
-     * version of session.php's render_thinking_indicator_html() (same
+     * version of TranscriptView::render_thinking_indicator_html() (same
      * $s['working'] source field, see pane_title_is_working() in
      * Sessions.php), minus the Stop button: this row has no dedicated place
      * to put a per-session action button, and the session's own detail page

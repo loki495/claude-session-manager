@@ -444,7 +444,7 @@ document.addEventListener('keydown', function (e) {
     return div.innerHTML;
   }
 
-  // Mirrors entry_color_kind()/entry_color_classes() in session.php - see
+  // Mirrors TranscriptView::entry_color_kind()/entry_color_classes() - see
   // there for why this isn't just entry.role (a tool_result entry carries
   // role="user" under the hood, same as a real typed message).
   function entryColorKind(entry) {
