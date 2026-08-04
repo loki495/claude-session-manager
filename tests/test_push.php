@@ -15,6 +15,7 @@ require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Push.php';
 
 use HostAgent\Services\NotificationContentBuilder;
+use HostAgent\Services\PushTimerService;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
 
@@ -30,7 +31,7 @@ putenv('PUSH_SUBSCRIPTIONS_FILE=' . $fixtureDir . '/push-subscriptions.json');
 putenv('PUSH_STATE_FILE=' . $fixtureDir . '/push-session-state.json');
 putenv('PUSH_CHECK_STATUS_FILE=' . $fixtureDir . '/push-check-status.json');
 putenv('PUSH_TIMER_UNIT_PATH=' . $fixtureDir . '/csm-push-check.timer');
-// set_push_timer_interval() runs real `systemctl --user is-active`/
+// PushTimerService::set_push_timer_interval() runs real `systemctl --user is-active`/
 // `restart` commands against this unit NAME - a fake one systemd has
 // never heard of is what keeps `restart` from ever firing for real
 // during a test run (is-active reliably reports "inactive" for it).
@@ -40,7 +41,7 @@ if (
     PushSubscriptionStore::push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE
     || PushSessionStateStore::push_state_file() === REAL_PUSH_STATE_FILE
     || push_check_status_file() === REAL_PUSH_CHECK_STATUS_FILE
-    || push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
+    || PushTimerService::push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
 ) {
     fwrite(STDERR, "REFUSING TO RUN: push subscription/state/timer files or unit name still resolve to the real ones.\n");
     exit(1);
@@ -365,15 +366,15 @@ try {
     putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
     putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
 
-    // --- get/set_push_timer_interval(): reads/writes the INSTALLED unit
+    // --- get/PushTimerService::set_push_timer_interval(): reads/writes the INSTALLED unit
     // file (isolated to a fixture path above, never the real one), and
-    // set_push_timer_interval()'s systemctl calls target a fake unit name
+    // PushTimerService::set_push_timer_interval()'s systemctl calls target a fake unit name
     // (also isolated above) so a test run can never touch the real
     // production csm-push-check.timer ---
 
     assert_equal(
         false,
-        get_push_timer_interval()['ok'],
+        PushTimerService::get_push_timer_interval()['ok'],
         'get_push_timer_interval: ok=false when the timer unit isn\'t installed at all (fresh checkout)'
     );
 
@@ -389,30 +390,30 @@ try {
     [Install]
     WantedBy=timers.target
     UNIT;
-    file_put_contents(push_timer_unit_path(), $fixtureTimerUnit);
+    file_put_contents(PushTimerService::push_timer_unit_path(), $fixtureTimerUnit);
 
-    $readBack = get_push_timer_interval();
+    $readBack = PushTimerService::get_push_timer_interval();
     assert_equal(true, $readBack['ok'], 'get_push_timer_interval: ok=true once the unit file exists');
     assert_equal(10, $readBack['interval_seconds'], 'get_push_timer_interval: parses the real OnUnitActiveSec value from the fixture unit');
 
-    $tooLow = set_push_timer_interval(1);
+    $tooLow = PushTimerService::set_push_timer_interval(1);
     assert_equal(false, $tooLow['ok'], 'set_push_timer_interval: rejects a value below the minimum');
 
-    $tooHigh = set_push_timer_interval(9999);
+    $tooHigh = PushTimerService::set_push_timer_interval(9999);
     assert_equal(false, $tooHigh['ok'], 'set_push_timer_interval: rejects a value above the maximum');
 
-    $setResult = set_push_timer_interval(30);
+    $setResult = PushTimerService::set_push_timer_interval(30);
     assert_equal(true, $setResult['ok'], 'set_push_timer_interval: accepts a value within bounds');
     assert_equal(30, $setResult['interval_seconds'], 'set_push_timer_interval: echoes back the new interval');
 
-    $rewritten = file_get_contents(push_timer_unit_path());
+    $rewritten = file_get_contents(PushTimerService::push_timer_unit_path());
     assert_equal(true, str_contains($rewritten, 'OnBootSec=30s'), 'set_push_timer_interval: actually rewrote OnBootSec= in the unit file');
     assert_equal(true, str_contains($rewritten, 'OnUnitActiveSec=30s'), 'set_push_timer_interval: actually rewrote OnUnitActiveSec= in the unit file');
     assert_equal(true, str_contains($rewritten, 'Unit=csm-push-check.service'), 'set_push_timer_interval: leaves the rest of the unit file untouched');
 
-    assert_equal(30, get_push_timer_interval()['interval_seconds'], 'get_push_timer_interval: reflects the just-written value on the next read');
+    assert_equal(30, PushTimerService::get_push_timer_interval()['interval_seconds'], 'get_push_timer_interval: reflects the just-written value on the next read');
 
-    @unlink(push_timer_unit_path());
+    @unlink(PushTimerService::push_timer_unit_path());
 
     // --- dispatch_push_action(): routes push_* actions, returns null (so
     // agent.php can fall through to dispatch_action()) for everything else ---
