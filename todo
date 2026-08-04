@@ -163,3 +163,11 @@ Bigger or investigative items:
   screen of prior entries - similar in spirit to how a real terminal
   clears on /clear rather than just rendering it as a generic command
   entry mixed in with everything before it.
+- Add notifications for quota getting close to over, quota being over,
+  and quota resetting - probably triggered from the systemd timer app
+  (the same one likely already polling for other periodic app logic;
+  needs a look at what it currently does before adding hooks into it).
+- Investigate ways to make the web app UI feel more "tight" / native-app-
+  like: less "moveable"/rubber-banding scroll behavior in scrollable
+  sections, so it reads less like a plain webpage-with-no-browser-chrome
+  and more like a native app.
