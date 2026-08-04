@@ -399,7 +399,7 @@ function render_transcript_entry(array $entry): string
       <button type="button" id="sidebar-toggle-btn" aria-label="Show other sessions"
         class="relative text-slate-400 active:text-slate-200 -mr-2 px-2 py-1 text-lg leading-none">
         &#9776;
-        <span id="sidebar-notify-dot" class="hidden absolute top-0.5 right-1 w-2 h-2 rounded-full bg-amber-400"></span>
+        <span id="sidebar-notify-dot" class="hidden absolute top-0.5 right-1 w-2 h-2 rounded-full"></span>
       </button>
     </div>
   </div>
@@ -738,11 +738,93 @@ function render_transcript_entry(array $entry): string
     });
   }
 
-  // Lets the toggle button itself signal "something needs you" without
-  // opening the drawer - any other session that's blocked (waiting on a
-  // prompt) or just sitting idle (not blocked, not working) counts.
-  // Piggybacks on the same visibility-gated poll cycle as everything
-  // else here, rather than its own timer.
+  // Lets the toggle button itself signal severity without opening the
+  // drawer: amber if another session is blocked (waiting on a prompt) -
+  // always live, never "seen" since it's still actionable right now; else
+  // emerald if another session just finished all its work (went idle) and
+  // that finish hasn't been observed yet (see markOthersSeen()); else no
+  // dot at all. Persisted per-session state (SIDEBAR_SESSION_STATE_KEY)
+  // is what lets "just finished" survive across poll cycles until the
+  // sidebar is actually opened and looked at, and what stops an idle
+  // session that's simply always been idle from lighting up green on
+  // first-ever observation (a transition has to be detected, not just a
+  // state).
+  var SIDEBAR_SESSION_STATE_KEY = 'csm-sidebar-session-state';
+
+  function readSidebarSessionState() {
+    try {
+      var raw = window.localStorage.getItem(SIDEBAR_SESSION_STATE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function writeSidebarSessionState(state) {
+    try {
+      window.localStorage.setItem(SIDEBAR_SESSION_STATE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function otherSessionState(s) {
+    if (s.blocked_reason) {
+      return 'blocked';
+    }
+    if (s.working) {
+      return 'working';
+    }
+    return 'idle';
+  }
+
+  function applySidebarNotifyDot(kind) {
+    if (!sidebarNotifyDot) {
+      return;
+    }
+    sidebarNotifyDot.classList.toggle('hidden', kind === null);
+    sidebarNotifyDot.classList.toggle('bg-amber-400', kind === 'blocked');
+    sidebarNotifyDot.classList.toggle('bg-emerald-400', kind === 'finished');
+  }
+
+  // Shared by refreshSidebarNotification() (every poll cycle, markSeen
+  // false) and loadSidebarList() (sidebar actually opened, markSeen true -
+  // that's the "look" that clears the green dot for any idle session it
+  // just displayed).
+  function processOtherSessions(others, markSeen) {
+    var stored = readSidebarSessionState();
+    var next = {};
+    var anyBlocked = false;
+    var anyUnseenFinished = false;
+
+    others.forEach(function (s) {
+      var state = otherSessionState(s);
+      var prev = stored[s.name];
+      var unseen = !!(prev && prev.unseen);
+
+      if (state === 'idle') {
+        if (prev && prev.state !== 'idle') {
+          unseen = true;
+        }
+        if (markSeen) {
+          unseen = false;
+        }
+      } else {
+        unseen = false;
+        if (state === 'blocked') {
+          anyBlocked = true;
+        }
+      }
+
+      next[s.name] = { state: state, unseen: unseen };
+
+      if (state === 'idle' && unseen) {
+        anyUnseenFinished = true;
+      }
+    });
+
+    writeSidebarSessionState(next);
+    applySidebarNotifyDot(anyBlocked ? 'blocked' : (anyUnseenFinished ? 'finished' : null));
+  }
+
   function refreshSidebarNotification() {
     if (!sidebarNotifyDot) {
       return Promise.resolve();
@@ -755,11 +837,8 @@ function render_transcript_entry(array $entry): string
           return;
         }
 
-        var needsAttention = (data.sessions || []).some(function (s) {
-          return s.name !== sessionName && !s.working;
-        });
-
-        sidebarNotifyDot.classList.toggle('hidden', !needsAttention);
+        var others = (data.sessions || []).filter(function (s) { return s.name !== sessionName; });
+        processOtherSessions(others, false);
       })
       .catch(function () {});
   }
@@ -801,6 +880,9 @@ function render_transcript_entry(array $entry): string
           return;
         }
         var others = (data.sessions || []).filter(function (s) { return s.name !== sessionName; });
+        // Opening the sidebar IS "looking" - clears the green (finished,
+        // unseen) dot for anything it's about to display.
+        processOtherSessions(others, true);
         if (others.length === 0) {
           sidebarList.innerHTML = '<div class="px-4 py-3 text-slate-500">No other sessions.</div>';
           return;
