@@ -375,8 +375,8 @@ function render_transcript_entry(array $entry): string
      `transition` at the same instant as `box-shadow`, snapping it off
      instead of fading (caught live: the ring vanished with no animation
      at all before this fix). */
-  .new-content-highlight { box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.6); transition: box-shadow 1.2s ease-out; }
-  .new-content-highlight.fading { box-shadow: 0 0 0 2px rgba(129, 140, 248, 0); }
+  .new-content-highlight { box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.6); transition: box-shadow 1.2s ease-out; }
+  .new-content-highlight.fading { box-shadow: 0 0 0 2px rgba(251, 191, 36, 0); }
 </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
