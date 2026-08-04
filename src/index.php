@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib/AgentClient.php';
 require __DIR__ . '/lib/Auth.php';
+require __DIR__ . '/lib/Views/QuotaFooterView.php';
+
+use App\Views\QuotaFooterView;
 
 start_app_session();
 
@@ -214,7 +217,7 @@ $csrfToken = csrf_token();
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
     <div class="max-w-2xl mx-auto">
       <div class="flex items-start justify-between gap-3">
-        <?= quota_footer_html() ?>
+        <?= QuotaFooterView::quota_footer_html() ?>
         <a href="/"
           class="min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
           Refresh

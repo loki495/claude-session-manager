@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib/AgentClient.php';
 require __DIR__ . '/lib/Auth.php';
+require __DIR__ . '/lib/Views/QuotaFooterView.php';
+
+use App\Views\QuotaFooterView;
 
 start_app_session();
 
@@ -546,7 +549,7 @@ function render_transcript_entry(array $entry): string
         Answer the prompt above to continue.
       </div>
       <div class="mt-2">
-        <?= quota_footer_html(render_mode_toggle_html($detail)) ?>
+        <?= QuotaFooterView::quota_footer_html(render_mode_toggle_html($detail)) ?>
         <?= push_notify_button_html($vapidPublicKey, $csrfToken) ?>
       </div>
     </div>
