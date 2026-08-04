@@ -3,12 +3,12 @@
 declare(strict_types=1);
 
 /**
- * Registered as Claude Code's PreToolUse hook (see install_session_hook()
+ * Registered as Claude Code's PreToolUse hook (see HookService::install_session_hook()
  * in ../lib/Sessions.php, and the README) - fires right before every tool
  * call, whether or not it ends up needing user approval, and before any
  * approval prompt is shown. Its only job is to record the full,
  * untruncated tool_name/tool_input JSON to a per-session sidecar file
- * (see write_pending_tool()), so build_session_entry() can show a pending
+ * (see PendingToolStore::write_pending_tool()), so build_session_entry() can show a pending
  * permission prompt's real full command/file content instead of whatever
  * tmux's rendered pane happens to have room to display (see
  * BLOCKING_PROMPT_CONTEXT_WINDOW / TMUX_PANE_WIDTH/HEIGHT for the
@@ -26,6 +26,8 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/../lib/Sessions.php';
+
+use HostAgent\Stores\PendingToolStore;
 
 $sessionName = getenv('CSM_SESSION_NAME');
 
@@ -47,7 +49,7 @@ if ($toolName === null || $toolInput === null) {
     exit(0);
 }
 
-write_pending_tool($sessionName, [
+PendingToolStore::write_pending_tool($sessionName, [
     'tool_name' => $toolName,
     'tool_input' => $toolInput,
     'written_at' => time(),

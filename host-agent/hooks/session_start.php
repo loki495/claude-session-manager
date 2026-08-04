@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Registered as Claude Code's SessionStart hook (see install_session_hook()
+ * Registered as Claude Code's SessionStart hook (see HookService::install_session_hook()
  * in ../lib/Sessions.php, and the README) - fires on every session start,
  * including /clear, /compact, --resume, and --fork-session, each of which
  * rotates Claude Code's own transcript to a brand new session-id file
@@ -21,6 +21,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../lib/Sessions.php';
 
+use HostAgent\Stores\SidecarStore;
+
 $sessionName = getenv('CSM_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
@@ -35,13 +37,13 @@ if (!is_string($claudeSessionId) || $claudeSessionId === '') {
     exit(0);
 }
 
-$sidecar = read_sidecar($sessionName);
+$sidecar = SidecarStore::read_sidecar($sessionName);
 
 if ($sidecar === null) {
     exit(0); // session already killed/cleaned up since this hook fired - nothing to rebind
 }
 
-write_sidecar($sessionName, [
+SidecarStore::write_sidecar($sessionName, [
     'workdir' => $sidecar['workdir'] ?? null,
     'spawned_at' => $sidecar['spawned_at'] ?? time(),
     'claude_session_id' => $claudeSessionId,

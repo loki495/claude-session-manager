@@ -5,6 +5,12 @@
     "require": {
         "minishlink/web-push": "^9.0"
     },
+    "autoload": {
+        "psr-4": {
+            "HostAgent\\": "host-agent/lib/",
+            "App\\": "src/lib/"
+        }
+    },
     "authors": [
         {
             "name": "Andres Crucitti",

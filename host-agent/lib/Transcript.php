@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../vendor/autoload.php';
+
+use HostAgent\Services\Config;
+
 /**
  * Read-only access to Claude Code's own JSONL conversation transcripts
  * under ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl - this file
@@ -13,7 +17,7 @@ declare(strict_types=1);
 
 function claude_projects_dir(): string
 {
-    return home_root() . '/.claude/projects';
+    return Config::home_root() . '/.claude/projects';
 }
 
 /**
@@ -472,7 +476,7 @@ function parse_transcript_line(string $line): ?array
     // ends up with zero blocks here and is treated the same as a
     // meta-only line, not an empty bubble with a role header and nothing
     // in it. The live "is it thinking right now" state is a separate,
-    // transient signal - see pane_title_is_working() in Sessions.php.
+    // transient signal - see PromptParser::pane_title_is_working() in Sessions.php.
     if ($blocks === []) {
         return null;
     }
