@@ -421,6 +421,8 @@ try {
     assert_contains('id="compose-textarea"', $result['body'], 'GET /session.php: compose textarea present');
     assert_contains('id="compose-attach-btn"', $result['body'], 'GET /session.php: attach-file button present');
     assert_contains('id="compose-file-input"', $result['body'], 'GET /session.php: hidden file input present for the attach button');
+    assert_contains('id="uploaded-files-list"', $result['body'], 'GET /session.php: sidebar uploaded-files list present');
+    assert_contains('id="delete-all-uploads-btn"', $result['body'], 'GET /session.php: sidebar delete-all-uploads button present');
     assert_true(
         preg_match('/id="compose-textarea"[^>]*class="[^"]*\btext-base\b/', $result['body']) === 1,
         'GET /session.php: compose textarea uses a >=16px font size, so focusing it does not trigger iOS zoom'
@@ -626,6 +628,50 @@ try {
     assert_equal(false, $noFileBody['ok'] ?? null, 'POST /upload_file.php: rejects a request with no file field at all');
 
     @unlink($uploadFixturePath);
+
+    // --- uploaded_files.php: GET-only, passes the canned agent's list through as JSON ---
+    $result = curl_request('GET', "{$baseUrl}/uploaded_files.php?session=cc-20260101-1200");
+    assert_equal(200, $result['status'], 'GET /uploaded_files.php: 200');
+    $filesBody = json_decode($result['body'], true);
+    assert_true(is_array($filesBody) && ($filesBody['ok'] ?? false), 'GET /uploaded_files.php: response decodes as ok=true JSON');
+    assert_equal(2, count($filesBody['files'] ?? []), 'GET /uploaded_files.php: canned files passed through');
+
+    // --- delete_uploaded_file.php: GET not allowed, CSRF enforced, canned agent accepts/rejects by filename ---
+    $result = curl_request('GET', "{$baseUrl}/delete_uploaded_file.php");
+    assert_equal(405, $result['status'], 'GET /delete_uploaded_file.php: 405 (POST required)');
+
+    $result = curl_request('POST', "{$baseUrl}/delete_uploaded_file.php", [
+        '-d', 'session=cc-20260101-1200&filename=photo.jpg&csrf_token=not-the-real-token',
+    ]);
+    assert_equal(403, $result['status'], 'POST /delete_uploaded_file.php with a wrong csrf_token: 403');
+
+    $result = curl_request('POST', "{$baseUrl}/delete_uploaded_file.php", [
+        '-d', 'session=' . urlencode('cc-20260101-1200') . '&filename=' . urlencode('photo.jpg') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $deleteFileBody = json_decode($result['body'], true);
+    assert_true(is_array($deleteFileBody) && ($deleteFileBody['ok'] ?? false), 'POST /delete_uploaded_file.php: canned agent accepts the known filename, response decodes as ok=true JSON');
+
+    $result = curl_request('POST', "{$baseUrl}/delete_uploaded_file.php", [
+        '-d', 'session=' . urlencode('cc-20260101-1200') . '&filename=' . urlencode('never-existed.txt') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $deleteMissingBody = json_decode($result['body'], true);
+    assert_equal(false, $deleteMissingBody['ok'] ?? null, 'POST /delete_uploaded_file.php: canned agent rejects an unrecognized filename');
+
+    // --- delete_all_uploaded_files.php: GET not allowed, CSRF enforced, valid request accepted ---
+    $result = curl_request('GET', "{$baseUrl}/delete_all_uploaded_files.php");
+    assert_equal(405, $result['status'], 'GET /delete_all_uploaded_files.php: 405 (POST required)');
+
+    $result = curl_request('POST', "{$baseUrl}/delete_all_uploaded_files.php", [
+        '-d', 'session=cc-20260101-1200&csrf_token=not-the-real-token',
+    ]);
+    assert_equal(403, $result['status'], 'POST /delete_all_uploaded_files.php with a wrong csrf_token: 403');
+
+    $result = curl_request('POST', "{$baseUrl}/delete_all_uploaded_files.php", [
+        '-d', 'session=' . urlencode('cc-20260101-1200') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $deleteAllBody = json_decode($result['body'], true);
+    assert_true(is_array($deleteAllBody) && ($deleteAllBody['ok'] ?? false), 'POST /delete_all_uploaded_files.php: canned agent accepts it, response decodes as ok=true JSON');
+    assert_equal(2, $deleteAllBody['deleted'] ?? null, 'POST /delete_all_uploaded_files.php: canned deleted count passed through');
 
     // --- cross-origin POST rejected ---
     $result = curl_request('POST', "{$baseUrl}/", [

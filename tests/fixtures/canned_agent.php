@@ -144,6 +144,15 @@ $response = match ($action) {
     'save_uploaded_file' => ($request['session'] ?? null) === CANNED_SESSION_NAME && trim((string)($request['filename'] ?? '')) !== ''
         ? ['ok' => true, 'filename' => $request['filename'], 'path' => '.claude/uploads/' . $request['filename'], 'size' => strlen(base64_decode((string)($request['content_base64'] ?? ''), true) ?: '')]
         : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
+    'list_uploaded_files' => ($request['session'] ?? null) === CANNED_SESSION_NAME
+        ? ['ok' => true, 'files' => [['name' => 'photo.jpg', 'size' => 204800, 'mtime' => time() - 60], ['name' => 'notes.txt', 'size' => 512, 'mtime' => time() - 120]], 'total_size' => 205312]
+        : ['ok' => false, 'message' => 'Unknown working directory for this session'],
+    'delete_uploaded_file' => ($request['session'] ?? null) === CANNED_SESSION_NAME && ($request['filename'] ?? null) === 'photo.jpg'
+        ? ['ok' => true]
+        : ['ok' => false, 'message' => 'File not found'],
+    'delete_all_uploaded_files' => ($request['session'] ?? null) === CANNED_SESSION_NAME
+        ? ['ok' => true, 'deleted' => 2]
+        : ['ok' => false, 'message' => 'Unknown working directory for this session'],
     'push_public_key' => ['ok' => true, 'configured' => true, 'public_key' => CANNED_VAPID_PUBLIC_KEY],
     'push_subscribe' => is_array($request['subscription'] ?? null) && is_string($request['subscription']['endpoint'] ?? null)
         ? ['ok' => true]

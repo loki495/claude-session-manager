@@ -441,6 +441,18 @@ function render_transcript_entry(array $entry): string
   </div>
   <?php if ($found): ?>
     <div class="px-4 py-3 border-t border-slate-800">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-medium text-slate-500">Uploaded files</span>
+        <span id="uploaded-files-total" class="text-xs text-slate-500"></span>
+      </div>
+      <div id="uploaded-files-list" class="flex flex-col gap-1.5 text-sm mb-2">
+        <div class="text-slate-500 text-xs">Loading&hellip;</div>
+      </div>
+      <button type="button" id="delete-all-uploads-btn" class="hidden w-full rounded-lg border border-red-900/60 bg-red-950/30 active:bg-red-900/40 text-red-300 text-xs font-medium px-3 py-1.5">
+        Delete all
+      </button>
+    </div>
+    <div class="px-4 py-3 border-t border-slate-800">
       <form method="post" action="/" onsubmit="return confirm('Close session <?= htmlspecialchars($sessionName, ENT_QUOTES) ?>?');">
         <input type="hidden" name="action" value="kill">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
@@ -911,10 +923,141 @@ function render_transcript_entry(array $entry): string
       });
   }
 
+  // --- uploaded files: the sidebar's own list of whatever's been
+  // uploaded for THIS session (see upload_file.php/the compose "+"
+  // button) - name, size, a running total, and per-file/all-at-once
+  // delete. Refreshed on sidebar open (like the other-sessions list
+  // above) AND on every regular poll cycle while the sidebar stays open
+  // (see pollOnce() below) - unlike other-sessions, which only needs a
+  // fresh look each time you open it, files can change from an upload
+  // still in flight or a delete just clicked, and Andres wants to see
+  // that reflected without having to close/reopen the sidebar. ---
+  var uploadedFilesList = document.getElementById('uploaded-files-list');
+  var uploadedFilesTotal = document.getElementById('uploaded-files-total');
+  var deleteAllUploadsBtn = document.getElementById('delete-all-uploads-btn');
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) {
+      return bytes + ' B';
+    }
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + ' KB';
+    }
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function uploadedFileRowHtml(f) {
+    var name = escapeHtml(f.name);
+    return '<div class="flex items-center justify-between gap-2">'
+      + '<span class="truncate text-slate-300" title="' + name + '">' + name + '</span>'
+      + '<span class="shrink-0 flex items-center gap-2">'
+      + '<span class="text-xs text-slate-500">' + formatFileSize(f.size) + '</span>'
+      + '<button type="button" class="delete-upload-btn text-slate-500 active:text-red-400 text-base leading-none px-1" data-filename="' + name + '" aria-label="Delete ' + name + '">&times;</button>'
+      + '</span>'
+      + '</div>';
+  }
+
+  function loadUploadedFiles() {
+    if (!uploadedFilesList) {
+      return Promise.resolve();
+    }
+
+    return fetch('/uploaded_files.php?session=' + encodeURIComponent(sessionName), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) {
+          uploadedFilesList.innerHTML = '<div class="text-slate-500 text-xs">Could not load files.</div>';
+          uploadedFilesTotal.textContent = '';
+          deleteAllUploadsBtn.classList.add('hidden');
+          return;
+        }
+
+        var files = data.files || [];
+
+        if (files.length === 0) {
+          uploadedFilesList.innerHTML = '<div class="text-slate-500 text-xs">No files uploaded.</div>';
+          uploadedFilesTotal.textContent = '';
+          deleteAllUploadsBtn.classList.add('hidden');
+          return;
+        }
+
+        uploadedFilesList.innerHTML = files.map(uploadedFileRowHtml).join('');
+        uploadedFilesTotal.textContent = formatFileSize(data.total_size || 0) + ' total';
+        deleteAllUploadsBtn.classList.remove('hidden');
+      })
+      .catch(function () {
+        uploadedFilesList.innerHTML = '<div class="text-slate-500 text-xs">Could not load files.</div>';
+      });
+  }
+
+  if (uploadedFilesList) {
+    uploadedFilesList.addEventListener('click', function (e) {
+      var btn = e.target.closest('.delete-upload-btn');
+
+      if (!btn) {
+        return;
+      }
+
+      btn.disabled = true;
+
+      fetch('/delete_uploaded_file.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken, filename: btn.dataset.filename }).toString()
+      })
+        .then(function (r) { return parseJsonResponse(r, 'delete-uploaded-file'); })
+        .then(function (data) {
+          if (data && data.ok) {
+            loadUploadedFiles();
+          } else {
+            btn.disabled = false;
+            alert((data && data.message) || 'Failed to delete file.');
+          }
+        })
+        .catch(function () {
+          btn.disabled = false;
+          alert('Network error - file not deleted.');
+        });
+    });
+  }
+
+  if (deleteAllUploadsBtn) {
+    deleteAllUploadsBtn.addEventListener('click', function () {
+      if (!confirm('Delete all uploaded files for this session?')) {
+        return;
+      }
+
+      deleteAllUploadsBtn.disabled = true;
+
+      fetch('/delete_all_uploaded_files.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken }).toString()
+      })
+        .then(function (r) { return parseJsonResponse(r, 'delete-all-uploaded-files'); })
+        .then(function (data) {
+          deleteAllUploadsBtn.disabled = false;
+
+          if (data && data.ok) {
+            loadUploadedFiles();
+          } else {
+            alert((data && data.message) || 'Failed to delete files.');
+          }
+        })
+        .catch(function () {
+          deleteAllUploadsBtn.disabled = false;
+          alert('Network error - files not deleted.');
+        });
+    });
+  }
+
   function openSidebar() {
     sidebarOverlay.classList.remove('hidden');
     sidebar.classList.remove('translate-x-full');
     loadSidebarList();
+    loadUploadedFiles();
   }
 
   function closeSidebar() {
@@ -2096,10 +2239,16 @@ function render_transcript_entry(array $entry): string
     // at all, never a half-scrolled-then-not gap.
     var wasNearBottom = isNearBottom();
 
+    // Uploaded files only need refetching while the sidebar's actually
+    // open and showing them - same visibility gate the swipe-gesture
+    // code already uses elsewhere for "is the sidebar open right now".
+    var sidebarCurrentlyOpen = sidebar && !sidebar.classList.contains('translate-x-full');
+
     return Promise.all([
       pollInfo(wasNearBottom),
       pollHistory(wasNearBottom),
-      refreshSidebarNotification()
+      refreshSidebarNotification(),
+      sidebarCurrentlyOpen ? loadUploadedFiles() : Promise.resolve()
     ]);
   }
 
@@ -2322,6 +2471,12 @@ function render_transcript_entry(array $entry): string
           : line;
         autoGrowCompose();
         saveComposeDraft();
+
+        // Immediate refresh (don't wait for the next poll tick) if the
+        // sidebar's open and showing the list this upload just changed.
+        if (sidebar && !sidebar.classList.contains('translate-x-full')) {
+          loadUploadedFiles();
+        }
       }
 
       // Resolves to true/false (success), never rejects - each file's
