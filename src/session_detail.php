@@ -21,8 +21,8 @@ declare(strict_types=1);
  * refresh gesture exists there at all, and the app can stay resumed in
  * the same JS session for hours.
  */
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/lib/Auth.php';
 
 start_app_session();
 

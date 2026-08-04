@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
-require __DIR__ . '/lib/Views/QuotaFooterView.php';
-require __DIR__ . '/lib/Views/PushNotifyView.php';
-require __DIR__ . '/lib/Views/HealthBoxView.php';
+require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/lib/Views/QuotaFooterView.php';
+require_once __DIR__ . '/lib/Views/PushNotifyView.php';
+require_once __DIR__ . '/lib/Views/HealthBoxView.php';
 
 use App\Views\HealthBoxView;
 use App\Views\PushNotifyView;
@@ -242,7 +242,7 @@ $csrfToken = csrf_token();
 // (up to 15s, if they've picked a slower one).
 var requestSessionsPollNow = function () {};
 
-// Answer-prompt buttons (see blocked_prompt_rich_html() in AgentClient.php)
+// Answer-prompt buttons (see BlockedPromptView::blocked_prompt_rich_html())
 // use data-confirm-label the same way session.php's do - one delegated
 // listener here instead of inline onsubmit, since these forms are
 // rendered per-row and their count varies with how many sessions are

@@ -3,14 +3,14 @@ declare(strict_types=1);
 
 /**
  * POST-only JSON endpoint for a multi-question AskUserQuestion prompt's
- * Prev/Next buttons (see blocked_prompt_options_html() in AgentClient.php,
+ * Prev/Next buttons (see App\Views\BlockedPromptView::blocked_prompt_options_html(),
  * shown when prompt_multi_question is true) - sends the Left/Right arrow
  * key Claude Code's own tab bar navigates with. Same AJAX pattern as
  * session_mode.php/session_escape.php.
  */
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/lib/Auth.php';
 
 start_app_session();
 

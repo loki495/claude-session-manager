@@ -7,8 +7,8 @@ declare(strict_types=1);
  * session_mode.php/session_send.php.
  */
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/lib/Auth.php';
 
 start_app_session();
 

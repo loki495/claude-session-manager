@@ -47,7 +47,7 @@ assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash']], $toolUseLine['blo
 
 // --- summarize_tool_use(): "tool: X - key: value, ..." - shows every
 // param, not just one primary argument, joined onto a single line when
-// short enough (mirrors collapsible_summary()'s own single-line
+// short enough (mirrors BlockedPromptView::collapsible_summary()'s own single-line
 // threshold - see format_tool_use_summary()) ---
 assert_equal('tool: Bash - command: rm -rf /tmp/x, description: Clean up', summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - command first (primary arg), then every other param');
 assert_equal('tool: Read - file_path: /etc/hosts', summarize_tool_use(['name' => 'Read', 'input' => ['file_path' => '/etc/hosts']]), 'summarize_tool_use: Read - file_path used');
