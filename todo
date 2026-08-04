@@ -115,12 +115,6 @@ Tier 2 - bigger or investigative items:
   Needs more detail to reproduce - which messages (his own compose sends,
   or ones typed directly into a real Claude Code session outside the app?),
   how soon after sending, whether a poll cycle happens in between.
-- session.php: the fading highlight ring on newly-polled entries
-  (.new-content-highlight, box-shadow rgba(129, 140, 248, ...) - currently
-  indigo, matching .new-content-divider's fade pattern) - Andres wants to
-  try yellow/gold instead, maybe as a drop-shadow rather than the current
-  box-shadow ring. Exact color/shadow style not decided yet, just the
-  general direction away from indigo.
 - index.php: answering a prompt from the dashboard (both the plain-option
   handler and submitFreetextReply(), lines ~280/324) just replaces the
   prompt UI with a static "Sent - refresh to see the result" note instead
