@@ -14,6 +14,7 @@ declare(strict_types=1);
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Push.php';
 
+use HostAgent\Services\NotificationContentBuilder;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
 
@@ -90,13 +91,13 @@ try {
     PushSubscriptionStore::remove_push_subscription('https://push.example/b');
     assert_equal([], PushSubscriptionStore::read_push_subscriptions(), 'remove_push_subscription: file is empty after removing the last subscription');
 
-    // --- push_session_state(): classification used for transition detection ---
+    // --- NotificationContentBuilder::push_session_state(): classification used for transition detection ---
 
-    assert_equal('blocked', push_session_state(['blocked_reason' => 'Do you want to proceed?', 'working' => false]), 'push_session_state: blocked_reason present -> blocked, regardless of working');
-    assert_equal('blocked', push_session_state(['blocked_reason' => 'Do you want to proceed?', 'working' => true]), 'push_session_state: blocked_reason wins even if working is also somehow true');
-    assert_equal('working', push_session_state(['blocked_reason' => null, 'working' => true]), 'push_session_state: working (not blocked) -> working');
-    assert_equal('idle', push_session_state(['blocked_reason' => null, 'working' => false]), 'push_session_state: neither blocked nor working -> idle');
-    assert_equal('idle', push_session_state([]), 'push_session_state: missing fields default to idle, not a crash');
+    assert_equal('blocked', NotificationContentBuilder::push_session_state(['blocked_reason' => 'Do you want to proceed?', 'working' => false]), 'push_session_state: blocked_reason present -> blocked, regardless of working');
+    assert_equal('blocked', NotificationContentBuilder::push_session_state(['blocked_reason' => 'Do you want to proceed?', 'working' => true]), 'push_session_state: blocked_reason wins even if working is also somehow true');
+    assert_equal('working', NotificationContentBuilder::push_session_state(['blocked_reason' => null, 'working' => true]), 'push_session_state: working (not blocked) -> working');
+    assert_equal('idle', NotificationContentBuilder::push_session_state(['blocked_reason' => null, 'working' => false]), 'push_session_state: neither blocked nor working -> idle');
+    assert_equal('idle', NotificationContentBuilder::push_session_state([]), 'push_session_state: missing fields default to idle, not a crash');
 
     // --- check_and_send_pushes(): transition detection, with zero
     // subscriptions configured so no real send is ever attempted here -
@@ -136,44 +137,44 @@ try {
     ]);
     assert_equal(['cc-blocked'], $fourth['notified'], 'check_and_send_pushes: transitioning back into blocked after having resolved counts as a fresh transition again');
 
-    // --- push_notification_title(): prefers the real title, falls back
+    // --- NotificationContentBuilder::push_notification_title(): prefers the real title, falls back
     // to something friendlier than the raw cc-YYYYMMDD-HHMM name when a
     // session hits a prompt before Claude Code has set one yet ---
 
-    assert_equal('Fix the login bug', push_notification_title(['name' => 'cc-20260101-1200', 'title' => 'Fix the login bug', 'workdir' => '/home/andres/www/demo']), 'push_notification_title: prefers the real title when present');
-    assert_equal('demo-project', push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => '/home/andres/www/demo-project']), 'push_notification_title: falls back to the workdir basename when no title is set yet');
-    assert_equal('cc-20260101-1200', push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => null]), 'push_notification_title: falls back to the raw session name as a last resort');
-    assert_equal('Claude session', push_notification_title([]), 'push_notification_title: a completely empty session still returns something, not a crash');
-    assert_equal('Fix the login bug', push_notification_title(['name' => 'cc-20260101-1200', 'title' => "\u{2733} Fix the login bug", 'workdir' => null]), 'push_notification_title: strips Claude Code\'s leading idle-title icon (e.g. U+2733), decorative in a terminal title bar but out of place in a phone notification');
-    assert_equal('Fix the login bug', push_notification_title(['name' => 'cc-20260101-1200', 'title' => "\u{2728} Fix the login bug", 'workdir' => null]), 'push_notification_title: strips any leading Symbol-Other (\\p{So}) glyph, not just the one specific icon seen live');
-    assert_equal('No icon here', push_notification_title(['name' => 'cc-20260101-1200', 'title' => 'No icon here', 'workdir' => null]), 'push_notification_title: a plain title with no leading icon is untouched');
+    assert_equal('Fix the login bug', NotificationContentBuilder::push_notification_title(['name' => 'cc-20260101-1200', 'title' => 'Fix the login bug', 'workdir' => '/home/andres/www/demo']), 'push_notification_title: prefers the real title when present');
+    assert_equal('demo-project', NotificationContentBuilder::push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => '/home/andres/www/demo-project']), 'push_notification_title: falls back to the workdir basename when no title is set yet');
+    assert_equal('cc-20260101-1200', NotificationContentBuilder::push_notification_title(['name' => 'cc-20260101-1200', 'title' => null, 'workdir' => null]), 'push_notification_title: falls back to the raw session name as a last resort');
+    assert_equal('Claude session', NotificationContentBuilder::push_notification_title([]), 'push_notification_title: a completely empty session still returns something, not a crash');
+    assert_equal('Fix the login bug', NotificationContentBuilder::push_notification_title(['name' => 'cc-20260101-1200', 'title' => "\u{2733} Fix the login bug", 'workdir' => null]), 'push_notification_title: strips Claude Code\'s leading idle-title icon (e.g. U+2733), decorative in a terminal title bar but out of place in a phone notification');
+    assert_equal('Fix the login bug', NotificationContentBuilder::push_notification_title(['name' => 'cc-20260101-1200', 'title' => "\u{2728} Fix the login bug", 'workdir' => null]), 'push_notification_title: strips any leading Symbol-Other (\\p{So}) glyph, not just the one specific icon seen live');
+    assert_equal('No icon here', NotificationContentBuilder::push_notification_title(['name' => 'cc-20260101-1200', 'title' => 'No icon here', 'workdir' => null]), 'push_notification_title: a plain title with no leading icon is untouched');
 
-    // --- push_finished_body(): the real reply text (truncated), or a generic fallback ---
+    // --- NotificationContentBuilder::push_finished_body(): the real reply text (truncated), or a generic fallback ---
 
     assert_equal(
         'Found it: the redirect URL was hardcoded.',
-        push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'text', 'text' => 'Found it: the redirect URL was hardcoded.']]]),
+        NotificationContentBuilder::push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'text', 'text' => 'Found it: the redirect URL was hardcoded.']]]),
         'push_finished_body: uses the real assistant reply text'
     );
     $longReply = str_repeat('a', 200);
-    $truncated = push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'text', 'text' => $longReply]]]);
+    $truncated = NotificationContentBuilder::push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'text', 'text' => $longReply]]]);
     assert_equal(141, mb_strlen($truncated), 'push_finished_body: truncates a long reply to 140 chars + ellipsis, same convention as last_message_preview_html()');
-    assert_equal('Finished - no input needed', push_finished_body(null), 'push_finished_body: no last message at all -> generic fallback');
-    assert_equal('Finished - no input needed', push_finished_body(['role' => 'user', 'blocks' => [['kind' => 'text', 'text' => 'irrelevant']]]), 'push_finished_body: a non-assistant last message -> generic fallback (not the user\'s own prior message)');
-    assert_equal('Finished - no input needed', push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls']]]), 'push_finished_body: an assistant turn with only tool calls, no closing text -> generic fallback');
+    assert_equal('Finished - no input needed', NotificationContentBuilder::push_finished_body(null), 'push_finished_body: no last message at all -> generic fallback');
+    assert_equal('Finished - no input needed', NotificationContentBuilder::push_finished_body(['role' => 'user', 'blocks' => [['kind' => 'text', 'text' => 'irrelevant']]]), 'push_finished_body: a non-assistant last message -> generic fallback (not the user\'s own prior message)');
+    assert_equal('Finished - no input needed', NotificationContentBuilder::push_finished_body(['role' => 'assistant', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls']]]), 'push_finished_body: an assistant turn with only tool calls, no closing text -> generic fallback');
 
-    // --- push_permission_body()/push_blocked_body(): a permission prompt's
+    // --- NotificationContentBuilder::push_permission_body()/NotificationContentBuilder::push_blocked_body(): a permission prompt's
     // push body shows the real command/action, not the generic pane-scraped
     // "do you want to proceed?" question - an AskUserQuestion prompt keeps
     // showing the real question text as before ---
 
-    assert_equal('npm test', push_permission_body('Bash', ['command' => 'npm test']), 'push_permission_body: Bash shows the real command');
-    assert_equal('Run a Bash command', push_permission_body('Bash', []), 'push_permission_body: Bash with no command -> generic fallback');
-    assert_equal('Write /tmp/foo.txt', push_permission_body('Write', ['file_path' => '/tmp/foo.txt', 'content' => 'irrelevant for the push body']), 'push_permission_body: Write shows the path, not the full file content');
-    assert_equal('Edit /tmp/foo.txt', push_permission_body('Edit', ['file_path' => '/tmp/foo.txt', 'old_string' => 'a', 'new_string' => 'b']), 'push_permission_body: Edit shows the path');
-    assert_equal('Run WebFetch', push_permission_body('WebFetch', ['url' => 'https://example.com']), 'push_permission_body: an unrecognized tool falls back to "Run <tool>"');
+    assert_equal('npm test', NotificationContentBuilder::push_permission_body('Bash', ['command' => 'npm test']), 'push_permission_body: Bash shows the real command');
+    assert_equal('Run a Bash command', NotificationContentBuilder::push_permission_body('Bash', []), 'push_permission_body: Bash with no command -> generic fallback');
+    assert_equal('Write /tmp/foo.txt', NotificationContentBuilder::push_permission_body('Write', ['file_path' => '/tmp/foo.txt', 'content' => 'irrelevant for the push body']), 'push_permission_body: Write shows the path, not the full file content');
+    assert_equal('Edit /tmp/foo.txt', NotificationContentBuilder::push_permission_body('Edit', ['file_path' => '/tmp/foo.txt', 'old_string' => 'a', 'new_string' => 'b']), 'push_permission_body: Edit shows the path');
+    assert_equal('Run WebFetch', NotificationContentBuilder::push_permission_body('WebFetch', ['url' => 'https://example.com']), 'push_permission_body: an unrecognized tool falls back to "Run <tool>"');
     $longCommand = str_repeat('a', 200);
-    assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand])), 'push_permission_body: a long command is truncated the same as push_finished_body');
+    assert_equal(141, mb_strlen(NotificationContentBuilder::push_permission_body('Bash', ['command' => $longCommand])), 'push_permission_body: a long command is truncated the same as push_finished_body');
 
     // A Bash call's own `description` field - real per-command context
     // Claude Code itself writes, confirmed live to be exactly what
@@ -181,36 +182,36 @@ try {
     // identical prompt - IS prefixed, unlike the reverted session-title
     // prefix above (a stale, session-wide label rather than real
     // per-command context).
-    assert_equal('Run the test suite: npm test', push_permission_body('Bash', ['command' => 'npm test', 'description' => 'Run the test suite']), 'push_permission_body: prefixes the Bash call\'s own description before the command');
-    assert_equal('npm test', push_permission_body('Bash', ['command' => 'npm test', 'description' => '']), 'push_permission_body: an empty description is treated as no description');
-    assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand, 'description' => 'A description'])), 'push_permission_body: truncation still applies to the combined description+command');
+    assert_equal('Run the test suite: npm test', NotificationContentBuilder::push_permission_body('Bash', ['command' => 'npm test', 'description' => 'Run the test suite']), 'push_permission_body: prefixes the Bash call\'s own description before the command');
+    assert_equal('npm test', NotificationContentBuilder::push_permission_body('Bash', ['command' => 'npm test', 'description' => '']), 'push_permission_body: an empty description is treated as no description');
+    assert_equal(141, mb_strlen(NotificationContentBuilder::push_permission_body('Bash', ['command' => $longCommand, 'description' => 'A description'])), 'push_permission_body: truncation still applies to the combined description+command');
 
     // Deliberately does NOT prefix the session's title onto this anymore -
-    // tried it, reverted (see push_permission_body()'s own comment): a
+    // tried it, reverted (see NotificationContentBuilder::push_permission_body()'s own comment): a
     // stale tmux pane-title from earlier in a long session read as
     // confusing noise prefixed onto a later, unrelated command.
     assert_equal(
         'npm test',
-        push_blocked_body(['blocked_reason' => 'Do you want to proceed?', 'prompt_tool_name' => 'Bash', 'prompt_tool_input' => ['command' => 'npm test']]),
+        NotificationContentBuilder::push_blocked_body(['blocked_reason' => 'Do you want to proceed?', 'prompt_tool_name' => 'Bash', 'prompt_tool_input' => ['command' => 'npm test']]),
         'push_blocked_body: a permission prompt (matched pending tool) shows the command, not the generic question, and not prefixed with the session\'s (possibly stale) title'
     );
     assert_equal(
         'Which color do you prefer?',
-        push_blocked_body(['blocked_reason' => 'Which color do you prefer?', 'prompt_tool_name' => 'AskUserQuestion', 'prompt_tool_input' => ['questions' => []]]),
+        NotificationContentBuilder::push_blocked_body(['blocked_reason' => 'Which color do you prefer?', 'prompt_tool_name' => 'AskUserQuestion', 'prompt_tool_input' => ['questions' => []]]),
         'push_blocked_body: an AskUserQuestion prompt keeps showing the real question text'
     );
     assert_equal(
         'Do you trust the files in this folder?',
-        push_blocked_body(['blocked_reason' => 'Do you trust the files in this folder?', 'prompt_tool_name' => null, 'prompt_tool_input' => null]),
+        NotificationContentBuilder::push_blocked_body(['blocked_reason' => 'Do you trust the files in this folder?', 'prompt_tool_name' => null, 'prompt_tool_input' => null]),
         'push_blocked_body: no matched pending tool at all (trust dialog, stale/missing PreToolUse record) falls back to the pane-scraped question'
     );
     assert_equal(
         'Waiting on input',
-        push_blocked_body([]),
+        NotificationContentBuilder::push_blocked_body([]),
         'push_blocked_body: a completely empty session still returns something, not a crash'
     );
 
-    // --- push_blocked_title(): leads with WHAT KIND of prompt this is -
+    // --- NotificationContentBuilder::push_blocked_title(): leads with WHAT KIND of prompt this is -
     // no "Claude" wording (iOS already attributes the notification to
     // this app via the icon and its own OS-level "from <manifest name>"
     // line, not something the Notification API can suppress - repeating
@@ -222,31 +223,31 @@ try {
 
     assert_equal(
         'Needs permission: Fix the login bug',
-        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'Bash']),
+        NotificationContentBuilder::push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'Bash']),
         'push_blocked_title: leads with "Needs permission" for a permission-type prompt (any matched tool other than AskUserQuestion)'
     );
     assert_equal(
         'Has a question: Fix the login bug',
-        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'AskUserQuestion']),
+        NotificationContentBuilder::push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'AskUserQuestion']),
         'push_blocked_title: leads with "Has a question" for AskUserQuestion specifically'
     );
     assert_equal(
         'Needs folder trust: Fix the login bug',
-        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => null, 'prompt_is_folder_trust' => true]),
+        NotificationContentBuilder::push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => null, 'prompt_is_folder_trust' => true]),
         'push_blocked_title: leads with "Needs folder trust" for the initial folder-trust dialog specifically, even though it has no matched tool'
     );
     assert_equal(
         'Needs input: Fix the login bug',
-        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => null]),
+        NotificationContentBuilder::push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => null]),
         'push_blocked_title: no matched tool and not a trust dialog (stale/missing PreToolUse record) -> generic but still type-labeled fallback, never a bare title with no hint of what kind of prompt it is'
     );
 
-    // --- push_finished_title(): same type-labeled convention for the
+    // --- NotificationContentBuilder::push_finished_title(): same type-labeled convention for the
     // "finished working" notification ---
     assert_equal(
         'Finished: Fix the login bug',
-        push_finished_title(['name' => 'cc-1', 'title' => 'Fix the login bug']),
-        'push_finished_title: leads with "Finished", same convention as push_blocked_title()'
+        NotificationContentBuilder::push_finished_title(['name' => 'cc-1', 'title' => 'Fix the login bug']),
+        'push_finished_title: leads with "Finished", same convention as NotificationContentBuilder::push_blocked_title()'
     );
 
     // --- check_and_send_pushes(): the "finished a long task" notification
