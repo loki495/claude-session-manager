@@ -9,7 +9,7 @@ namespace App\Views;
  * shared between index.php's dashboard rows and session.php's detail
  * view so the two never drift apart.
  */
-class BlockedPromptView
+class BlockedPromptView extends View
 {
     /**
      * The "waiting on input" amber panel shown for a blocked session,
@@ -30,17 +30,10 @@ class BlockedPromptView
             return '';
         }
 
-        $html = '<div class="mt-2 rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60">';
-        $html .= '<p class="font-medium break-words">Waiting on input: ' . htmlspecialchars((string)$session['blocked_reason'], ENT_QUOTES) . '</p>';
-
-        if (!empty($session['resume_hint'])) {
-            $html .= '<p class="mt-1 text-amber-300/90">Attach to answer it:</p>';
-            $html .= '<code class="block mt-0.5 font-mono text-[11px] text-amber-100 break-all select-all">' . htmlspecialchars((string)$session['resume_hint'], ENT_QUOTES) . '</code>';
-        }
-
-        $html .= '</div>';
-
-        return $html;
+        return self::render('blocked-prompt/panel', [
+            'blockedReason' => (string)$session['blocked_reason'],
+            'resumeHint' => $session['resume_hint'] ?? null,
+        ]);
     }
 
     /**
@@ -81,19 +74,14 @@ class BlockedPromptView
         $trimmed = trim($rawText);
         $summary = self::collapsible_summary($rawText);
 
-        if ($summary === $trimmed) {
-            $full = htmlspecialchars($rawText, ENT_QUOTES);
-
-            return '<div class="rounded border ' . $borderClass . ' bg-slate-950/60 overflow-x-auto px-2 py-1.5 text-xs ' . $textClass . '"><span class="whitespace-pre">' . $prefix . $full . '</span></div>';
-        }
-
-        $summaryHtml = htmlspecialchars($summary, ENT_QUOTES);
-        $full = htmlspecialchars($rawText, ENT_QUOTES);
-
-        return '<details class="rounded border ' . $borderClass . ' bg-slate-950/60">'
-            . '<summary class="block w-full text-left cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' . $textClass . '">' . $prefix . $summaryHtml . '</summary>'
-            . '<pre class="whitespace-pre overflow-auto max-h-64 px-2 pb-1.5 text-xs ' . $textClass . '">' . $full . '</pre>'
-            . '</details>';
+        return self::render('blocked-prompt/collapsible-block', [
+            'isExpandable' => $summary !== $trimmed,
+            'borderClass' => $borderClass,
+            'textClass' => $textClass,
+            'prefix' => $prefix,
+            'summary' => $summary,
+            'rawText' => $rawText,
+        ]);
     }
 
     /**
@@ -118,69 +106,30 @@ class BlockedPromptView
             return '';
         }
 
-        $sessionName = (string)$session['name'];
-        $optionsHtml = '';
         $hasFreeText = false;
 
-        // An AskUserQuestion call with more than one question renders as a tab
-        // bar Claude Code itself navigates with the Left/Right arrow keys (see
-        // multi_question in parse_blocking_prompt()) - prompt_options only ever
-        // reflects whichever tab currently happens to be showing, so without
-        // these there'd be no way to reach the other questions in the set from
-        // this app at all, short of attaching to tmux directly and pressing the
-        // arrow keys by hand.
-        if (!empty($session['prompt_multi_question'])) {
-            $optionsHtml .= '<button type="button" class="nav-prompt-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-direction="left" aria-label="Previous question">&larr;</button>';
-        }
-
         foreach ($session['prompt_options'] as $opt) {
-            $label = htmlspecialchars((string)$opt['label'], ENT_QUOTES);
-            $number = (int)$opt['number'];
-
             if (stripos((string)$opt['label'], 'type something') !== false) {
                 $hasFreeText = true;
-                // break-words + max-w-full: an AskUserQuestion option label has
-                // no length limit imposed by the tool itself - a long unbroken
-                // one (a pasted identifier/URL, say) would otherwise widen this
-                // button (and the whole page with it) instead of wrapping.
-                // Verified live that break-words ALONE isn't enough: a flex
-                // item's width is still its own shrink-to-fit content size
-                // unless something caps it, so overflow-wrap never gets a
-                // narrower box to actually wrap within - max-w-full is what
-                // forces that cap, matching the button's flex-wrap row.
-                $optionsHtml .= '<button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full" data-option="' . $number . '">'
-                    . $number . '. ' . $label
-                    . '</button>';
-                continue;
+                break;
             }
-
-            $optionsHtml .= '<form method="post" action="/answer_prompt.php" data-confirm-label="' . $label . '">'
-                . '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($csrfToken, ENT_QUOTES) . '">'
-                . '<input type="hidden" name="session" value="' . htmlspecialchars($sessionName, ENT_QUOTES) . '">'
-                . '<input type="hidden" name="option" value="' . $number . '">'
-                . '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full">'
-                . $number . '. ' . $label
-                . '</button>'
-                . '</form>';
         }
 
-        if (!empty($session['prompt_multi_question'])) {
-            $optionsHtml .= '<button type="button" class="nav-prompt-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-direction="right" aria-label="Next question">&rarr;</button>';
-        }
-
-        $html = '<div class="prompt-options-wrapper mt-2" data-session="' . htmlspecialchars($sessionName, ENT_QUOTES) . '" data-csrf-token="' . htmlspecialchars($csrfToken, ENT_QUOTES) . '">'
-            . '<div class="flex flex-wrap gap-2">' . $optionsHtml . '</div>';
-
-        if ($hasFreeText) {
-            $html .= '<div class="freetext-reply hidden mt-2">'
-                . '<textarea class="freetext-reply-textarea w-full resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 px-3 py-2" rows="2" placeholder="Type your reply&hellip;"></textarea>'
-                . '<button type="button" class="freetext-reply-send-btn mt-1 rounded-lg bg-indigo-600 active:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5">Send</button>'
-                . '</div>';
-        }
-
-        $html .= '</div>';
-
-        return $html;
+        return self::render('blocked-prompt/options', [
+            'sessionName' => (string)$session['name'],
+            'csrfToken' => $csrfToken,
+            // An AskUserQuestion call with more than one question renders as a
+            // tab bar Claude Code itself navigates with the Left/Right arrow
+            // keys (see multi_question in parse_blocking_prompt()) -
+            // prompt_options only ever reflects whichever tab currently
+            // happens to be showing, so without these there'd be no way to
+            // reach the other questions in the set from this app at all,
+            // short of attaching to tmux directly and pressing the arrow
+            // keys by hand.
+            'isMultiQuestion' => !empty($session['prompt_multi_question']),
+            'options' => $session['prompt_options'],
+            'hasFreeText' => $hasFreeText,
+        ]);
     }
 
     /**
@@ -213,25 +162,24 @@ class BlockedPromptView
         // pending command styled like a normal history entry read as
         // something that already happened, not the thing actually still
         // waiting on an answer.
-        $html = '<div class="mt-2 rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60">';
+        $lastMessageHtml = $includeLastMessage
+            ? self::last_message_preview_html($session['last_message'] ?? null, 'text-amber-300/80 italic mb-1')
+            : '';
 
-        if ($includeLastMessage) {
-            $html .= self::last_message_preview_html($session['last_message'] ?? null, 'text-amber-300/80 italic mb-1');
-        }
+        $promptContextHtml = !empty($session['prompt_context'])
+            ? self::render_collapsible_block((string)$session['prompt_context'], 'border-amber-700/40', 'text-amber-100', '')
+            : '';
 
-        $html .= '<p class="font-medium break-words">Waiting on input: ' . htmlspecialchars((string)$session['blocked_reason'], ENT_QUOTES) . '</p>';
+        $optionsHtml = !empty($session['prompt_options'])
+            ? self::blocked_prompt_options_html($session, $csrfToken)
+            : '';
 
-        if (!empty($session['prompt_context'])) {
-            $html .= '<div class="mt-2">' . self::render_collapsible_block((string)$session['prompt_context'], 'border-amber-700/40', 'text-amber-100', '') . '</div>';
-        }
-
-        if (!empty($session['prompt_options'])) {
-            $html .= self::blocked_prompt_options_html($session, $csrfToken);
-        }
-
-        $html .= '</div>';
-
-        return $html;
+        return self::render('blocked-prompt/rich', [
+            'blockedReason' => (string)$session['blocked_reason'],
+            'lastMessageHtml' => $lastMessageHtml,
+            'promptContextHtml' => $promptContextHtml,
+            'optionsHtml' => $optionsHtml,
+        ]);
     }
 
     /**
@@ -250,7 +198,7 @@ class BlockedPromptView
         }
 
         $role = $entry['role'] ?? 'system';
-        $roleLabel = htmlspecialchars(ucfirst((string)$role), ENT_QUOTES);
+        $roleLabel = ucfirst((string)$role);
         $text = (string)($entry['blocks'][0]['text'] ?? '');
         $preview = mb_strlen($text) > 140 ? mb_substr($text, 0, 140) . '…' : $text;
 
@@ -260,6 +208,10 @@ class BlockedPromptView
 
         $class = trim('text-xs text-slate-400 truncate ' . $extraClass);
 
-        return '<p class="' . htmlspecialchars($class, ENT_QUOTES) . '"><span class="font-medium">' . $roleLabel . ':</span> ' . htmlspecialchars($preview, ENT_QUOTES) . '</p>';
+        return self::render('blocked-prompt/last-message-preview', [
+            'class' => $class,
+            'roleLabel' => $roleLabel,
+            'preview' => $preview,
+        ]);
     }
 }
