@@ -145,3 +145,12 @@ Tier 2 - bigger or investigative items:
   refresh that session's row after a send instead of leaving a manual-
   refresh note, but worth confirming the exact desired behavior before
   implementing.
+- Add a badge to the home-screen icon (via the Badging API,
+  navigator.setAppBadge()/clearAppBadge() from src/sw.js's push handler)
+  when a push notification has been sent but not yet cleared/seen.
+  Caveat worth checking before building: the whole push feature here was
+  built specifically for iOS Safari's home-screen-installed PWA mode
+  (see the README's cert-trust section), and Badging API support on iOS
+  PWAs has historically lagged well behind other platforms - confirm it
+  actually works in Andres's real installed-app context before assuming
+  this is a straightforward addition on top of the existing sw.js.
