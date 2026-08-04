@@ -48,7 +48,7 @@ document.addEventListener('submit', function (e) {
     .then(function (data) {
       if (data && data.ok) {
         if (container) {
-          container.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
+          container.innerHTML = '<span class="select-none text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
         }
         requestSessionsPollNow();
       } else {
@@ -94,7 +94,7 @@ function submitFreetextReply(replyDiv) {
     .then(function (r) { return parseJsonResponse(r, 'dashboard-answer-prompt-freetext'); })
     .then(function (data) {
       if (data && data.ok) {
-        wrapper.innerHTML = '<span class="text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
+        wrapper.innerHTML = '<span class="select-none text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
         requestSessionsPollNow();
       } else {
         alert((data && data.message) || 'Failed to send reply.');
@@ -225,7 +225,7 @@ document.addEventListener('keydown', function (e) {
 
     var p = document.createElement('p');
     p.className = 'text-xs text-slate-400 whitespace-pre-wrap break-words rounded border ' + colors.border + ' ' + colors.bg + ' px-1.5 py-1';
-    p.innerHTML = '<span class="font-medium ' + colors.label + '">' + roleLabel + ':</span> ' + escapeHtml(text);
+    p.innerHTML = '<span class="select-none font-medium ' + colors.label + '">' + roleLabel + ':</span> ' + escapeHtml(text);
     return p;
   }
 

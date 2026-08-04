@@ -811,7 +811,7 @@
 
     var div = document.createElement('div');
     div.className = 'rounded-lg border ' + colors.border + ' ' + colors.bg + ' px-3 py-2' + extraClass;
-    div.innerHTML = '<div class="mb-1 flex items-center gap-2 text-xs text-slate-500">'
+    div.innerHTML = '<div class="select-none mb-1 flex items-center gap-2 text-xs text-slate-500">'
       + '<span class="font-medium ' + colors.label + '">' + roleLabel + '</span>'
       + (timestamp ? '<span>' + timestamp + '</span>' : '')
       + '</div>'
@@ -984,7 +984,7 @@
       return;
     }
 
-    thinkingIndicator.innerHTML = '<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 flex items-center justify-between gap-2">'
+    thinkingIndicator.innerHTML = '<div class="select-none rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs text-slate-400 flex items-center justify-between gap-2">'
       + '<span class="flex items-center gap-2">'
       + '<span class="flex items-center gap-1">'
       + '<span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style="animation-delay:0ms"></span>'
@@ -1129,7 +1129,7 @@
         optionsHtml += '<button type="button" class="nav-prompt-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-direction="right" aria-label="Next question">&rarr;</button>';
       }
 
-      html += '<div class="prompt-options-wrapper mt-2" data-session="' + escapeHtml(sessionName) + '" data-csrf-token="' + escapeHtml(csrfToken) + '">'
+      html += '<div class="select-none prompt-options-wrapper mt-2" data-session="' + escapeHtml(sessionName) + '" data-csrf-token="' + escapeHtml(csrfToken) + '">'
         + '<div class="flex flex-wrap gap-2">' + optionsHtml + '</div>';
 
       if (hasFreeText) {
@@ -1214,7 +1214,7 @@
 
       if (!card.querySelector('.answer-pending-note')) {
         var note = document.createElement('p');
-        note.className = 'answer-pending-note mt-2 text-amber-300/70 italic';
+        note.className = 'select-none answer-pending-note mt-2 text-amber-300/70 italic';
         note.textContent = 'Answered - waiting to confirm…';
         card.appendChild(note);
       }
@@ -1571,7 +1571,7 @@
     }
 
     var divider = document.createElement('div');
-    divider.className = 'new-content-divider flex items-center gap-2 my-1 text-xs text-indigo-400';
+    divider.className = 'select-none new-content-divider flex items-center gap-2 my-1 text-xs text-indigo-400';
     divider.innerHTML = '<span class="flex-1 border-t border-indigo-500/50"></span>'
       + '<span>New</span>'
       + '<span class="flex-1 border-t border-indigo-500/50"></span>';
@@ -1770,6 +1770,14 @@
       composeTextarea.style.height = Math.min(composeTextarea.scrollHeight, COMPOSE_MAX_HEIGHT_PX) + 'px';
     }
 
+    // Dims/disables Send whenever there's nothing (or only whitespace) to
+    // send - sendComposedMessage() already silently no-ops on blank text,
+    // but the button gave no visual sign of that, so it looked clickable
+    // when it wasn't.
+    function updateSendButtonState() {
+      composeSendBtn.disabled = composeTextarea.value.trim() === '';
+    }
+
     // Per-session draft, so it survives navigating to the dashboard or
     // switching sessions via the sidebar and coming back - lost otherwise,
     // since the textarea itself doesn't persist across a page load.
@@ -1799,6 +1807,8 @@
         autoGrowCompose();
       }
     } catch (e) {}
+
+    updateSendButtonState();
 
     function setComposeStatus(text) {
       if (text) {
@@ -1847,7 +1857,7 @@
         })
         .finally(function () {
           composeTextarea.disabled = false;
-          composeSendBtn.disabled = false;
+          updateSendButtonState();
           composeTextarea.focus();
         });
     }
@@ -1855,6 +1865,7 @@
     composeTextarea.addEventListener('input', function () {
       autoGrowCompose();
       saveComposeDraft();
+      updateSendButtonState();
     });
     composeSendBtn.addEventListener('click', sendComposedMessage);
 
@@ -1898,6 +1909,7 @@
           : line;
         autoGrowCompose();
         saveComposeDraft();
+        updateSendButtonState();
 
         // Immediate refresh (don't wait for the next poll tick) if the
         // sidebar's open and showing the list this upload just changed.

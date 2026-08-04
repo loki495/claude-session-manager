@@ -1,1 +1,1 @@
-<p class="<?= $this->e($class) ?>"><span class="font-medium"><?= $this->e($roleLabel) ?>:</span> <?= $this->e($preview) ?></p>
+<p class="<?= $this->e($class) ?>"><span class="select-none font-medium"><?= $this->e($roleLabel) ?>:</span> <?= $this->e($preview) ?></p>

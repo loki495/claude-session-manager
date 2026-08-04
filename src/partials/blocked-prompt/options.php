@@ -1,4 +1,4 @@
-<div class="prompt-options-wrapper mt-2" data-session="<?= $this->e($sessionName) ?>" data-csrf-token="<?= $this->e($csrfToken) ?>">
+<div class="select-none prompt-options-wrapper mt-2" data-session="<?= $this->e($sessionName) ?>" data-csrf-token="<?= $this->e($csrfToken) ?>">
   <div class="flex flex-wrap gap-2">
     <?php if ($isMultiQuestion): ?><button type="button" class="nav-prompt-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2" data-direction="left" aria-label="Previous question">&larr;</button><?php endif ?>
     <?php foreach ($options as $opt): ?>

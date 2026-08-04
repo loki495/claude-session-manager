@@ -63,30 +63,30 @@ $this->layout('layout', [
 <div class="max-w-2xl mx-auto px-4 py-6 pb-44">
 
   <?php if (!$found): ?>
-    <div class="rounded-lg px-4 py-3 text-sm bg-red-900/50 text-red-200 border border-red-700">
+    <div class="select-none rounded-lg px-4 py-3 text-sm bg-red-900/50 text-red-200 border border-red-700">
       <p class="font-medium">Session not found.</p>
       <p class="mt-1"><?= $this->e((string)($detail['message'] ?? 'Unknown error')) ?></p>
     </div>
   <?php else: ?>
-    <div id="session-info" class="mb-4 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">
+    <div id="session-info" class="select-none mb-4 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">
       <?= \App\Views\TranscriptView::render_session_static_info_html($detail) ?>
     </div>
 
-    <h2 class="text-sm font-medium text-slate-400 mb-2">History</h2>
+    <h2 class="select-none text-sm font-medium text-slate-400 mb-2">History</h2>
 
     <?php if (!$historyOk): ?>
-      <div class="rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
+      <div class="select-none rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
         <?= $this->e((string)($history['message'] ?? 'No transcript available for this session.')) ?>
       </div>
     <?php elseif (empty($entries)): ?>
-      <div class="rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
+      <div class="select-none rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
         Nothing recorded yet.
       </div>
     <?php else: ?>
       <button type="button" id="load-more-btn"
         data-session="<?= $this->e($sessionName) ?>"
         data-before="<?= $nextBefore !== null ? (int)$nextBefore : '' ?>"
-        class="w-full mb-2 rounded-lg border border-slate-800 bg-slate-900/50 active:bg-slate-800 text-xs text-slate-400 px-3 py-2 <?= $hasMore ? '' : 'hidden' ?>">
+        class="select-none w-full mb-2 rounded-lg border border-slate-800 bg-slate-900/50 active:bg-slate-800 text-xs text-slate-400 px-3 py-2 <?= $hasMore ? '' : 'hidden' ?>">
         Load older messages
       </button>
       <div id="history-list" class="flex flex-col gap-2">
@@ -111,7 +111,7 @@ $this->layout('layout', [
 </div>
 
 <button type="button" id="go-to-bottom-btn"
-  class="hidden fixed bottom-24 right-5 z-20 w-11 h-11 rounded-full border border-slate-700 bg-slate-800 text-slate-200 shadow-lg active:bg-slate-700 flex items-center justify-center text-lg">
+  class="select-none hidden fixed bottom-24 right-5 z-20 w-11 h-11 rounded-full border border-slate-700 bg-slate-800 text-slate-200 shadow-lg active:bg-slate-700 flex items-center justify-center text-lg">
   &darr;
 </button>
 

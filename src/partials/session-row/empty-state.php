@@ -1,1 +1,1 @@
-<div class="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-10 text-center text-slate-400"><p class="text-base">No active Claude sessions.</p><p class="text-sm mt-1">Tap "New Session" to start one.</p></div>
+<div class="select-none rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-10 text-center text-slate-400"><p class="text-base">No active Claude sessions.</p><p class="text-sm mt-1">Tap "New Session" to start one.</p></div>

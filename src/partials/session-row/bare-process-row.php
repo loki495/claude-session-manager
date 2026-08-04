@@ -1,4 +1,4 @@
-<li class="rounded-xl border border-slate-800/60 bg-slate-900/30 px-4 py-3 flex items-center justify-between gap-3">
+<li class="select-none rounded-xl border border-slate-800/60 bg-slate-900/30 px-4 py-3 flex items-center justify-between gap-3">
   <div class="min-w-0">
     <?php if (!empty($title)): ?><div class="text-sm truncate text-slate-300"><?= $this->e((string)$title) ?></div><?php endif ?>
     <div class="font-mono text-xs text-slate-500 truncate mt-0.5">pid <?= $pid ?><?= $tmuxSession !== null ? ' · tmux: ' . $this->e($tmuxSession) : ' · no tmux (plain process)' ?></div>

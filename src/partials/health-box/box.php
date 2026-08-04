@@ -1,4 +1,4 @@
-<details class="mb-4 rounded-lg border border-slate-800 bg-slate-900/50 text-sm">
+<details class="select-none mb-4 rounded-lg border border-slate-800 bg-slate-900/50 text-sm">
   <summary class="px-4 py-3 cursor-pointer list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
     <span class="w-2 h-2 rounded-full <?= $dotColor ?> shrink-0"></span>
     <span class="<?= $summaryColor ?> font-medium"><?= $summaryText ?></span>
