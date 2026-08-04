@@ -13,9 +13,11 @@ declare(strict_types=1);
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
+use HostAgent\Services\Config;
+
 const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
 
-if (tmux_socket() === REAL_TMUX_SOCKET) {
+if (Config::tmux_socket() === REAL_TMUX_SOCKET) {
     fwrite(STDERR, "REFUSING TO RUN: TMUX_SOCKET resolves to the real host socket. Check tests/.env.testing.\n");
     exit(1);
 }
@@ -261,7 +263,7 @@ assert_equal(null, parse_current_mode($realTrustDialog), 'parse_current_mode: a 
 
 // --- tmux_attach_hint(): the exact command shown to a human to go answer
 // a blocked prompt themselves ---
-assert_equal('tmux -S ' . tmux_socket() . ' attach -t cc-example', tmux_attach_hint('cc-example'), 'tmux_attach_hint: uses the configured socket path');
+assert_equal('tmux -S ' . Config::tmux_socket() . ' attach -t cc-example', tmux_attach_hint('cc-example'), 'tmux_attach_hint: uses the configured socket path');
 
 // --- generate_uuid_v4(): the id passed to `claude --session-id` at launch ---
 $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/';
@@ -270,33 +272,33 @@ assert_true(generate_uuid_v4() !== generate_uuid_v4(), 'generate_uuid_v4: two ca
 
 // --- browse_dir(): powers the New Session folder browser, walking from
 // WWW_ROOT up to (but never past) HOME_ROOT ---
-$result = browse_dir(www_root());
+$result = browse_dir(Config::www_root());
 assert_true($result['ok'] ?? false, 'browse_dir(www_root): ok=true');
 assert_equal(['.hidden-dir', 'project-a', 'project-b'], $result['dirs'] ?? null, 'browse_dir(www_root): includes hidden dirs, sorted');
 
-$result = browse_dir(www_root() . '/project-a');
+$result = browse_dir(Config::www_root() . '/project-a');
 assert_true($result['ok'] ?? false, 'browse_dir(project-a): ok=true');
 assert_equal(['nested'], $result['dirs'] ?? null, 'browse_dir(project-a): lists its one subfolder');
-assert_equal(www_root(), $result['parent'] ?? null, 'browse_dir(project-a): parent is WWW_ROOT');
+assert_equal(Config::www_root(), $result['parent'] ?? null, 'browse_dir(project-a): parent is WWW_ROOT');
 
-$result = browse_dir(www_root() . '/project-a/nested');
+$result = browse_dir(Config::www_root() . '/project-a/nested');
 assert_true($result['ok'] ?? false, 'browse_dir(nested): ok=true');
 assert_equal([], $result['dirs'] ?? null, 'browse_dir(nested): no subfolders');
-assert_equal(www_root() . '/project-a', $result['parent'] ?? null, 'browse_dir(nested): parent is project-a');
+assert_equal(Config::www_root() . '/project-a', $result['parent'] ?? null, 'browse_dir(nested): parent is project-a');
 
-$result = browse_dir(home_root());
+$result = browse_dir(Config::home_root());
 assert_true($result['ok'] ?? false, 'browse_dir(home_root): ok=true');
 assert_equal(null, $result['parent'], 'browse_dir(home_root): parent is null - can\'t go up further');
 
 $result = browse_dir('/etc');
 assert_equal(false, $result['ok'] ?? null, 'browse_dir(/etc): rejects a path outside home_root');
 
-$result = browse_dir(www_root() . '/does-not-exist');
+$result = browse_dir(Config::www_root() . '/does-not-exist');
 assert_equal(false, $result['ok'] ?? null, 'browse_dir(missing dir): rejects a nonexistent path');
 
 try {
     // --- create ---
-    $created = create_and_track(www_root() . '/project-a', $createdSessions);
+    $created = create_and_track(Config::www_root() . '/project-a', $createdSessions);
     assert_true($created['ok'], 'create: ok=true');
     assert_true($created['name'] !== null, 'create: session name parsed from message');
     $name = $created['name'];
@@ -304,7 +306,7 @@ try {
     // --- list sees it, sidecar + pid matching worked ---
     $session = $name !== null ? find_session($name) : null;
     assert_true($session !== null, 'list: created session appears');
-    assert_equal(www_root() . '/project-a', $session['workdir'] ?? null, 'list: workdir recorded via sidecar');
+    assert_equal(Config::www_root() . '/project-a', $session['workdir'] ?? null, 'list: workdir recorded via sidecar');
     assert_true($session['spawned_by_csm'] ?? false, 'list: spawned_by_csm is true');
     assert_true(($session['pid'] ?? null) !== null, 'list: pane process pid matched via argv[0]');
     // fake_claude (behaves like /bin/cat) never sets a terminal title like the
@@ -346,7 +348,7 @@ try {
         $createdSessions = array_values(array_diff($createdSessions, [$name]));
 
         assert_true(find_session($name) === null, 'kill: session no longer listed');
-        assert_true(!file_exists(sidecar_dir() . "/{$name}.json"), 'kill: sidecar file removed');
+        assert_true(!file_exists(Config::sidecar_dir() . "/{$name}.json"), 'kill: sidecar file removed');
     }
 
     // --- input validation: relative path rejected before touching tmux ---
@@ -359,14 +361,14 @@ try {
     // naming - tmux never auto-creates. tmux_run() must recreate it on
     // demand rather than every command failing until someone notices. ---
     tmux_run(['kill-server']); // empties the isolated test socket dir so it can be removed
-    $socketDir = dirname(tmux_socket());
+    $socketDir = dirname(Config::tmux_socket());
     foreach (glob("{$socketDir}/*") ?: [] as $leftover) {
         @unlink($leftover);
     }
     @rmdir($socketDir);
     assert_true(!is_dir($socketDir), 'self-heal setup: tmux socket dir removed');
 
-    $healed = create_and_track(www_root() . '/project-a', $createdSessions);
+    $healed = create_and_track(Config::www_root() . '/project-a', $createdSessions);
     assert_true($healed['ok'], 'create: recreates a missing tmux socket dir and still succeeds');
     if ($healed['name'] !== null) {
         kill_cc_session($healed['name']);
@@ -376,17 +378,17 @@ try {
     // --- claude binary fails to start: tmux registers the session, then the pane
     // exits immediately since the command doesn't exist - create_cc_session()'s
     // post-creation check must catch that and report failure ---
-    $originalClaudeBin = claude_bin();
+    $originalClaudeBin = Config::claude_bin();
     putenv('CLAUDE_BIN=/definitely/does/not/exist/csm-test-claude-binary');
-    $bad = create_and_track(www_root() . '/project-a', $createdSessions);
+    $bad = create_and_track(Config::www_root() . '/project-a', $createdSessions);
     putenv("CLAUDE_BIN={$originalClaudeBin}");
     assert_true(!$bad['ok'], 'create: a claude binary that fails to start is reported as failure');
 
     // --- cleanup respects the (short, test-only) inactivity threshold ---
-    $created = create_and_track(www_root() . '/project-b', $createdSessions);
+    $created = create_and_track(Config::www_root() . '/project-b', $createdSessions);
     assert_true($created['ok'], 'cleanup setup: session created');
 
-    sleep(cleanup_threshold_seconds() + 1);
+    sleep(Config::cleanup_threshold_seconds() + 1);
 
     $result = cleanup_inactive_sessions();
     assert_true($result['ok'] ?? false, 'cleanup: ok=true');
@@ -401,8 +403,8 @@ try {
     // --- bare processes: a plain (non-tmux) fake claude process must show
     // up in list_all_sessions()['bare'] with no tmux_session/title, and
     // kill_bare_process() must SIGTERM it directly ---
-    $bareCwd = www_root() . '/project-a';
-    $bareProc = proc_open([claude_bin()], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $barePipes, $bareCwd);
+    $bareCwd = Config::www_root() . '/project-a';
+    $bareProc = proc_open([Config::claude_bin()], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $barePipes, $bareCwd);
     assert_true(is_resource($bareProc), 'bare setup: spawned a plain (non-tmux) fake claude process');
     $barePid = is_resource($bareProc) ? (proc_get_status($bareProc)['pid'] ?? null) : null;
     usleep(300000); // let /proc reflect the new process's argv/cwd
@@ -444,8 +446,8 @@ try {
     // kill_bare_process() must kill the whole session rather than just
     // SIGTERM the pid ---
     $adhocName = 'csm-test-adhoc-' . getmypid();
-    $adhocCwd = www_root() . '/project-b';
-    $adhocCreate = tmux_run(['new-session', '-d', '-s', $adhocName, '-c', $adhocCwd, claude_bin()]);
+    $adhocCwd = Config::www_root() . '/project-b';
+    $adhocCreate = tmux_run(['new-session', '-d', '-s', $adhocName, '-c', $adhocCwd, Config::claude_bin()]);
     assert_equal(0, $adhocCreate['exit'], 'bare setup: created an ad-hoc (non-cc-*) tmux session');
     usleep(300000);
     tmux_run(['select-pane', '-t', $adhocName, '-T', 'Adhoc bare title']);
@@ -480,7 +482,7 @@ try {
     // actual capture-pane call, not a hand-fed string like the pure
     // parse_blocking_prompt() tests above. ---
     $promptTestSession = 'cc-test-answer-prompt-' . getmypid();
-    $promptSetup = tmux_run(['new-session', '-d', '-s', $promptTestSession, '-c', www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $promptSetup = tmux_run(['new-session', '-d', '-s', $promptTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $promptSetup['exit'], 'answer_prompt setup: created a live cc-* session to answer a prompt in');
     usleep(300000);
 
@@ -574,7 +576,7 @@ try {
     // complete command rather than a mangled fragment. Verified against a
     // real narrow pane, not a hand-fed string. ---
     $wrapTestSession = 'cc-test-capture-wrap-' . getmypid();
-    $wrapSetup = tmux_run(['new-session', '-d', '-x', '60', '-y', '20', '-s', $wrapTestSession, '-c', www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $wrapSetup = tmux_run(['new-session', '-d', '-x', '60', '-y', '20', '-s', $wrapTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $wrapSetup['exit'], 'tmux_capture_pane wrap test setup: created a narrow live pane');
     usleep(300000);
 
@@ -599,7 +601,7 @@ try {
     // split into separate premature submits the way send-keys with the
     // raw text would (each embedded newline acting as its own Enter). ---
     $sendTestSession = 'cc-test-send-message-' . getmypid();
-    $sendSetup = tmux_run(['new-session', '-d', '-s', $sendTestSession, '-c', www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $sendSetup = tmux_run(['new-session', '-d', '-s', $sendTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $sendSetup['exit'], 'send_message setup: created a live cc-* session to send a message to');
     usleep(300000);
 
@@ -624,7 +626,7 @@ try {
     // a raw `cat` pane like the wrap-test above, since fake_claude never
     // renders a real status line. ---
     $quotaTestSession = 'cc-test-quota-' . getmypid();
-    $quotaSetup = tmux_run(['new-session', '-d', '-s', $quotaTestSession, '-c', www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    $quotaSetup = tmux_run(['new-session', '-d', '-s', $quotaTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $quotaSetup['exit'], 'quota_from_live_pane setup: created a live cc-* session');
     usleep(300000);
 

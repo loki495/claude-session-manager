@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../vendor/autoload.php';
+
+use HostAgent\Services\Config;
+
 /**
  * Read-only access to Claude Code's own JSONL conversation transcripts
  * under ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl - this file
@@ -13,7 +17,7 @@ declare(strict_types=1);
 
 function claude_projects_dir(): string
 {
-    return home_root() . '/.claude/projects';
+    return Config::home_root() . '/.claude/projects';
 }
 
 /**

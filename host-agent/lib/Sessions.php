@@ -12,131 +12,12 @@ declare(strict_types=1);
  * claude process would be unreachable from the host.
  */
 
+require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/Transcript.php';
 
+use HostAgent\Services\Config;
+
 const CLK_TCK = 100; // USER_HZ has been 100 on Linux/x86_64 since the 2.6 era
-
-/**
- * Host-specific paths/thresholds, overridable via env (see
- * host-agent/.env.example, loaded by systemd's EnvironmentFile= in
- * production) so tests can point at an isolated tmux socket and a fixture
- * claude binary instead of the real host session. Falls back to the real
- * production values when unset.
- */
-function csm_config(string $key, string $default): string
-{
-    $value = getenv($key);
-    return $value !== false && $value !== '' ? $value : $default;
-}
-
-function claude_bin(): string
-{
-    return csm_config('CLAUDE_BIN', '/home/andres/.local/bin/claude');
-}
-
-function www_root(): string
-{
-    return csm_config('WWW_ROOT', '/home/andres/www');
-}
-
-function home_root(): string
-{
-    return csm_config('HOME_ROOT', '/home/andres');
-}
-
-function tmux_socket(): string
-{
-    return csm_config('TMUX_SOCKET', '/tmp/tmux-1000/default');
-}
-
-function sidecar_dir(): string
-{
-    return csm_config('SIDECAR_DIR', '/run/user/1000/csm-sessions');
-}
-
-function cleanup_threshold_seconds(): int
-{
-    return (int)csm_config('CLEANUP_THRESHOLD_SECONDS', '43200'); // 12h
-}
-
-/**
- * A new session's tmux pane, with no real client ever attached to give it
- * a size to inherit, otherwise falls back to the SERVER's default-size
- * (confirmed live: 80x24, tmux's own classic default) - nowhere near
- * enough for Claude Code's own TUI to render a long tool-permission
- * preview (a big Write, a long Bash script) without cutting it short.
- * Found live: capture-pane (even with extra -S scrollback) came back
- * missing the earlier lines entirely - not truncated by this app's own
- * parsing, genuinely never rendered by Claude Code in the first place,
- * since it adapts its own output to whatever height it detects. Sized
- * generously since nothing is ever really "looking at" this pane as a
- * literal terminal window - it only ever gets read via capture-pane.
- */
-function new_session_pane_width(): int
-{
-    return (int)csm_config('TMUX_PANE_WIDTH', '200');
-}
-
-function new_session_pane_height(): int
-{
-    return (int)csm_config('TMUX_PANE_HEIGHT', '150');
-}
-
-function claude_quota_bin(): string
-{
-    return csm_config('CLAUDE_QUOTA_BIN', '/home/andres/dotfiles/bin/claude-quota');
-}
-
-function quota_cache_file(): string
-{
-    return csm_config('QUOTA_CACHE_FILE', '/run/user/1000/csm-agent-quota-cache.json');
-}
-
-function quota_cache_ttl_seconds(): int
-{
-    return (int)csm_config('QUOTA_CACHE_TTL_SECONDS', '300'); // 5min
-}
-
-function quota_timeout_seconds(): int
-{
-    return (int)csm_config('QUOTA_TIMEOUT_SECONDS', '90');
-}
-
-/**
- * This app's own checkout root - hardcoded default matches every other
- * host-specific path in this file (e.g. claude_bin()); overridable via env
- * for tests, same convention.
- */
-function csm_repo_root(): string
-{
-    return csm_config('CSM_REPO_ROOT', '/home/andres/www/claude-session-manager');
-}
-
-function claude_settings_path(): string
-{
-    return home_root() . '/.claude/settings.json';
-}
-
-/**
- * The exact `command` string this app's SessionStart hook entry is
- * registered under - both session_start_hook_present() and
- * install_session_hook() key off this same string, so "is it already
- * there" and "what do we add" can never drift apart.
- */
-function session_start_hook_command(): string
-{
-    return 'php ' . csm_repo_root() . '/host-agent/hooks/session_start.php';
-}
-
-/**
- * Same convention as session_start_hook_command(), for the PreToolUse
- * hook (see host-agent/hooks/pre_tool_use.php) that records a pending
- * tool call's full, untruncated tool_input for the blocked-prompt preview.
- */
-function pre_tool_use_hook_command(): string
-{
-    return 'php ' . csm_repo_root() . '/host-agent/hooks/pre_tool_use.php';
-}
 
 /**
  * @param string[] $cmd
@@ -177,7 +58,7 @@ function run_process(array $cmd): array
  */
 function ensure_tmux_socket_dir(): void
 {
-    $dir = dirname(tmux_socket());
+    $dir = dirname(Config::tmux_socket());
 
     if (!is_dir($dir)) {
         @mkdir($dir, 0700, true);
@@ -192,7 +73,7 @@ function tmux_run(array $args): array
 {
     ensure_tmux_socket_dir();
 
-    return run_process(array_merge(['tmux', '-S', tmux_socket()], $args));
+    return run_process(array_merge(['tmux', '-S', Config::tmux_socket()], $args));
 }
 
 /**
@@ -684,7 +565,7 @@ function augment_prompt_with_pending_tool(array $prompt, ?array $pendingTool): a
  */
 function tmux_attach_hint(string $sessionName): string
 {
-    return 'tmux -S ' . tmux_socket() . ' attach -t ' . $sessionName;
+    return 'tmux -S ' . Config::tmux_socket() . ' attach -t ' . $sessionName;
 }
 
 /**
@@ -802,7 +683,7 @@ function find_claude_processes(): array
         // /home/andres/.local/bin/claude` retains that whole command line
         // as its own argv, which would otherwise false-positive-match the
         // tmux server itself as a bare claude process.
-        if (($argv[0] ?? null) !== claude_bin()) {
+        if (($argv[0] ?? null) !== Config::claude_bin()) {
             continue;
         }
 
@@ -869,7 +750,7 @@ function find_owning_pane(int $pid, array $allPanes, array $ppidMap): ?array
 
 function sidecar_path(string $sessionName): string
 {
-    return sidecar_dir() . '/' . $sessionName . '.json';
+    return Config::sidecar_dir() . '/' . $sessionName . '.json';
 }
 
 /**
@@ -891,8 +772,8 @@ function read_sidecar(string $sessionName): ?array
 
 function write_sidecar(string $sessionName, array $data): void
 {
-    if (!is_dir(sidecar_dir())) {
-        @mkdir(sidecar_dir(), 0700, true);
+    if (!is_dir(Config::sidecar_dir())) {
+        @mkdir(Config::sidecar_dir(), 0700, true);
     }
 
     @file_put_contents(sidecar_path($sessionName), json_encode($data));
@@ -925,7 +806,7 @@ const SIDECAR_FILE_SUFFIXES = ['.pending-tool'];
  */
 function prune_orphaned_sidecars(array $liveSessionNames): void
 {
-    foreach (glob(sidecar_dir() . '/*.json') ?: [] as $path) {
+    foreach (glob(Config::sidecar_dir() . '/*.json') ?: [] as $path) {
         $base = basename($path, '.json');
         $name = $base;
 
@@ -944,7 +825,7 @@ function prune_orphaned_sidecars(array $liveSessionNames): void
 
 function pending_tool_path(string $sessionName): string
 {
-    return sidecar_dir() . '/' . $sessionName . '.pending-tool.json';
+    return Config::sidecar_dir() . '/' . $sessionName . '.pending-tool.json';
 }
 
 /**
@@ -972,8 +853,8 @@ function read_pending_tool(string $sessionName): ?array
 
 function write_pending_tool(string $sessionName, array $data): void
 {
-    if (!is_dir(sidecar_dir())) {
-        @mkdir(sidecar_dir(), 0700, true);
+    if (!is_dir(Config::sidecar_dir())) {
+        @mkdir(Config::sidecar_dir(), 0700, true);
     }
 
     @file_put_contents(pending_tool_path($sessionName), json_encode($data));
@@ -1226,7 +1107,7 @@ function hook_command_present(array $settings, string $event, string $command): 
  */
 function session_start_hook_present(array $settings): bool
 {
-    return hook_command_present($settings, 'SessionStart', session_start_hook_command());
+    return hook_command_present($settings, 'SessionStart', Config::session_start_hook_command());
 }
 
 /**
@@ -1234,7 +1115,7 @@ function session_start_hook_present(array $settings): bool
  */
 function pre_tool_use_hook_present(array $settings): bool
 {
-    return hook_command_present($settings, 'PreToolUse', pre_tool_use_hook_command());
+    return hook_command_present($settings, 'PreToolUse', Config::pre_tool_use_hook_command());
 }
 
 /**
@@ -1250,8 +1131,8 @@ function pre_tool_use_hook_present(array $settings): bool
 function app_hooks_status(array $settings): array
 {
     return [
-        ['event' => 'SessionStart', 'command' => session_start_hook_command(), 'present' => session_start_hook_present($settings)],
-        ['event' => 'PreToolUse', 'command' => pre_tool_use_hook_command(), 'present' => pre_tool_use_hook_present($settings)],
+        ['event' => 'SessionStart', 'command' => Config::session_start_hook_command(), 'present' => session_start_hook_present($settings)],
+        ['event' => 'PreToolUse', 'command' => Config::pre_tool_use_hook_command(), 'present' => pre_tool_use_hook_present($settings)],
     ];
 }
 
@@ -1267,7 +1148,7 @@ function app_hooks_status(array $settings): array
  */
 function check_session_hook(): array
 {
-    $raw = @file_get_contents(claude_settings_path());
+    $raw = @file_get_contents(Config::claude_settings_path());
 
     if ($raw === false) {
         return ['ok' => true, 'installed' => false];
@@ -1305,7 +1186,7 @@ function check_session_hook(): array
  */
 function install_session_hook(): array
 {
-    $path = claude_settings_path();
+    $path = Config::claude_settings_path();
     $raw = @file_get_contents($path);
     $settings = [];
 
@@ -1391,9 +1272,9 @@ function create_cc_session(string $workdir): array
         'new-session', '-d', '-s', $name,
         '-c', $workdir,
         '-e', "CSM_SESSION_NAME={$name}",
-        '-x', (string)new_session_pane_width(),
-        '-y', (string)new_session_pane_height(),
-        claude_bin(), '--session-id', $claudeSessionId,
+        '-x', (string)Config::new_session_pane_width(),
+        '-y', (string)Config::new_session_pane_height(),
+        Config::claude_bin(), '--session-id', $claudeSessionId,
     ]);
 
     if ($result['exit'] !== 0) {
@@ -1728,7 +1609,7 @@ function cleanup_inactive_sessions(): array
     $failed = [];
 
     foreach (list_cc_tmux_sessions() as $session) {
-        if (($now - $session['activity']) <= cleanup_threshold_seconds()) {
+        if (($now - $session['activity']) <= Config::cleanup_threshold_seconds()) {
             continue;
         }
 
@@ -1791,25 +1672,25 @@ function kill_bare_process(int $pid): array
 /**
  * Lists the immediate subdirectories of $path (hidden ones included), for
  * the New Session folder browser - lets a session start anywhere under the
- * home directory, not just under www_root(). $path (after resolving symlinks)
- * must be home_root() itself or a descendant of it; anything else is
+ * home directory, not just under Config::www_root(). $path (after resolving symlinks)
+ * must be Config::home_root() itself or a descendant of it; anything else is
  * rejected rather than letting the browser wander into the rest of the
- * filesystem. An empty $path defaults to www_root(), the common case,
- * rather than home_root() itself - the browser can still walk up to
- * home_root() from there via the returned `parent`.
+ * filesystem. An empty $path defaults to Config::www_root(), the common case,
+ * rather than Config::home_root() itself - the browser can still walk up to
+ * Config::home_root() from there via the returned `parent`.
  *
  * @return array{ok:bool, path?:string, parent?:?string, dirs?:string[], message?:string}
  */
 function browse_dir(string $path): array
 {
-    $root = home_root();
+    $root = Config::home_root();
     $realRoot = realpath($root);
 
     if ($realRoot === false) {
         return ['ok' => false, 'message' => 'Home directory is not configured correctly on the host'];
     }
 
-    $real = realpath($path !== '' ? $path : www_root());
+    $real = realpath($path !== '' ? $path : Config::www_root());
 
     if ($real === false || !is_dir($real) || ($real !== $realRoot && !str_starts_with($real . '/', $realRoot . '/'))) {
         return ['ok' => false, 'message' => 'Path is outside the home directory'];
@@ -1897,7 +1778,7 @@ function session_workdir(string $name): ?string
  */
 function max_upload_bytes(): int
 {
-    return (int)csm_config('MAX_UPLOAD_BYTES', (string)(25 * 1024 * 1024));
+    return (int)Config::csm_config('MAX_UPLOAD_BYTES', (string)(25 * 1024 * 1024));
 }
 
 /**
@@ -2268,7 +2149,7 @@ function quota_from_live_pane(): ?array
  */
 function run_claude_quota(): array
 {
-    $result = run_process(['timeout', (string)quota_timeout_seconds(), claude_quota_bin()]);
+    $result = run_process(['timeout', (string)Config::quota_timeout_seconds(), Config::claude_quota_bin()]);
 
     if ($result['exit'] !== 0) {
         $message = trim($result['stderr']) !== ''
@@ -2292,7 +2173,7 @@ function run_claude_quota(): array
  */
 function read_quota_cache(): ?array
 {
-    $raw = @file_get_contents(quota_cache_file());
+    $raw = @file_get_contents(Config::quota_cache_file());
 
     if ($raw === false) {
         return null;
@@ -2309,18 +2190,18 @@ function read_quota_cache(): ?array
 
 function write_quota_cache(array $quota, int $fetchedAt): void
 {
-    $dir = dirname(quota_cache_file());
+    $dir = dirname(Config::quota_cache_file());
 
     if (!is_dir($dir)) {
         @mkdir($dir, 0700, true);
     }
 
-    @file_put_contents(quota_cache_file(), json_encode(['quota' => $quota, 'fetched_at' => $fetchedAt]));
+    @file_put_contents(Config::quota_cache_file(), json_encode(['quota' => $quota, 'fetched_at' => $fetchedAt]));
 }
 
 function quota_refresh_marker_file(): string
 {
-    return quota_cache_file() . '.refreshing';
+    return Config::quota_cache_file() . '.refreshing';
 }
 
 /**
@@ -2338,7 +2219,7 @@ function quota_refresh_in_flight(): bool
         return false;
     }
 
-    return (time() - (int)trim($raw)) < quota_timeout_seconds();
+    return (time() - (int)trim($raw)) < Config::quota_timeout_seconds();
 }
 
 /**
@@ -2443,7 +2324,7 @@ function get_quota(): array
         ];
     }
 
-    $ttl = quota_cache_ttl_seconds();
+    $ttl = Config::quota_cache_ttl_seconds();
     $cache = read_quota_cache();
     $now = time();
     $fresh = $cache !== null && ($now - $cache['fetched_at']) < $ttl;

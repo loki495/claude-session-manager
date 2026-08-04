@@ -16,6 +16,8 @@ declare(strict_types=1);
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
+use HostAgent\Services\Config;
+
 const REAL_HOME_ROOT = '/home/andres';
 
 $fixtureHome = sys_get_temp_dir() . '/csm-test-hook-home-' . bin2hex(random_bytes(4));
@@ -24,14 +26,14 @@ $fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-hook-sidecars-' . bin2hex(r
 putenv("HOME_ROOT={$fixtureHome}");
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 
-if (home_root() === REAL_HOME_ROOT) {
+if (Config::home_root() === REAL_HOME_ROOT) {
     fwrite(STDERR, "REFUSING TO RUN: HOME_ROOT still resolves to the real home directory.\n");
     exit(1);
 }
 
 mkdir($fixtureSidecarDir, 0700, true);
 
-$settingsPath = claude_settings_path();
+$settingsPath = Config::claude_settings_path();
 
 try {
     // --- check_session_hook() / install_session_hook(): fresh machine, no settings.json yet ---
@@ -47,13 +49,13 @@ try {
 
     $decoded = json_decode((string)file_get_contents($settingsPath), true);
     assert_equal(
-        session_start_hook_command(),
+        Config::session_start_hook_command(),
         $decoded['hooks']['SessionStart'][0]['hooks'][0]['command'] ?? null,
         'install_session_hook: written file has our SessionStart hook command'
     );
     assert_equal('*', $decoded['hooks']['SessionStart'][0]['matcher'] ?? null, 'install_session_hook: matcher fires on every session-start source');
     assert_equal(
-        pre_tool_use_hook_command(),
+        Config::pre_tool_use_hook_command(),
         $decoded['hooks']['PreToolUse'][0]['hooks'][0]['command'] ?? null,
         'install_session_hook: written file has our PreToolUse hook command'
     );
@@ -72,7 +74,7 @@ try {
 
     $onlySessionStart = [
         'hooks' => [
-            'SessionStart' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => session_start_hook_command()]]]],
+            'SessionStart' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => Config::session_start_hook_command()]]]],
         ],
     ];
     file_put_contents($settingsPath, json_encode($onlySessionStart, JSON_PRETTY_PRINT));
@@ -84,7 +86,7 @@ try {
     $decoded = json_decode((string)file_get_contents($settingsPath), true);
     assert_equal(1, count($decoded['hooks']['SessionStart']), 'install_session_hook: topping up PreToolUse does not duplicate the existing SessionStart entry');
     assert_equal(
-        pre_tool_use_hook_command(),
+        Config::pre_tool_use_hook_command(),
         $decoded['hooks']['PreToolUse'][0]['hooks'][0]['command'] ?? null,
         'install_session_hook: adds the missing PreToolUse entry when SessionStart was already present'
     );
@@ -104,12 +106,12 @@ try {
     assert_equal('notify-send done', $decoded['hooks']['Stop'][0]['hooks'][0]['command'] ?? null, 'install_session_hook: preserves a pre-existing unrelated hook');
     assert_equal('dark', $decoded['theme'] ?? null, 'install_session_hook: preserves pre-existing top-level settings');
     assert_equal(
-        session_start_hook_command(),
+        Config::session_start_hook_command(),
         $decoded['hooks']['SessionStart'][0]['hooks'][0]['command'] ?? null,
         'install_session_hook: still adds the SessionStart entry alongside pre-existing hooks'
     );
     assert_equal(
-        pre_tool_use_hook_command(),
+        Config::pre_tool_use_hook_command(),
         $decoded['hooks']['PreToolUse'][0]['hooks'][0]['command'] ?? null,
         'install_session_hook: still adds the PreToolUse entry alongside pre-existing hooks'
     );
@@ -136,9 +138,9 @@ try {
     // --- session_start_hook_present()/pre_tool_use_hook_present(): key off the exact command string, not just hook presence ---
 
     assert_equal(false, session_start_hook_present(['hooks' => ['SessionStart' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => 'something-unrelated.sh']]]]]]), 'session_start_hook_present: false for an unrelated SessionStart hook');
-    assert_equal(true, session_start_hook_present(['hooks' => ['SessionStart' => [['matcher' => 'clear', 'hooks' => [['type' => 'command', 'command' => session_start_hook_command()]]]]]]), 'session_start_hook_present: true when our command is present under any matcher');
+    assert_equal(true, session_start_hook_present(['hooks' => ['SessionStart' => [['matcher' => 'clear', 'hooks' => [['type' => 'command', 'command' => Config::session_start_hook_command()]]]]]]), 'session_start_hook_present: true when our command is present under any matcher');
     assert_equal(false, pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => 'something-unrelated.sh']]]]]]), 'pre_tool_use_hook_present: false for an unrelated PreToolUse hook');
-    assert_equal(true, pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => pre_tool_use_hook_command()]]]]]]), 'pre_tool_use_hook_present: true when our command is present under any matcher');
+    assert_equal(true, pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => Config::pre_tool_use_hook_command()]]]]]]), 'pre_tool_use_hook_present: true when our command is present under any matcher');
 
     // --- format_pending_tool_input(): full-text preview per tool shape ---
 
@@ -330,8 +332,8 @@ test_exit();
 function run_session_start_hook(?string $csmSessionName, ?array $payload): void
 {
     $env = [
-        'HOME_ROOT' => home_root(),
-        'SIDECAR_DIR' => sidecar_dir(),
+        'HOME_ROOT' => Config::home_root(),
+        'SIDECAR_DIR' => Config::sidecar_dir(),
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
     ];
 
@@ -371,8 +373,8 @@ function run_session_start_hook(?string $csmSessionName, ?array $payload): void
 function run_pre_tool_use_hook(?string $csmSessionName, ?array $payload): string
 {
     $env = [
-        'HOME_ROOT' => home_root(),
-        'SIDECAR_DIR' => sidecar_dir(),
+        'HOME_ROOT' => Config::home_root(),
+        'SIDECAR_DIR' => Config::sidecar_dir(),
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
     ];
 

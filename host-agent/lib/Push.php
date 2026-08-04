@@ -14,22 +14,23 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/Sessions.php';
 
+use HostAgent\Services\Config;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
 
 function vapid_public_key(): string
 {
-    return csm_config('VAPID_PUBLIC_KEY', '');
+    return Config::csm_config('VAPID_PUBLIC_KEY', '');
 }
 
 function vapid_private_key(): string
 {
-    return csm_config('VAPID_PRIVATE_KEY', '');
+    return Config::csm_config('VAPID_PRIVATE_KEY', '');
 }
 
 function vapid_subject(): string
 {
-    return csm_config('VAPID_SUBJECT', 'mailto:dasc495@gmail.com');
+    return Config::csm_config('VAPID_SUBJECT', 'mailto:dasc495@gmail.com');
 }
 
 /**
@@ -40,7 +41,7 @@ function vapid_subject(): string
  */
 function push_min_working_seconds_for_finish_notify(): int
 {
-    return (int)csm_config('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY', '60');
+    return (int)Config::csm_config('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY', '60');
 }
 
 /**
@@ -62,12 +63,12 @@ function push_configured(): bool
  */
 function push_subscriptions_file(): string
 {
-    return csm_config('PUSH_SUBSCRIPTIONS_FILE', csm_repo_root() . '/host-agent/state/push-subscriptions.json');
+    return Config::csm_config('PUSH_SUBSCRIPTIONS_FILE', Config::csm_repo_root() . '/host-agent/state/push-subscriptions.json');
 }
 
 function push_state_file(): string
 {
-    return csm_config('PUSH_STATE_FILE', csm_repo_root() . '/host-agent/state/push-session-state.json');
+    return Config::csm_config('PUSH_STATE_FILE', Config::csm_repo_root() . '/host-agent/state/push-session-state.json');
 }
 
 /**
@@ -79,7 +80,7 @@ function push_state_file(): string
  */
 function push_check_status_file(): string
 {
-    return csm_config('PUSH_CHECK_STATUS_FILE', csm_repo_root() . '/host-agent/state/push-check-status.json');
+    return Config::csm_config('PUSH_CHECK_STATUS_FILE', Config::csm_repo_root() . '/host-agent/state/push-check-status.json');
 }
 
 /**
@@ -661,7 +662,7 @@ function push_delivery_check(): array
  */
 function push_timer_unit_path(): string
 {
-    return csm_config('PUSH_TIMER_UNIT_PATH', home_root() . '/.config/systemd/user/csm-push-check.timer');
+    return Config::csm_config('PUSH_TIMER_UNIT_PATH', Config::home_root() . '/.config/systemd/user/csm-push-check.timer');
 }
 
 /**
@@ -677,7 +678,7 @@ function push_timer_unit_path(): string
  */
 function push_timer_unit_name(): string
 {
-    return csm_config('PUSH_TIMER_UNIT_NAME', 'csm-push-check.timer');
+    return Config::csm_config('PUSH_TIMER_UNIT_NAME', 'csm-push-check.timer');
 }
 
 /**
@@ -797,7 +798,7 @@ function health_check(): array
     $settings = [];
     $settingsOk = true;
     $settingsMessage = null;
-    $raw = @file_get_contents(claude_settings_path());
+    $raw = @file_get_contents(Config::claude_settings_path());
 
     if ($raw !== false) {
         $decoded = json_decode($raw, true);
@@ -821,7 +822,7 @@ function health_check(): array
         ];
     }
 
-    $quotaBin = claude_quota_bin();
+    $quotaBin = Config::claude_quota_bin();
     $checks[] = [
         'key' => 'claude_quota_bin',
         'label' => 'claude-quota binary',
@@ -829,7 +830,7 @@ function health_check(): array
         'detail' => $quotaBin,
     ];
 
-    $tmuxSocketDir = dirname(tmux_socket());
+    $tmuxSocketDir = dirname(Config::tmux_socket());
     $checks[] = [
         'key' => 'tmux_socket_dir',
         'label' => 'tmux socket dir',
@@ -846,7 +847,7 @@ function health_check(): array
 
     $checks[] = push_delivery_check();
 
-    $vendorAutoload = csm_repo_root() . '/vendor/autoload.php';
+    $vendorAutoload = Config::csm_repo_root() . '/vendor/autoload.php';
     $checks[] = [
         'key' => 'composer_vendor',
         'label' => 'Composer vendor/',
@@ -860,7 +861,7 @@ function health_check(): array
 /**
  * Push-related actions, dispatched separately from Sessions.php's own
  * dispatch_action() (see agent.php) rather than folded into it - Push.php
- * already requires Sessions.php for csm_config()/csm_repo_root(), so the
+ * already requires Sessions.php for Config::csm_config()/Config::csm_repo_root(), so the
  * reverse dependency would make it a require cycle for no real benefit.
  * health_check() above rides along in this same dispatcher for the same
  * reason. Returns null for any action this doesn't recognize, so

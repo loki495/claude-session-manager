@@ -11,12 +11,13 @@ declare(strict_types=1);
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Transcript.php';
 
-// home_root() is normally defined in Sessions.php - stubbed here since
-// this file only needs claude_projects_dir(), not the rest of Sessions.php.
-function home_root(): string
-{
-    return getenv('HOME_ROOT') ?: '/home/andres';
-}
+use HostAgent\Services\Config;
+
+// Config::home_root() no longer needs stubbing here (it did back when
+// home_root() lived in Sessions.php, pulling in that whole file just for
+// this one function) - Config is now its own dependency-free, autoloaded
+// class, so the real Config::home_root() (still env-overridable via
+// HOME_ROOT, same as before) works directly.
 
 const FIXTURE_TRANSCRIPT = __DIR__ . '/fixtures/transcript_sample.jsonl';
 
@@ -252,7 +253,7 @@ $normalLongLine = parse_transcript_line(json_encode(['type' => 'assistant', 'mes
 assert_equal(10000, strlen($normalLongLine['blocks'][0]['text']), 'parse_transcript_line: a normal-sized long block (well under the hard cap) is kept in full, not truncated');
 
 // --- find_transcript_path(): only matches UUID-shaped ids, globs across
-// every project dir under claude_projects_dir() (home_root() . '/.claude/projects') ---
+// every project dir under claude_projects_dir() (Config::home_root() . '/.claude/projects') ---
 $fakeHome = sys_get_temp_dir() . '/csm-test-transcript-home-' . getmypid();
 $uuid = '12345678-1234-4123-8123-123456789012';
 @mkdir($fakeHome . '/.claude/projects/-some-project', 0700, true);

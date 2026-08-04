@@ -15,16 +15,18 @@ declare(strict_types=1);
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
+use HostAgent\Services\Config;
+
 const REAL_QUOTA_CACHE_FILE = '/run/user/1000/csm-agent-quota-cache.json';
 
-if (quota_cache_file() === REAL_QUOTA_CACHE_FILE) {
+if (Config::quota_cache_file() === REAL_QUOTA_CACHE_FILE) {
     fwrite(STDERR, "REFUSING TO RUN: QUOTA_CACHE_FILE resolves to the real host cache. Check tests/.env.testing.\n");
     exit(1);
 }
 
 function reset_quota_state(): void
 {
-    @unlink(quota_cache_file());
+    @unlink(Config::quota_cache_file());
     @unlink(quota_refresh_marker_file());
 }
 
@@ -119,7 +121,7 @@ assert_true(!claim_quota_refresh_marker(), 'claim_quota_refresh_marker: fails wh
 assert_true(quota_refresh_in_flight(), 'quota_refresh_in_flight: true for a marker written just now');
 
 @unlink(quota_refresh_marker_file());
-file_put_contents(quota_refresh_marker_file(), (string)(time() - quota_timeout_seconds() - 5));
+file_put_contents(quota_refresh_marker_file(), (string)(time() - Config::quota_timeout_seconds() - 5));
 assert_true(!quota_refresh_in_flight(), 'quota_refresh_in_flight: false for a marker older than the scrape timeout (treated as abandoned)');
 
 reset_quota_state();
@@ -132,7 +134,7 @@ try {
     assert_true($result['refreshing'] ?? false, 'get_quota() with no cache: reports a refresh as triggered');
     assert_equal(null, $result['quota'], 'get_quota() with no cache: nothing to show yet');
 
-    $appeared = wait_until(fn () => read_quota_cache() !== null, quota_timeout_seconds() + 2.0);
+    $appeared = wait_until(fn () => read_quota_cache() !== null, Config::quota_timeout_seconds() + 2.0);
     assert_true($appeared, 'get_quota(): background refresh populates the cache within the timeout');
 
     $result = get_quota();
@@ -151,14 +153,14 @@ try {
 
     // --- get_quota(): a stale cache is still returned immediately, marked stale, with a refresh kicked off ---
     $cache = read_quota_cache();
-    write_quota_cache($cache['quota'], time() - quota_cache_ttl_seconds() - 1);
+    write_quota_cache($cache['quota'], time() - Config::quota_cache_ttl_seconds() - 1);
     $result = get_quota();
     assert_true($result['ok'], 'get_quota() with stale cache: still ok');
     assert_true($result['stale'] ?? false, 'get_quota() with stale cache: marked stale');
     assert_true($result['refreshing'] ?? false, 'get_quota() with stale cache: a background refresh was triggered');
     assert_equal(42, $result['quota']['session']['pct'] ?? null, 'get_quota() with stale cache: still returns the last-known reading, not null');
 
-    wait_until(fn () => !quota_refresh_in_flight(), quota_timeout_seconds() + 2.0);
+    wait_until(fn () => !quota_refresh_in_flight(), Config::quota_timeout_seconds() + 2.0);
 
     // --- trigger_background_quota_refresh(): concurrent callers don't double-spawn ---
     reset_quota_state();
@@ -174,7 +176,7 @@ try {
     $invocations = file_exists($counterFile) ? count(array_filter(explode("\n", trim((string)file_get_contents($counterFile))))) : 0;
     assert_equal(1, $invocations, 'trigger_background_quota_refresh(): a second call while one is in flight does not spawn a duplicate scrape');
 
-    wait_until(fn () => !quota_refresh_in_flight(), quota_timeout_seconds() + 2.0);
+    wait_until(fn () => !quota_refresh_in_flight(), Config::quota_timeout_seconds() + 2.0);
     putenv('FAKE_QUOTA_SLEEP');
     putenv('FAKE_QUOTA_COUNTER_FILE');
     @unlink($counterFile);

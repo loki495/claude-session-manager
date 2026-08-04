@@ -11,9 +11,11 @@ declare(strict_types=1);
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
+use HostAgent\Services\Config;
+
 const REAL_SIDECAR_DIR = '/run/user/1000/csm-sessions';
 
-if (sidecar_dir() === REAL_SIDECAR_DIR) {
+if (Config::sidecar_dir() === REAL_SIDECAR_DIR) {
     fwrite(STDERR, "REFUSING TO RUN: SIDECAR_DIR resolves to the real one. Check tests/.env.testing.\n");
     exit(1);
 }
