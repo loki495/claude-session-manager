@@ -5,7 +5,9 @@ require __DIR__ . '/lib/AgentClient.php';
 require __DIR__ . '/lib/Auth.php';
 require __DIR__ . '/lib/Views/QuotaFooterView.php';
 require __DIR__ . '/lib/Views/PushNotifyView.php';
+require __DIR__ . '/lib/Views/HealthBoxView.php';
 
+use App\Views\HealthBoxView;
 use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
 
@@ -177,7 +179,7 @@ $csrfToken = csrf_token();
     </div>
   <?php endif; ?>
 
-  <?= health_box_html($healthChecks, $pushTimerIntervalSeconds, $csrfToken) ?>
+  <?= HealthBoxView::health_box_html($healthChecks, $pushTimerIntervalSeconds, $csrfToken) ?>
 
   <details id="new-session-details" class="mb-3 rounded-xl border border-slate-800 bg-slate-900/50">
     <summary id="new-session-summary" class="min-h-[3rem] flex items-center justify-center rounded-xl bg-indigo-600 active:bg-indigo-700 font-medium text-base px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
