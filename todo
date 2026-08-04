@@ -158,3 +158,8 @@ Bigger or investigative items:
   review should push-notify similarly to a blocked prompt (it's
   functionally "waiting on you"), which check_and_send_pushes() doesn't
   currently know how to detect at all.
+- session.php: recognize the /clear slash command in the transcript (and
+  other local commands going forward) and, on displaying it, clear the
+  screen of prior entries - similar in spirit to how a real terminal
+  clears on /clear rather than just rendering it as a generic command
+  entry mixed in with everything before it.
