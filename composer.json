@@ -3,7 +3,8 @@
     "description": "Personal Claude Code session manager (host-agent + web frontend)",
     "type": "project",
     "require": {
-        "minishlink/web-push": "^9.0"
+        "minishlink/web-push": "^9.0",
+        "league/plates": "^3.6"
     },
     "autoload": {
         "psr-4": {
