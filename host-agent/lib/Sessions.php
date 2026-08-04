@@ -21,123 +21,13 @@ use HostAgent\Services\ProcessRunner;
 use HostAgent\Services\TmuxService;
 use HostAgent\Services\PromptParser;
 use HostAgent\Services\ProcessInspector;
+use HostAgent\Services\HookService;
+use HostAgent\Services\UploadService;
+use HostAgent\Services\QuotaService;
 
-function sidecar_path(string $sessionName): string
-{
-    return Config::sidecar_dir() . '/' . $sessionName . '.json';
-}
+use HostAgent\Stores\SidecarStore;
+use HostAgent\Stores\PendingToolStore;
 
-/**
- * @return array{workdir:?string, spawned_at:?int}|null
- */
-function read_sidecar(string $sessionName): ?array
-{
-    $path = sidecar_path($sessionName);
-    $raw = @file_get_contents($path);
-
-    if ($raw === false) {
-        return null;
-    }
-
-    $decoded = json_decode($raw, true);
-
-    return is_array($decoded) ? $decoded : null;
-}
-
-function write_sidecar(string $sessionName, array $data): void
-{
-    if (!is_dir(Config::sidecar_dir())) {
-        @mkdir(Config::sidecar_dir(), 0700, true);
-    }
-
-    @file_put_contents(sidecar_path($sessionName), json_encode($data));
-}
-
-function delete_sidecar(string $sessionName): void
-{
-    @unlink(sidecar_path($sessionName));
-}
-
-/**
- * Suffixes (beyond plain "sessionName.json") every other kind of
- * session-keyed sidecar file uses - see pending_tool_path(). Kept as one
- * list so prune_orphaned_sidecars() only has one place to update when a
- * new sidecar kind is added.
- */
-const SIDECAR_FILE_SUFFIXES = ['.pending-tool'];
-
-/**
- * A session can die on its own (crash, host reboot, bad cwd) without ever
- * going through kill_cc_session(), leaving its sidecar file(s) behind on
- * tmpfs. Since this runs on every listing anyway, prune anything whose
- * session no longer exists rather than letting them accumulate.
- *
- * Globs every sidecar kind (plain sessionName.json, plus each suffixed
- * kind in SIDECAR_FILE_SUFFIXES) in one pass - the suffix is stripped
- * back off before the liveness check so a live session's own pending-tool
- * file is never mistaken for an orphan just because its filename doesn't
- * equal a session name verbatim.
- */
-function prune_orphaned_sidecars(array $liveSessionNames): void
-{
-    foreach (glob(Config::sidecar_dir() . '/*.json') ?: [] as $path) {
-        $base = basename($path, '.json');
-        $name = $base;
-
-        foreach (SIDECAR_FILE_SUFFIXES as $suffix) {
-            if (str_ends_with($base, $suffix)) {
-                $name = substr($base, 0, -strlen($suffix));
-                break;
-            }
-        }
-
-        if (!in_array($name, $liveSessionNames, true)) {
-            @unlink($path);
-        }
-    }
-}
-
-function pending_tool_path(string $sessionName): string
-{
-    return Config::sidecar_dir() . '/' . $sessionName . '.pending-tool.json';
-}
-
-/**
- * The most recent PreToolUse hook payload recorded for this session (see
- * host-agent/hooks/pre_tool_use.php) - one file per session, always
- * overwritten by the latest tool call, never appended. Only meaningful
- * alongside a pane-detected blocking prompt (see
- * PromptParser::augment_prompt_with_pending_tool()); by itself this says nothing about
- * whether that tool call actually ended up needing approval.
- *
- * @return array{tool_name:?string, tool_input:?array, written_at:?int}|null
- */
-function read_pending_tool(string $sessionName): ?array
-{
-    $raw = @file_get_contents(pending_tool_path($sessionName));
-
-    if ($raw === false) {
-        return null;
-    }
-
-    $decoded = json_decode($raw, true);
-
-    return is_array($decoded) ? $decoded : null;
-}
-
-function write_pending_tool(string $sessionName, array $data): void
-{
-    if (!is_dir(Config::sidecar_dir())) {
-        @mkdir(Config::sidecar_dir(), 0700, true);
-    }
-
-    @file_put_contents(pending_tool_path($sessionName), json_encode($data));
-}
-
-function delete_pending_tool(string $sessionName): void
-{
-    @unlink(pending_tool_path($sessionName));
-}
 
 /**
  * Builds one cc-* session's list-row/detail data from already-fetched
@@ -163,12 +53,12 @@ function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppid
         }
     }
 
-    $sidecar = read_sidecar($tmuxSession['name']);
+    $sidecar = SidecarStore::read_sidecar($tmuxSession['name']);
     $paneContent = TmuxService::tmux_capture_pane($tmuxSession['name']);
     $prompt = PromptParser::parse_blocking_prompt($paneContent);
 
     if ($prompt !== null) {
-        $prompt = PromptParser::augment_prompt_with_pending_tool($prompt, read_pending_tool($tmuxSession['name']));
+        $prompt = PromptParser::augment_prompt_with_pending_tool($prompt, PendingToolStore::read_pending_tool($tmuxSession['name']));
     }
 
     $claudeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
@@ -238,7 +128,7 @@ function list_all_sessions(): array
     $claudeProcs = ProcessInspector::find_claude_processes();
     $ppidMap = ProcessInspector::build_ppid_map();
 
-    prune_orphaned_sidecars(array_column($tmuxSessions, 'name'));
+    SidecarStore::prune_orphaned_sidecars(array_column($tmuxSessions, 'name'));
 
     $trackedPids = [];
     $sessions = [];
@@ -310,7 +200,7 @@ function session_detail(string $name): array
  */
 function session_history(string $name, ?int $before, int $limit): array
 {
-    $sidecar = read_sidecar($name);
+    $sidecar = SidecarStore::read_sidecar($name);
     $claudeSessionId = $sidecar['claude_session_id'] ?? null;
 
     if (!is_string($claudeSessionId)) {
@@ -326,186 +216,6 @@ function session_history(string $name, ?int $before, int $limit): array
     return read_transcript_page($path, $before, max(1, min($limit, 200)));
 }
 
-/**
- * PHP's JSON_PRETTY_PRINT always uses 4-space indent with no way to
- * configure it - re-indented to 2 spaces here to match how
- * ~/.claude/settings.json already looks (and how Claude Code itself
- * writes it), so installing the hook doesn't reformat every other line
- * in a file that isn't otherwise ours to restyle.
- */
-function reindent_json_pretty(string $json): string
-{
-    $lines = explode("\n", $json);
-
-    foreach ($lines as &$line) {
-        if (preg_match('/^( +)/', $line, $m) === 1) {
-            $line = str_repeat(' ', intdiv(strlen($m[1]), 2)) . substr($line, strlen($m[1]));
-        }
-    }
-
-    return implode("\n", $lines);
-}
-
-/**
- * True if ~/.claude/settings.json already has a hook entry under $event
- * running the exact given command - checked by command string, not just
- * "a hook of this type exists", so a user's own unrelated hooks are never
- * mistaken for ours. Shared by session_start_hook_present() and
- * pre_tool_use_hook_present() below.
- *
- * @param array<string, mixed> $settings
- */
-function hook_command_present(array $settings, string $event, string $command): bool
-{
-    $entries = $settings['hooks'][$event] ?? [];
-
-    if (!is_array($entries)) {
-        return false;
-    }
-
-    foreach ($entries as $matcherGroup) {
-        $hooks = is_array($matcherGroup) ? ($matcherGroup['hooks'] ?? []) : [];
-
-        foreach ((is_array($hooks) ? $hooks : []) as $hook) {
-            if (is_array($hook) && ($hook['command'] ?? null) === $command) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-/**
- * @param array<string, mixed> $settings
- */
-function session_start_hook_present(array $settings): bool
-{
-    return hook_command_present($settings, 'SessionStart', Config::session_start_hook_command());
-}
-
-/**
- * @param array<string, mixed> $settings
- */
-function pre_tool_use_hook_present(array $settings): bool
-{
-    return hook_command_present($settings, 'PreToolUse', Config::pre_tool_use_hook_command());
-}
-
-/**
- * Every hook event + command this app installs - check_session_hook()/
- * install_session_hook() are entirely data-driven off this list, so
- * adding a new hook only ever needs one line added here (plus the new
- * script itself and its own *_hook_command()/*_hook_present() pair, kept
- * as real named functions rather than folded into this list too, since
- * tests and other call sites reference them directly by name).
- *
- * @return array<int, array{event:string, command:string, present:bool}>
- */
-function app_hooks_status(array $settings): array
-{
-    return [
-        ['event' => 'SessionStart', 'command' => Config::session_start_hook_command(), 'present' => session_start_hook_present($settings)],
-        ['event' => 'PreToolUse', 'command' => Config::pre_tool_use_hook_command(), 'present' => pre_tool_use_hook_present($settings)],
-    ];
-}
-
-/**
- * Reads ~/.claude/settings.json (if any) and reports whether every one of
- * this app's hooks (see app_hooks_status()) is already registered. A
- * missing file is a normal, expected "not set up yet" state, not an
- * error; a file that exists but fails to parse as JSON is an error, since
- * installing on top of it risks Claude Code refusing to start (or
- * install_session_hook() below refusing to touch it at all).
- *
- * @return array{ok:bool, installed:bool, message?:string}
- */
-function check_session_hook(): array
-{
-    $raw = @file_get_contents(Config::claude_settings_path());
-
-    if ($raw === false) {
-        return ['ok' => true, 'installed' => false];
-    }
-
-    $settings = json_decode($raw, true);
-
-    if (!is_array($settings)) {
-        return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON'];
-    }
-
-    $allPresent = true;
-
-    foreach (app_hooks_status($settings) as $hook) {
-        if (!$hook['present']) {
-            $allPresent = false;
-            break;
-        }
-    }
-
-    return ['ok' => true, 'installed' => $allPresent];
-}
-
-/**
- * Adds every missing app_hooks_status() entry to ~/.claude/settings.json,
- * creating the file if it doesn't exist yet. Never overwrites an existing
- * file that fails to parse - a blind reset-to-empty-then-write would
- * silently discard every other hook/setting Andres already has configured
- * there. Idempotent per hook: each is only added if not already present,
- * so this is safe to call from a "just make sure it's there" dashboard
- * button without a separate check first, and safe to re-run after only
- * some of them were ever installed.
- *
- * @return array{ok:bool, installed:bool, message?:string}
- */
-function install_session_hook(): array
-{
-    $path = Config::claude_settings_path();
-    $raw = @file_get_contents($path);
-    $settings = [];
-
-    if ($raw !== false) {
-        $settings = json_decode($raw, true);
-
-        if (!is_array($settings)) {
-            return ['ok' => false, 'installed' => false, 'message' => '~/.claude/settings.json exists but is not valid JSON - fix or add the hooks manually, see README'];
-        }
-    }
-
-    $missing = array_filter(app_hooks_status($settings), fn(array $hook): bool => !$hook['present']);
-
-    if ($missing === []) {
-        return ['ok' => true, 'installed' => true];
-    }
-
-    $settings['hooks'] ??= [];
-
-    foreach ($missing as $hook) {
-        $settings['hooks'][$hook['event']] ??= [];
-        $settings['hooks'][$hook['event']][] = [
-            'matcher' => '*',
-            'hooks' => [
-                ['type' => 'command', 'command' => $hook['command']],
-            ],
-        ];
-    }
-
-    $encoded = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-    if ($encoded === false) {
-        return ['ok' => false, 'installed' => false, 'message' => 'Failed to encode updated settings'];
-    }
-
-    if (!is_dir(dirname($path))) {
-        @mkdir(dirname($path), 0700, true);
-    }
-
-    if (@file_put_contents($path, reindent_json_pretty($encoded) . "\n") === false) {
-        return ['ok' => false, 'installed' => false, 'message' => 'Could not write ~/.claude/settings.json'];
-    }
-
-    return ['ok' => true, 'installed' => true];
-}
 
 /**
  * A random (v4) UUID, RFC 4122 §4.4 - used as the --session-id passed to
@@ -569,7 +279,7 @@ function create_cc_session(string $workdir): array
         ];
     }
 
-    write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId]);
+    SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId]);
 
     return ['ok' => true, 'message' => "Created session {$name} in {$workdir}"];
 }
@@ -594,8 +304,8 @@ function kill_cc_session(string $requested): array
         return ['ok' => false, 'message' => "Failed to kill {$requested}: " . trim($result['stderr'])];
     }
 
-    delete_sidecar($requested);
-    delete_pending_tool($requested);
+    SidecarStore::delete_sidecar($requested);
+    PendingToolStore::delete_pending_tool($requested);
 
     return ['ok' => true, 'message' => "Killed {$requested}"];
 }
@@ -649,10 +359,10 @@ function answer_prompt(string $name, int $option): array
         return ['ok' => false, 'message' => "Failed to send response: " . trim($enterResult['stderr'])];
     }
 
-    // The pending-tool file (see read_pending_tool()) only ever describes
+    // The pending-tool file (see PendingToolStore::read_pending_tool()) only ever describes
     // whatever's currently blocking - once this app itself has just
     // submitted the answer, it's guaranteed stale for any future prompt.
-    delete_pending_tool($name);
+    PendingToolStore::delete_pending_tool($name);
 
     return ['ok' => true, 'message' => "Sent option {$option} to {$name}"];
 }
@@ -718,7 +428,7 @@ function answer_prompt_with_text(string $name, int $option, string $text): array
         return ['ok' => false, 'message' => 'Reply sent but failed to submit: ' . trim($enterResult['stderr'])];
     }
 
-    delete_pending_tool($name);
+    PendingToolStore::delete_pending_tool($name);
 
     return ['ok' => true, 'message' => "Sent free-text reply to {$name}"];
 }
@@ -890,7 +600,7 @@ function cleanup_inactive_sessions(): array
         $result = TmuxService::tmux_run(['kill-session', '-t', $session['name']]);
 
         if ($result['exit'] === 0) {
-            delete_sidecar($session['name']);
+            SidecarStore::delete_sidecar($session['name']);
             $killed[] = $session['name'];
         } else {
             $failed[] = $session['name'];
@@ -992,653 +702,6 @@ function browse_dir(string $path): array
     ];
 }
 
-/**
- * Uploads for a session are kept inside its OWN project working dir
- * under .claude/uploads/ (Andres's own suggestion) rather than some
- * app-managed location elsewhere - that way an uploaded file's path is
- * naturally already something Claude Code can read directly (relative
- * to its own cwd) without needing to be told about an app-specific
- * location, and .claude/ already reads as tooling-owned rather than
- * real project content (likely already gitignored in most projects that
- * use Claude Code at all).
- */
-function uploads_dir(string $workdir): string
-{
-    return rtrim($workdir, '/') . '/.claude/uploads';
-}
-
-/**
- * A self-contained .gitignore ("*") inside the uploads dir itself,
- * rather than touching the project's own root .gitignore - found live
- * testing this feature that .claude/ is NOT reliably already gitignored
- * (checked this very repo: it wasn't), so without this an uploaded file
- * would show up as untracked in `git status` in any project that hasn't
- * already excluded .claude/ itself. Self-healing: called on every save
- * (cheap - just an is_file() check in the common case), not only when
- * the directory is first created, so it survives a delete_all wiping
- * the directory back to empty.
- */
-function ensure_uploads_gitignore(string $dir): void
-{
-    $path = $dir . '/.gitignore';
-
-    if (!is_file($path)) {
-        @file_put_contents($path, "*\n");
-    }
-}
-
-/**
- * Resolves a session name to its known project working directory - the
- * same sidecar-backed value build_session_entry() exposes as 'workdir'
- * elsewhere, fetched directly here since uploads only ever need this one
- * field. Only ever set for app-spawned sessions (see write_sidecar() in
- * create_cc_session()) - a bare/manually-attached session has no sidecar
- * and so no known workdir, same limitation every other workdir-dependent
- * feature in this app already has.
- */
-function session_workdir(string $name): ?string
-{
-    $sidecar = read_sidecar($name);
-    $workdir = $sidecar['workdir'] ?? null;
-
-    return is_string($workdir) && $workdir !== '' ? $workdir : null;
-}
-
-/**
- * Matches the upload_max_filesize/post_max_size raised in docker-
- * compose.yml's php.ini override - an independent, friendlier-error
- * check rather than relying solely on PHP silently truncating/rejecting
- * an oversized request.
- */
-function max_upload_bytes(): int
-{
-    return (int)Config::csm_config('MAX_UPLOAD_BYTES', (string)(25 * 1024 * 1024));
-}
-
-/**
- * Strips any directory components and control characters from a
- * client-supplied filename down to a safe basename - a client could
- * send "../../etc/passwd" or similar as the filename field.
- */
-function sanitize_upload_filename(string $filename): string
-{
-    $base = basename(trim($filename));
-    $base = preg_replace('/[\x00-\x1f]/', '', $base) ?? $base;
-    $base = ltrim($base, '.'); // no leading dot - avoid a hidden file, or matching '.'/'..' after stripping
-
-    return $base !== '' ? $base : 'upload';
-}
-
-/**
- * Appends a numeric suffix before the extension until the name no
- * longer collides with an existing file - never silently overwrites an
- * earlier upload that happens to share a name.
- */
-function unique_upload_filename(string $dir, string $filename): string
-{
-    $ext = pathinfo($filename, PATHINFO_EXTENSION);
-    $base = pathinfo($filename, PATHINFO_FILENAME);
-    $candidate = $filename;
-    $i = 1;
-
-    while (file_exists($dir . '/' . $candidate)) {
-        $candidate = $ext !== '' ? "{$base}-{$i}.{$ext}" : "{$base}-{$i}";
-        $i++;
-    }
-
-    return $candidate;
-}
-
-/**
- * @return array{ok:bool, message?:string, filename?:string, path?:string, size?:int}
- */
-function save_uploaded_file(string $sessionName, string $filename, string $base64Content): array
-{
-    $workdir = session_workdir($sessionName);
-
-    if ($workdir === null) {
-        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
-    }
-
-    $decoded = base64_decode($base64Content, true);
-
-    if ($decoded === false) {
-        return ['ok' => false, 'message' => 'Malformed upload data'];
-    }
-
-    if (strlen($decoded) > max_upload_bytes()) {
-        return ['ok' => false, 'message' => 'File too large (max ' . intdiv(max_upload_bytes(), 1024 * 1024) . 'MB)'];
-    }
-
-    $dir = uploads_dir($workdir);
-
-    if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
-        return ['ok' => false, 'message' => 'Could not create the uploads directory'];
-    }
-
-    ensure_uploads_gitignore($dir);
-
-    $finalName = unique_upload_filename($dir, sanitize_upload_filename($filename));
-
-    if (@file_put_contents($dir . '/' . $finalName, $decoded) === false) {
-        return ['ok' => false, 'message' => 'Failed to write the uploaded file'];
-    }
-
-    return [
-        'ok' => true,
-        'filename' => $finalName,
-        'path' => '.claude/uploads/' . $finalName,
-        'size' => strlen($decoded),
-    ];
-}
-
-/**
- * @return array{ok:bool, message?:string, files?:array<int, array{name:string, size:int, mtime:int}>, total_size?:int}
- */
-function list_uploaded_files(string $sessionName): array
-{
-    $workdir = session_workdir($sessionName);
-
-    if ($workdir === null) {
-        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
-    }
-
-    $dir = uploads_dir($workdir);
-
-    if (!is_dir($dir)) {
-        return ['ok' => true, 'files' => [], 'total_size' => 0];
-    }
-
-    $files = [];
-    $totalSize = 0;
-
-    foreach (scandir($dir) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..' || $entry === '.gitignore') {
-            continue;
-        }
-
-        $full = $dir . '/' . $entry;
-
-        if (!is_file($full)) {
-            continue;
-        }
-
-        $size = filesize($full);
-        $size = $size !== false ? $size : 0;
-
-        $files[] = ['name' => $entry, 'size' => $size, 'mtime' => filemtime($full) ?: 0];
-        $totalSize += $size;
-    }
-
-    usort($files, fn(array $a, array $b): int => $b['mtime'] <=> $a['mtime']);
-
-    return ['ok' => true, 'files' => $files, 'total_size' => $totalSize];
-}
-
-/**
- * Resolves $filename against the uploads dir with a realpath boundary
- * check (same discipline as browse_dir()) - basename() alone already
- * stops plain "../" traversal in the filename itself, but not e.g. a
- * symlink planted inside the uploads dir pointing elsewhere.
- */
-function resolve_upload_path(string $workdir, string $filename): ?string
-{
-    $dir = uploads_dir($workdir);
-    $realDir = realpath($dir);
-
-    if ($realDir === false) {
-        return null;
-    }
-
-    $real = realpath($dir . '/' . basename($filename));
-
-    if ($real === false || !str_starts_with($real, $realDir . '/')) {
-        return null;
-    }
-
-    return $real;
-}
-
-/**
- * @return array{ok:bool, message?:string}
- */
-function delete_uploaded_file(string $sessionName, string $filename): array
-{
-    if (basename($filename) === '.gitignore') {
-        return ['ok' => false, 'message' => 'File not found']; // internal bookkeeping, not a real upload - same not-found response as any other name that isn't a real uploaded file, no need to expose that this one's special
-    }
-
-    $workdir = session_workdir($sessionName);
-
-    if ($workdir === null) {
-        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
-    }
-
-    $real = resolve_upload_path($workdir, $filename);
-
-    if ($real === null || !is_file($real)) {
-        return ['ok' => false, 'message' => 'File not found'];
-    }
-
-    if (!@unlink($real)) {
-        return ['ok' => false, 'message' => 'Failed to delete the file'];
-    }
-
-    return ['ok' => true];
-}
-
-/**
- * @return array{ok:bool, message?:string, deleted?:int}
- */
-function delete_all_uploaded_files(string $sessionName): array
-{
-    $workdir = session_workdir($sessionName);
-
-    if ($workdir === null) {
-        return ['ok' => false, 'message' => 'Unknown working directory for this session'];
-    }
-
-    $dir = uploads_dir($workdir);
-
-    if (!is_dir($dir)) {
-        return ['ok' => true, 'deleted' => 0];
-    }
-
-    $deleted = 0;
-
-    foreach (scandir($dir) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..' || $entry === '.gitignore') {
-            continue;
-        }
-
-        $full = $dir . '/' . $entry;
-
-        if (is_file($full) && @unlink($full)) {
-            $deleted++;
-        }
-    }
-
-    return ['ok' => true, 'deleted' => $deleted];
-}
-
-/**
- * claude-quota's "Resets" text is whatever Claude Code's own /usage panel
- * prints - either a bare time ("3pm", presumed to be the next occurrence
- * of that time - today unless that's already passed, then tomorrow) or a
- * dated time ("Jul 10, 8pm"), always followed by a parenthesized IANA
- * timezone. Converts that into an absolute unix timestamp so the frontend
- * can render a live "resets in Xh Ym" countdown instead of a fixed string
- * that goes stale the moment it's rendered.
- */
-function parse_resets_at(string $resets, int $now): ?int
-{
-    if (preg_match('/^(.*)\s\(([^)]+)\)$/', $resets, $m) !== 1) {
-        return null;
-    }
-
-    $timePart = trim($m[1]);
-    $tzName = trim($m[2]);
-    $hasDate = preg_match('/^[A-Za-z]{3}\s+\d{1,2}\b/', $timePart) === 1;
-
-    // Normalize a bare "8pm" to "8:00pm" - PHP's parser otherwise misreads
-    // the hour as a timezone abbreviation when a date precedes it (e.g.
-    // "Jul 10 8pm"), and strip the comma between date and time for the
-    // same reason.
-    $normalized = preg_replace('/(?<!:)\b(\d{1,2})([ap]m)\b/i', '$1:00$2', str_replace(',', '', $timePart));
-
-    try {
-        $dt = new DateTime((string)$normalized, new DateTimeZone($tzName));
-    } catch (Throwable) {
-        return null;
-    }
-
-    if (!$hasDate && $dt->getTimestamp() <= $now) {
-        $dt->modify('+1 day');
-    }
-
-    return $dt->getTimestamp();
-}
-
-/**
- * @param array<string, mixed> $quota
- * @return array<string, mixed>
- */
-function enrich_quota_resets(array $quota, int $now): array
-{
-    foreach ($quota as $key => $bucket) {
-        if (!is_array($bucket) || !isset($bucket['resets']) || !is_string($bucket['resets'])) {
-            continue;
-        }
-
-        $resetsAt = parse_resets_at($bucket['resets'], $now);
-
-        if ($resetsAt !== null) {
-            $quota[$key]['resets_at'] = $resetsAt;
-        }
-    }
-
-    return $quota;
-}
-
-/**
- * Claude Code's own status line already shows both rate-limit percentages
- * this app cares about, e.g. "... | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40%
- * (5d 8h) ..." - "5h" is the rolling 5-hour window (labeled "session" to
- * match claude-quota's own key), "7d" the weekly one (labeled "week_all").
- * Verified live 2026-08-02 against claude-quota's own real scrape at
- * nearly the same moment: matching percentages (51% / ~41%). Only
- * "ctx" (context-window usage, not account quota - deliberately not
- * parsed here) is guaranteed present from the very first prompt; "5h"/"7d"
- * only appear once Claude Code has actually made an API call in that
- * pane, so a fresh welcome-screen pane with nothing sent yet won't match.
- *
- * @return array{session:array{pct:int,resets:string},week_all:array{pct:int,resets:string}}|null
- */
-function parse_quota_from_pane(string $paneContent): ?array
-{
-    if (preg_match('/5h:\s*(\d+)%\s*\(([^)]+)\)/u', $paneContent, $sessionMatch) !== 1) {
-        return null;
-    }
-
-    if (preg_match('/7d:\s*(\d+)%\s*\(([^)]+)\)/u', $paneContent, $weekMatch) !== 1) {
-        return null;
-    }
-
-    return [
-        'session' => ['pct' => (int)$sessionMatch[1], 'resets' => trim($sessionMatch[2])],
-        'week_all' => ['pct' => (int)$weekMatch[1], 'resets' => trim($weekMatch[2])],
-    ];
-}
-
-/**
- * Parses a short duration like "1h 53m" or "5d 8h" - exactly the shape
- * Claude Code's status line shows next to each percentage (see
- * parse_quota_from_pane()) - into seconds. Distinct from
- * parse_resets_at(), which parses a full clock-time-plus-timezone string
- * instead (what claude-quota's slower /usage-panel scrape produces).
- */
-function parse_footer_duration(string $duration): ?int
-{
-    if (preg_match('/^(?:(\d+)d)?\s*(?:(\d+)h)?\s*(?:(\d+)m)?$/u', trim($duration), $m) !== 1) {
-        return null;
-    }
-
-    $seconds = ((int)($m[1] ?? 0)) * 86400 + ((int)($m[2] ?? 0)) * 3600 + ((int)($m[3] ?? 0)) * 60;
-
-    return $seconds > 0 ? $seconds : null;
-}
-
-/**
- * Tries every currently-live managed tmux session's pane for the
- * status-line quota shape (see parse_quota_from_pane()) and returns the
- * first one found - a single capture-pane call per live session, no
- * scraping subprocess, so this is near-instant compared to
- * run_claude_quota() below. Rate limits are account-wide, not per-session,
- * so it doesn't matter which live session's pane happens to answer first.
- * Returns null if no live session's pane currently shows quota (no
- * sessions running at all, or every one is still on its pre-first-message
- * welcome screen) - callers should fall back to run_claude_quota()'s
- * cached reading in that case.
- *
- * @return array{quota:array, fetched_at:int}|null
- */
-function quota_from_live_pane(): ?array
-{
-    foreach (TmuxService::list_cc_tmux_sessions() as $tmuxSession) {
-        $parsed = parse_quota_from_pane(TmuxService::tmux_capture_pane($tmuxSession['name']));
-
-        if ($parsed === null) {
-            continue;
-        }
-
-        $now = time();
-        $quota = $parsed;
-
-        foreach ($quota as $key => $bucket) {
-            $seconds = parse_footer_duration($bucket['resets']);
-
-            if ($seconds !== null) {
-                $quota[$key]['resets_at'] = $now + $seconds;
-            }
-        }
-
-        $quota['captured_at'] = date('c', $now);
-
-        return ['quota' => $quota, 'fetched_at' => $now];
-    }
-
-    return null;
-}
-
-/**
- * Runs the claude-quota script (a wrapper that scrapes Claude Code's own
- * /usage panel via a detached screen session - see the script itself for
- * the mechanism). This is slow, 10-40s, since it drives a real TUI, so it
- * must only ever be called in the background (see trigger_background_quota_refresh()),
- * never inline while a request is waiting. Only still reached (via
- * get_quota()) when no live session's pane already shows quota (see
- * quota_from_live_pane()) - e.g. no sessions currently running at all.
- *
- * @return array{ok:bool, quota?:array, message?:string}
- */
-function run_claude_quota(): array
-{
-    $result = ProcessRunner::run_process(['timeout', (string)Config::quota_timeout_seconds(), Config::claude_quota_bin()]);
-
-    if ($result['exit'] !== 0) {
-        $message = trim($result['stderr']) !== ''
-            ? trim($result['stderr'])
-            : "claude-quota exited with code {$result['exit']}";
-
-        return ['ok' => false, 'message' => $message];
-    }
-
-    $decoded = json_decode($result['stdout'], true);
-
-    if (!is_array($decoded)) {
-        return ['ok' => false, 'message' => 'claude-quota returned malformed JSON'];
-    }
-
-    return ['ok' => true, 'quota' => enrich_quota_resets($decoded, time())];
-}
-
-/**
- * @return array{quota:array, fetched_at:int}|null
- */
-function read_quota_cache(): ?array
-{
-    $raw = @file_get_contents(Config::quota_cache_file());
-
-    if ($raw === false) {
-        return null;
-    }
-
-    $decoded = json_decode($raw, true);
-
-    if (!is_array($decoded) || !isset($decoded['quota'], $decoded['fetched_at']) || !is_array($decoded['quota'])) {
-        return null;
-    }
-
-    return ['quota' => $decoded['quota'], 'fetched_at' => (int)$decoded['fetched_at']];
-}
-
-function write_quota_cache(array $quota, int $fetchedAt): void
-{
-    $dir = dirname(Config::quota_cache_file());
-
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0700, true);
-    }
-
-    @file_put_contents(Config::quota_cache_file(), json_encode(['quota' => $quota, 'fetched_at' => $fetchedAt]));
-}
-
-function quota_refresh_marker_file(): string
-{
-    return Config::quota_cache_file() . '.refreshing';
-}
-
-/**
- * A refresh marker younger than the scrape timeout means some earlier
- * request already spawned a background refresh that's presumably still
- * running - don't spawn a second one. A marker older than the timeout is
- * treated as abandoned (the process that wrote it crashed, or the host
- * rebooted, without cleaning up) rather than blocking refreshes forever.
- */
-function quota_refresh_in_flight(): bool
-{
-    $raw = @file_get_contents(quota_refresh_marker_file());
-
-    if ($raw === false) {
-        return false;
-    }
-
-    return (time() - (int)trim($raw)) < Config::quota_timeout_seconds();
-}
-
-/**
- * Atomically claims the right to spawn a refresh: fopen(..., 'x') is
- * O_CREAT|O_EXCL, which fails if the marker already exists. That's the
- * part that actually prevents a race - e.g. two browser tabs (or two
- * quick page reloads) both hitting /quota.php within the same instant
- * would otherwise both see "no marker yet" from a plain
- * file_exists()-then-write check and both spawn a scrape. With an
- * exclusive create, only one of them can ever win.
- */
-function claim_quota_refresh_marker(): bool
-{
-    $handle = @fopen(quota_refresh_marker_file(), 'x');
-
-    if ($handle === false) {
-        return false;
-    }
-
-    fwrite($handle, (string)time());
-    fclose($handle);
-
-    return true;
-}
-
-/**
- * Fires a fully detached background process that runs the slow
- * claude-quota scrape and writes the result to the cache file itself, so
- * the request that triggered this can return immediately instead of
- * waiting on it. Stdio is bound to /dev/null via proc_open's 'file'
- * descriptor type (not pipes) specifically so the child has nothing tied
- * to this short-lived agent.php connection process - it keeps running
- * fine after this process has already sent its response and exited.
- *
- * @return bool true if a refresh is (now, or already) in flight
- */
-function trigger_background_quota_refresh(): bool
-{
-    $dir = dirname(quota_refresh_marker_file());
-
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0700, true);
-    }
-
-    if (!claim_quota_refresh_marker()) {
-        // Someone else's marker is already there. If it's fresh, that
-        // refresh is genuinely in flight - nothing more to do. If it's
-        // stale (abandoned by a crashed process), reclaim it once; if
-        // even that loses a race to another request doing the same
-        // thing, defer to whichever of us won rather than double-spawning.
-        if (quota_refresh_in_flight()) {
-            return true;
-        }
-
-        @unlink(quota_refresh_marker_file());
-
-        if (!claim_quota_refresh_marker()) {
-            return true;
-        }
-    }
-
-    $descriptors = [
-        0 => ['file', '/dev/null', 'r'],
-        1 => ['file', '/dev/null', 'w'],
-        2 => ['file', '/dev/null', 'w'],
-    ];
-
-    $process = @proc_open([PHP_BINARY, __DIR__ . '/../quota_refresh.php'], $descriptors, $pipes);
-
-    if (!is_resource($process)) {
-        @unlink(quota_refresh_marker_file());
-        return false;
-    }
-
-    // Deliberately not proc_close()'d - that blocks the caller until the
-    // child exits, defeating the entire point of backgrounding this.
-    return true;
-}
-
-/**
- * Cached in front of run_claude_quota() since that's expensive (spins up a
- * real `claude` TUI in a screen session just to read a percentage) and
- * always non-blocking: a stale/missing cache triggers a background
- * refresh (see trigger_background_quota_refresh()) and returns immediately
- * with whatever's cached (marked "stale") rather than making the request
- * wait 10-40s for a fresh scrape.
- *
- * @return array{ok:bool, quota:?array, fetched_at:?int, cached:bool, stale:bool, refreshing:bool, message?:string}
- */
-function get_quota(): array
-{
-    $live = quota_from_live_pane();
-
-    if ($live !== null) {
-        return [
-            'ok' => true,
-            'quota' => $live['quota'],
-            'fetched_at' => $live['fetched_at'],
-            'cached' => false,
-            'stale' => false,
-            'refreshing' => false,
-        ];
-    }
-
-    $ttl = Config::quota_cache_ttl_seconds();
-    $cache = read_quota_cache();
-    $now = time();
-    $fresh = $cache !== null && ($now - $cache['fetched_at']) < $ttl;
-
-    if ($fresh) {
-        return [
-            'ok' => true,
-            'quota' => $cache['quota'],
-            'fetched_at' => $cache['fetched_at'],
-            'cached' => true,
-            'stale' => false,
-            'refreshing' => false,
-        ];
-    }
-
-    $refreshing = trigger_background_quota_refresh();
-
-    if ($cache !== null) {
-        return [
-            'ok' => true,
-            'quota' => $cache['quota'],
-            'fetched_at' => $cache['fetched_at'],
-            'cached' => true,
-            'stale' => true,
-            'refreshing' => $refreshing,
-        ];
-    }
-
-    return [
-        'ok' => $refreshing,
-        'quota' => null,
-        'fetched_at' => null,
-        'cached' => false,
-        'stale' => false,
-        'refreshing' => $refreshing,
-        'message' => $refreshing
-            ? 'Fetching quota for the first time - this can take up to a minute'
-            : 'Could not start quota refresh',
-    ];
-}
 
 /**
  * @return array
@@ -1693,29 +756,29 @@ function dispatch_action(array $request): array
             return browse_dir((string)($request['path'] ?? ''));
 
         case 'quota':
-            return get_quota();
+            return QuotaService::get_quota();
 
         case 'check_session_hook':
-            return check_session_hook();
+            return HookService::check_session_hook();
 
         case 'install_session_hook':
-            return install_session_hook();
+            return HookService::install_session_hook();
 
         case 'save_uploaded_file':
-            return save_uploaded_file(
+            return UploadService::save_uploaded_file(
                 (string)($request['session'] ?? ''),
                 (string)($request['filename'] ?? ''),
                 (string)($request['content_base64'] ?? '')
             );
 
         case 'list_uploaded_files':
-            return list_uploaded_files((string)($request['session'] ?? ''));
+            return UploadService::list_uploaded_files((string)($request['session'] ?? ''));
 
         case 'delete_uploaded_file':
-            return delete_uploaded_file((string)($request['session'] ?? ''), (string)($request['filename'] ?? ''));
+            return UploadService::delete_uploaded_file((string)($request['session'] ?? ''), (string)($request['filename'] ?? ''));
 
         case 'delete_all_uploaded_files':
-            return delete_all_uploaded_files((string)($request['session'] ?? ''));
+            return UploadService::delete_all_uploaded_files((string)($request['session'] ?? ''));
 
         default:
             return ['ok' => false, 'message' => 'Unknown action'];

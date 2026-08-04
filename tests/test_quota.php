@@ -6,7 +6,7 @@ declare(strict_types=1);
  * host-agent/lib/Sessions.php against the fixture claude-quota script
  * (tests/fixtures/fake_claude_quota - never the real one, which would spin
  * up a real screen/claude TUI). Calls the underlying functions in-process
- * for the pure-logic pieces, and lets trigger_background_quota_refresh()
+ * for the pure-logic pieces, and lets QuotaService::trigger_background_quota_refresh()
  * spawn a real (but fixture-backed) background process for the
  * integration-style checks, since that detachment is the whole point of
  * this feature.
@@ -16,6 +16,7 @@ require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
 use HostAgent\Services\Config;
+use HostAgent\Services\QuotaService;
 
 const REAL_QUOTA_CACHE_FILE = '/run/user/1000/csm-agent-quota-cache.json';
 
@@ -27,7 +28,7 @@ if (Config::quota_cache_file() === REAL_QUOTA_CACHE_FILE) {
 function reset_quota_state(): void
 {
     @unlink(Config::quota_cache_file());
-    @unlink(quota_refresh_marker_file());
+    @unlink(QuotaService::quota_refresh_marker_file());
 }
 
 function wait_until(callable $check, float $timeoutSeconds, float $intervalSeconds = 0.1): bool
@@ -44,7 +45,7 @@ function wait_until(callable $check, float $timeoutSeconds, float $intervalSecon
     return $check();
 }
 
-// --- parse_resets_at(): bare time (no date) rolls to the next occurrence ---
+// --- QuotaService::parse_resets_at(): bare time (no date) rolls to the next occurrence ---
 // A bare time (no date) is parsed by PHP's DateTime against the real
 // system clock's current date, not against $now's date - $now is only
 // used for the rollover comparison. So the "future"/"past" labels below
@@ -57,47 +58,47 @@ $noonUtc = $nowUtc->getTimestamp();
 $futureBareTime = (clone $nowUtc)->modify('+2 hours');
 assert_equal(
     $futureBareTime->getTimestamp(),
-    parse_resets_at(strtolower($futureBareTime->format('g:ia')) . ' (UTC)', $noonUtc),
+    QuotaService::parse_resets_at(strtolower($futureBareTime->format('g:ia')) . ' (UTC)', $noonUtc),
     'parse_resets_at: bare future time today is used as-is'
 );
 
 $pastBareTime = (clone $nowUtc)->modify('-2 hours');
 assert_equal(
     (clone $pastBareTime)->modify('+1 day')->getTimestamp(),
-    parse_resets_at(strtolower($pastBareTime->format('g:ia')) . ' (UTC)', $noonUtc),
+    QuotaService::parse_resets_at(strtolower($pastBareTime->format('g:ia')) . ' (UTC)', $noonUtc),
     'parse_resets_at: bare time already passed today rolls to tomorrow'
 );
 assert_equal(
     strtotime('2026-07-04 20:00:00 UTC'),
-    parse_resets_at('Jul 4, 8pm (UTC)', $noonUtc),
+    QuotaService::parse_resets_at('Jul 4, 8pm (UTC)', $noonUtc),
     'parse_resets_at: dated time is used as-is, no rollover'
 );
-assert_equal(null, parse_resets_at('sometime soon', $noonUtc), 'parse_resets_at: no trailing timezone -> null');
-assert_equal(null, parse_resets_at('3pm (Not/AZone)', $noonUtc), 'parse_resets_at: unrecognized timezone -> null');
+assert_equal(null, QuotaService::parse_resets_at('sometime soon', $noonUtc), 'parse_resets_at: no trailing timezone -> null');
+assert_equal(null, QuotaService::parse_resets_at('3pm (Not/AZone)', $noonUtc), 'parse_resets_at: unrecognized timezone -> null');
 
-// --- parse_footer_duration(): the short "1h 53m"/"5d 8h" shape next to each status-line percentage ---
-assert_equal(6780, parse_footer_duration('1h 53m'), 'parse_footer_duration: hours + minutes');
-assert_equal(460800, parse_footer_duration('5d 8h'), 'parse_footer_duration: days + hours');
-assert_equal(2700, parse_footer_duration('45m'), 'parse_footer_duration: minutes only');
-assert_equal(86400, parse_footer_duration('1d'), 'parse_footer_duration: days only');
-assert_equal(null, parse_footer_duration('now'), 'parse_footer_duration: unrecognized text -> null');
-assert_equal(null, parse_footer_duration(''), 'parse_footer_duration: empty string -> null');
-assert_equal(null, parse_footer_duration('1:50pm (America/Los_Angeles)'), 'parse_footer_duration: a full clock-time string (claude-quota\'s own shape, not the status line\'s) -> null');
+// --- QuotaService::parse_footer_duration(): the short "1h 53m"/"5d 8h" shape next to each status-line percentage ---
+assert_equal(6780, QuotaService::parse_footer_duration('1h 53m'), 'parse_footer_duration: hours + minutes');
+assert_equal(460800, QuotaService::parse_footer_duration('5d 8h'), 'parse_footer_duration: days + hours');
+assert_equal(2700, QuotaService::parse_footer_duration('45m'), 'parse_footer_duration: minutes only');
+assert_equal(86400, QuotaService::parse_footer_duration('1d'), 'parse_footer_duration: days only');
+assert_equal(null, QuotaService::parse_footer_duration('now'), 'parse_footer_duration: unrecognized text -> null');
+assert_equal(null, QuotaService::parse_footer_duration(''), 'parse_footer_duration: empty string -> null');
+assert_equal(null, QuotaService::parse_footer_duration('1:50pm (America/Los_Angeles)'), 'parse_footer_duration: a full clock-time string (claude-quota\'s own shape, not the status line\'s) -> null');
 
-// --- parse_quota_from_pane(): the live status-line shape, not the /usage-panel scrape shape ---
+// --- QuotaService::parse_quota_from_pane(): the live status-line shape, not the /usage-panel scrape shape ---
 $realFooterLine = '  andres@work /some/workdir | Sonnet 5 | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40% (5d 8h)                    /rc';
-$parsedFooter = parse_quota_from_pane($realFooterLine);
+$parsedFooter = QuotaService::parse_quota_from_pane($realFooterLine);
 assert_equal(51, $parsedFooter['session']['pct'] ?? null, 'parse_quota_from_pane: reads the 5h percentage as "session"');
 assert_equal('1h 53m', $parsedFooter['session']['resets'] ?? null, 'parse_quota_from_pane: reads the 5h parenthetical as the session reset duration');
 assert_equal(40, $parsedFooter['week_all']['pct'] ?? null, 'parse_quota_from_pane: reads the 7d percentage as "week_all"');
 assert_equal('5d 8h', $parsedFooter['week_all']['resets'] ?? null, 'parse_quota_from_pane: reads the 7d parenthetical as the week_all reset duration');
 
 $welcomeScreenLine = '  andres@work /some/workdir | Sonnet 5';
-assert_equal(null, parse_quota_from_pane($welcomeScreenLine), 'parse_quota_from_pane: null on a pane with no quota shown yet (nothing sent in that session)');
-assert_equal(null, parse_quota_from_pane(''), 'parse_quota_from_pane: null on empty pane content');
+assert_equal(null, QuotaService::parse_quota_from_pane($welcomeScreenLine), 'parse_quota_from_pane: null on a pane with no quota shown yet (nothing sent in that session)');
+assert_equal(null, QuotaService::parse_quota_from_pane(''), 'parse_quota_from_pane: null on empty pane content');
 
-// --- enrich_quota_resets(): adds resets_at only where parseable, leaves everything else untouched ---
-$enriched = enrich_quota_resets([
+// --- QuotaService::enrich_quota_resets(): adds resets_at only where parseable, leaves everything else untouched ---
+$enriched = QuotaService::enrich_quota_resets([
     'session' => ['pct' => 50, 'resets' => '3pm (UTC)'],
     'week_all' => ['pct' => 10, 'resets' => 'garbage'],
     'captured_at' => '2026-06-15T12:00:00+0000',
@@ -108,86 +109,86 @@ assert_equal('2026-06-15T12:00:00+0000', $enriched['captured_at'], 'enrich_quota
 
 // --- read/write cache round trip ---
 reset_quota_state();
-write_quota_cache(['session' => ['pct' => 5]], 1000);
-$cache = read_quota_cache();
+QuotaService::write_quota_cache(['session' => ['pct' => 5]], 1000);
+$cache = QuotaService::read_quota_cache();
 assert_true($cache !== null, 'read_quota_cache: reads back what write_quota_cache wrote');
 assert_equal(5, $cache['quota']['session']['pct'] ?? null, 'read_quota_cache: quota payload round-trips');
 assert_equal(1000, $cache['fetched_at'] ?? null, 'read_quota_cache: fetched_at round-trips');
 
-// --- claim_quota_refresh_marker(): atomic exclusive create ---
+// --- QuotaService::claim_quota_refresh_marker(): atomic exclusive create ---
 reset_quota_state();
-assert_true(claim_quota_refresh_marker(), 'claim_quota_refresh_marker: succeeds when no marker exists');
-assert_true(!claim_quota_refresh_marker(), 'claim_quota_refresh_marker: fails while a marker already exists (this is what prevents duplicate scrapes)');
-assert_true(quota_refresh_in_flight(), 'quota_refresh_in_flight: true for a marker written just now');
+assert_true(QuotaService::claim_quota_refresh_marker(), 'claim_quota_refresh_marker: succeeds when no marker exists');
+assert_true(!QuotaService::claim_quota_refresh_marker(), 'claim_quota_refresh_marker: fails while a marker already exists (this is what prevents duplicate scrapes)');
+assert_true(QuotaService::quota_refresh_in_flight(), 'quota_refresh_in_flight: true for a marker written just now');
 
-@unlink(quota_refresh_marker_file());
-file_put_contents(quota_refresh_marker_file(), (string)(time() - Config::quota_timeout_seconds() - 5));
-assert_true(!quota_refresh_in_flight(), 'quota_refresh_in_flight: false for a marker older than the scrape timeout (treated as abandoned)');
+@unlink(QuotaService::quota_refresh_marker_file());
+file_put_contents(QuotaService::quota_refresh_marker_file(), (string)(time() - Config::quota_timeout_seconds() - 5));
+assert_true(!QuotaService::quota_refresh_in_flight(), 'quota_refresh_in_flight: false for a marker older than the scrape timeout (treated as abandoned)');
 
 reset_quota_state();
 
 try {
-    // --- get_quota(): no cache yet -> triggers a background refresh and
+    // --- QuotaService::get_quota(): no cache yet -> triggers a background refresh and
     // returns immediately without waiting for it ---
     putenv('FAKE_QUOTA_MODE=ok');
-    $result = get_quota();
-    assert_true($result['refreshing'] ?? false, 'get_quota() with no cache: reports a refresh as triggered');
-    assert_equal(null, $result['quota'], 'get_quota() with no cache: nothing to show yet');
+    $result = QuotaService::get_quota();
+    assert_true($result['refreshing'] ?? false, 'QuotaService::get_quota() with no cache: reports a refresh as triggered');
+    assert_equal(null, $result['quota'], 'QuotaService::get_quota() with no cache: nothing to show yet');
 
-    $appeared = wait_until(fn () => read_quota_cache() !== null, Config::quota_timeout_seconds() + 2.0);
-    assert_true($appeared, 'get_quota(): background refresh populates the cache within the timeout');
+    $appeared = wait_until(fn () => QuotaService::read_quota_cache() !== null, Config::quota_timeout_seconds() + 2.0);
+    assert_true($appeared, 'QuotaService::get_quota(): background refresh populates the cache within the timeout');
 
-    $result = get_quota();
-    assert_true($result['ok'], 'get_quota() after background refresh: ok');
-    assert_equal(false, $result['stale'], 'get_quota() after background refresh: not stale');
-    assert_equal(false, $result['refreshing'], 'get_quota() after background refresh: no refresh in flight anymore');
-    assert_equal(42, $result['quota']['session']['pct'] ?? null, 'get_quota(): quota matches the fixture claude-quota output');
-    assert_true(is_int($result['quota']['session']['resets_at'] ?? null), 'get_quota(): resets_at was computed and cached alongside the raw reading');
+    $result = QuotaService::get_quota();
+    assert_true($result['ok'], 'QuotaService::get_quota() after background refresh: ok');
+    assert_equal(false, $result['stale'], 'QuotaService::get_quota() after background refresh: not stale');
+    assert_equal(false, $result['refreshing'], 'QuotaService::get_quota() after background refresh: no refresh in flight anymore');
+    assert_equal(42, $result['quota']['session']['pct'] ?? null, 'QuotaService::get_quota(): quota matches the fixture claude-quota output');
+    assert_true(is_int($result['quota']['session']['resets_at'] ?? null), 'QuotaService::get_quota(): resets_at was computed and cached alongside the raw reading');
 
-    // --- get_quota(): fresh cache is served without spawning another refresh ---
-    $beforeMarker = file_exists(quota_refresh_marker_file());
-    $result = get_quota();
-    assert_true($result['cached'] ?? false, 'get_quota() within TTL: served from cache');
-    assert_equal(false, $result['refreshing'], 'get_quota() within TTL: does not trigger another refresh');
-    assert_equal($beforeMarker, file_exists(quota_refresh_marker_file()), 'get_quota() within TTL: no new marker was created');
+    // --- QuotaService::get_quota(): fresh cache is served without spawning another refresh ---
+    $beforeMarker = file_exists(QuotaService::quota_refresh_marker_file());
+    $result = QuotaService::get_quota();
+    assert_true($result['cached'] ?? false, 'QuotaService::get_quota() within TTL: served from cache');
+    assert_equal(false, $result['refreshing'], 'QuotaService::get_quota() within TTL: does not trigger another refresh');
+    assert_equal($beforeMarker, file_exists(QuotaService::quota_refresh_marker_file()), 'QuotaService::get_quota() within TTL: no new marker was created');
 
-    // --- get_quota(): a stale cache is still returned immediately, marked stale, with a refresh kicked off ---
-    $cache = read_quota_cache();
-    write_quota_cache($cache['quota'], time() - Config::quota_cache_ttl_seconds() - 1);
-    $result = get_quota();
-    assert_true($result['ok'], 'get_quota() with stale cache: still ok');
-    assert_true($result['stale'] ?? false, 'get_quota() with stale cache: marked stale');
-    assert_true($result['refreshing'] ?? false, 'get_quota() with stale cache: a background refresh was triggered');
-    assert_equal(42, $result['quota']['session']['pct'] ?? null, 'get_quota() with stale cache: still returns the last-known reading, not null');
+    // --- QuotaService::get_quota(): a stale cache is still returned immediately, marked stale, with a refresh kicked off ---
+    $cache = QuotaService::read_quota_cache();
+    QuotaService::write_quota_cache($cache['quota'], time() - Config::quota_cache_ttl_seconds() - 1);
+    $result = QuotaService::get_quota();
+    assert_true($result['ok'], 'QuotaService::get_quota() with stale cache: still ok');
+    assert_true($result['stale'] ?? false, 'QuotaService::get_quota() with stale cache: marked stale');
+    assert_true($result['refreshing'] ?? false, 'QuotaService::get_quota() with stale cache: a background refresh was triggered');
+    assert_equal(42, $result['quota']['session']['pct'] ?? null, 'QuotaService::get_quota() with stale cache: still returns the last-known reading, not null');
 
-    wait_until(fn () => !quota_refresh_in_flight(), Config::quota_timeout_seconds() + 2.0);
+    wait_until(fn () => !QuotaService::quota_refresh_in_flight(), Config::quota_timeout_seconds() + 2.0);
 
-    // --- trigger_background_quota_refresh(): concurrent callers don't double-spawn ---
+    // --- QuotaService::trigger_background_quota_refresh(): concurrent callers don't double-spawn ---
     reset_quota_state();
     $counterFile = sys_get_temp_dir() . '/csm-test-quota-counter-' . getmypid() . '.txt';
     @unlink($counterFile);
     putenv('FAKE_QUOTA_SLEEP=2');
     putenv("FAKE_QUOTA_COUNTER_FILE={$counterFile}");
 
-    trigger_background_quota_refresh();
-    trigger_background_quota_refresh(); // simulates a second near-simultaneous request
+    QuotaService::trigger_background_quota_refresh();
+    QuotaService::trigger_background_quota_refresh(); // simulates a second near-simultaneous request
 
     usleep(400000); // well before the fixture's 2s sleep finishes
     $invocations = file_exists($counterFile) ? count(array_filter(explode("\n", trim((string)file_get_contents($counterFile))))) : 0;
-    assert_equal(1, $invocations, 'trigger_background_quota_refresh(): a second call while one is in flight does not spawn a duplicate scrape');
+    assert_equal(1, $invocations, 'QuotaService::trigger_background_quota_refresh(): a second call while one is in flight does not spawn a duplicate scrape');
 
-    wait_until(fn () => !quota_refresh_in_flight(), Config::quota_timeout_seconds() + 2.0);
+    wait_until(fn () => !QuotaService::quota_refresh_in_flight(), Config::quota_timeout_seconds() + 2.0);
     putenv('FAKE_QUOTA_SLEEP');
     putenv('FAKE_QUOTA_COUNTER_FILE');
     @unlink($counterFile);
 
-    // --- run_claude_quota(): a failing scrape is reported, not silently swallowed ---
+    // --- QuotaService::run_claude_quota(): a failing scrape is reported, not silently swallowed ---
     reset_quota_state();
     putenv('FAKE_QUOTA_MODE=fail');
-    $failResult = run_claude_quota();
+    $failResult = QuotaService::run_claude_quota();
     putenv('FAKE_QUOTA_MODE');
-    assert_true(!$failResult['ok'], 'run_claude_quota(): a non-zero exit is reported as a failure');
-    assert_true(($failResult['message'] ?? '') !== '', 'run_claude_quota(): failure includes a message');
+    assert_true(!$failResult['ok'], 'QuotaService::run_claude_quota(): a non-zero exit is reported as a failure');
+    assert_true(($failResult['message'] ?? '') !== '', 'QuotaService::run_claude_quota(): failure includes a message');
 } finally {
     reset_quota_state();
     putenv('FAKE_QUOTA_MODE');

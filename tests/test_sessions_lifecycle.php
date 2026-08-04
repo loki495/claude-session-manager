@@ -16,6 +16,7 @@ require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 use HostAgent\Services\Config;
 use HostAgent\Services\ProcessInspector;
 use HostAgent\Services\PromptParser;
+use HostAgent\Services\QuotaService;
 use HostAgent\Services\TmuxService;
 
 const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
@@ -43,7 +44,7 @@ $sendTestSession = null;
 /** @var string|null $wrapTestSession a cc-* session used to test TmuxService::tmux_capture_pane()'s line-wrap rejoin, for the finally-block safety net */
 $wrapTestSession = null;
 
-/** @var string|null $quotaTestSession a cc-* session used to test quota_from_live_pane(), for the finally-block safety net */
+/** @var string|null $quotaTestSession a cc-* session used to test QuotaService::quota_from_live_pane(), for the finally-block safety net */
 $quotaTestSession = null;
 
 /**
@@ -624,7 +625,7 @@ try {
     TmuxService::tmux_run(['kill-session', '-t', $sendTestSession]);
     $sendTestSession = null;
 
-    // --- quota_from_live_pane()/get_quota(): prefers a live session's own
+    // --- QuotaService::quota_from_live_pane()/QuotaService::get_quota(): prefers a live session's own
     // status-line quota over the slow claude-quota fallback - crafted via
     // a raw `cat` pane like the wrap-test above, since fake_claude never
     // renders a real status line. ---
@@ -633,20 +634,20 @@ try {
     assert_equal(0, $quotaSetup['exit'], 'quota_from_live_pane setup: created a live cc-* session');
     usleep(300000);
 
-    assert_equal(null, quota_from_live_pane(), 'quota_from_live_pane: null while no live session shows a quota line yet');
+    assert_equal(null, QuotaService::quota_from_live_pane(), 'quota_from_live_pane: null while no live session shows a quota line yet');
 
     TmuxService::tmux_run(['send-keys', '-t', $quotaTestSession, 'andres@work /some/workdir | Sonnet 5 | ctx: 4% | 5h: 51% (1h 53m) | 7d: 40% (5d 8h)', 'Enter']);
     usleep(300000);
 
-    $liveQuota = quota_from_live_pane();
+    $liveQuota = QuotaService::quota_from_live_pane();
     assert_true($liveQuota !== null, 'quota_from_live_pane: finds the quota line once a live session shows one');
     assert_equal(51, $liveQuota['quota']['session']['pct'] ?? null, 'quota_from_live_pane: session pct read from the real pane');
     assert_equal(40, $liveQuota['quota']['week_all']['pct'] ?? null, 'quota_from_live_pane: week_all pct read from the real pane');
     assert_true(is_int($liveQuota['quota']['session']['resets_at'] ?? null), 'quota_from_live_pane: resets_at computed from the parenthetical duration');
 
-    $getQuotaResult = get_quota();
-    assert_equal(51, $getQuotaResult['quota']['session']['pct'] ?? null, 'get_quota(): prefers the live pane reading over the cache/scrape fallback');
-    assert_equal(false, $getQuotaResult['cached'] ?? null, 'get_quota(): a live pane reading is never reported as cached');
+    $getQuotaResult = QuotaService::get_quota();
+    assert_equal(51, $getQuotaResult['quota']['session']['pct'] ?? null, 'QuotaService::get_quota(): prefers the live pane reading over the cache/scrape fallback');
+    assert_equal(false, $getQuotaResult['cached'] ?? null, 'QuotaService::get_quota(): a live pane reading is never reported as cached');
 
     TmuxService::tmux_run(['kill-session', '-t', $quotaTestSession]);
     $quotaTestSession = null;

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Exercises check_session_hook()/install_session_hook() (the
+ * Exercises HookService::check_session_hook()/HookService::install_session_hook() (the
  * ~/.claude/settings.json read-modify-write logic covering both the
  * SessionStart and PreToolUse hooks) and the actual
  * host-agent/hooks/session_start.php and host-agent/hooks/pre_tool_use.php
@@ -17,7 +17,10 @@ require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
 use HostAgent\Services\Config;
+use HostAgent\Services\HookService;
 use HostAgent\Services\PromptParser;
+use HostAgent\Stores\PendingToolStore;
+use HostAgent\Stores\SidecarStore;
 
 const REAL_HOME_ROOT = '/home/andres';
 
@@ -37,13 +40,13 @@ mkdir($fixtureSidecarDir, 0700, true);
 $settingsPath = Config::claude_settings_path();
 
 try {
-    // --- check_session_hook() / install_session_hook(): fresh machine, no settings.json yet ---
+    // --- HookService::check_session_hook() / HookService::install_session_hook(): fresh machine, no settings.json yet ---
 
-    $check = check_session_hook();
+    $check = HookService::check_session_hook();
     assert_equal(true, $check['ok'], 'check_session_hook: ok on a missing settings.json');
     assert_equal(false, $check['installed'], 'check_session_hook: not installed when settings.json does not exist yet');
 
-    $install = install_session_hook();
+    $install = HookService::install_session_hook();
     assert_equal(true, $install['ok'], 'install_session_hook: succeeds on a missing settings.json');
     assert_equal(true, $install['installed'], 'install_session_hook: reports installed after creating the file');
     assert_true(is_file($settingsPath), 'install_session_hook: creates ~/.claude/settings.json');
@@ -62,11 +65,11 @@ try {
     );
     assert_equal('*', $decoded['hooks']['PreToolUse'][0]['matcher'] ?? null, 'install_session_hook: PreToolUse matcher fires on every tool');
 
-    assert_equal(true, check_session_hook()['installed'], 'check_session_hook: installed after install_session_hook()');
+    assert_equal(true, HookService::check_session_hook()['installed'], 'check_session_hook: installed after HookService::install_session_hook()');
 
     // --- idempotency: installing again must not duplicate either entry ---
 
-    install_session_hook();
+    HookService::install_session_hook();
     $decoded = json_decode((string)file_get_contents($settingsPath), true);
     assert_equal(1, count($decoded['hooks']['SessionStart']), 'install_session_hook: calling twice does not duplicate the SessionStart entry');
     assert_equal(1, count($decoded['hooks']['PreToolUse']), 'install_session_hook: calling twice does not duplicate the PreToolUse entry');
@@ -80,10 +83,10 @@ try {
     ];
     file_put_contents($settingsPath, json_encode($onlySessionStart, JSON_PRETTY_PRINT));
 
-    $partialCheck = check_session_hook();
+    $partialCheck = HookService::check_session_hook();
     assert_equal(false, $partialCheck['installed'], 'check_session_hook: installed=false when only one of the two hooks is present');
 
-    install_session_hook();
+    HookService::install_session_hook();
     $decoded = json_decode((string)file_get_contents($settingsPath), true);
     assert_equal(1, count($decoded['hooks']['SessionStart']), 'install_session_hook: topping up PreToolUse does not duplicate the existing SessionStart entry');
     assert_equal(
@@ -102,7 +105,7 @@ try {
     ];
     file_put_contents($settingsPath, json_encode($preexisting, JSON_PRETTY_PRINT));
 
-    install_session_hook();
+    HookService::install_session_hook();
     $decoded = json_decode((string)file_get_contents($settingsPath), true);
     assert_equal('notify-send done', $decoded['hooks']['Stop'][0]['hooks'][0]['command'] ?? null, 'install_session_hook: preserves a pre-existing unrelated hook');
     assert_equal('dark', $decoded['theme'] ?? null, 'install_session_hook: preserves pre-existing top-level settings');
@@ -117,7 +120,7 @@ try {
         'install_session_hook: still adds the PreToolUse entry alongside pre-existing hooks'
     );
 
-    // --- reindent_json_pretty(): PHP's 4-space JSON_PRETTY_PRINT output is halved to 2-space ---
+    // --- HookService::reindent_json_pretty(): PHP's 4-space JSON_PRETTY_PRINT output is halved to 2-space ---
 
     $rawWritten = (string)file_get_contents($settingsPath);
     assert_true(str_contains($rawWritten, "\n  \"hooks\""), 'install_session_hook: writes 2-space indent, not PHP default 4-space');
@@ -126,22 +129,22 @@ try {
 
     file_put_contents($settingsPath, '{not valid json');
 
-    $checkMalformed = check_session_hook();
+    $checkMalformed = HookService::check_session_hook();
     assert_equal(false, $checkMalformed['ok'], 'check_session_hook: ok=false on a malformed settings.json');
     assert_equal(false, $checkMalformed['installed'], 'check_session_hook: installed=false on a malformed settings.json');
 
-    $installMalformed = install_session_hook();
+    $installMalformed = HookService::install_session_hook();
     assert_equal(false, $installMalformed['ok'], 'install_session_hook: refuses to touch a malformed settings.json');
     assert_equal('{not valid json', file_get_contents($settingsPath), 'install_session_hook: leaves a malformed settings.json byte-for-byte untouched');
 
     unlink($settingsPath);
 
-    // --- session_start_hook_present()/pre_tool_use_hook_present(): key off the exact command string, not just hook presence ---
+    // --- HookService::session_start_hook_present()/HookService::pre_tool_use_hook_present(): key off the exact command string, not just hook presence ---
 
-    assert_equal(false, session_start_hook_present(['hooks' => ['SessionStart' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => 'something-unrelated.sh']]]]]]), 'session_start_hook_present: false for an unrelated SessionStart hook');
-    assert_equal(true, session_start_hook_present(['hooks' => ['SessionStart' => [['matcher' => 'clear', 'hooks' => [['type' => 'command', 'command' => Config::session_start_hook_command()]]]]]]), 'session_start_hook_present: true when our command is present under any matcher');
-    assert_equal(false, pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => 'something-unrelated.sh']]]]]]), 'pre_tool_use_hook_present: false for an unrelated PreToolUse hook');
-    assert_equal(true, pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => Config::pre_tool_use_hook_command()]]]]]]), 'pre_tool_use_hook_present: true when our command is present under any matcher');
+    assert_equal(false, HookService::session_start_hook_present(['hooks' => ['SessionStart' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => 'something-unrelated.sh']]]]]]), 'session_start_hook_present: false for an unrelated SessionStart hook');
+    assert_equal(true, HookService::session_start_hook_present(['hooks' => ['SessionStart' => [['matcher' => 'clear', 'hooks' => [['type' => 'command', 'command' => Config::session_start_hook_command()]]]]]]), 'session_start_hook_present: true when our command is present under any matcher');
+    assert_equal(false, HookService::pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => '*', 'hooks' => [['type' => 'command', 'command' => 'something-unrelated.sh']]]]]]), 'pre_tool_use_hook_present: false for an unrelated PreToolUse hook');
+    assert_equal(true, HookService::pre_tool_use_hook_present(['hooks' => ['PreToolUse' => [['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => Config::pre_tool_use_hook_command()]]]]]]), 'pre_tool_use_hook_present: true when our command is present under any matcher');
 
     // --- PromptParser::format_pending_tool_input(): full-text preview per tool shape ---
 
@@ -227,49 +230,49 @@ try {
     // --- pending-tool sidecar: read/write/delete round-trip ---
 
     $pendingName = 'cc-pendingtest-' . bin2hex(random_bytes(3));
-    assert_equal(null, read_pending_tool($pendingName), 'read_pending_tool: null when no file exists yet');
+    assert_equal(null, PendingToolStore::read_pending_tool($pendingName), 'read_pending_tool: null when no file exists yet');
 
-    write_pending_tool($pendingName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls'], 'written_at' => 1000]);
-    $read = read_pending_tool($pendingName);
+    PendingToolStore::write_pending_tool($pendingName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls'], 'written_at' => 1000]);
+    $read = PendingToolStore::read_pending_tool($pendingName);
     assert_equal('Bash', $read['tool_name'] ?? null, 'write_pending_tool/read_pending_tool: round-trips tool_name');
     assert_equal('ls', $read['tool_input']['command'] ?? null, 'write_pending_tool/read_pending_tool: round-trips tool_input');
 
-    delete_pending_tool($pendingName);
-    assert_equal(null, read_pending_tool($pendingName), 'delete_pending_tool: file is gone after delete');
+    PendingToolStore::delete_pending_tool($pendingName);
+    assert_equal(null, PendingToolStore::read_pending_tool($pendingName), 'delete_pending_tool: file is gone after delete');
 
-    // --- prune_orphaned_sidecars(): correctly matches pending-tool files back to their session name ---
+    // --- SidecarStore::prune_orphaned_sidecars(): correctly matches pending-tool files back to their session name ---
 
     $liveName = 'cc-prunelive-' . bin2hex(random_bytes(3));
     $deadName = 'cc-prunedead-' . bin2hex(random_bytes(3));
-    write_sidecar($liveName, ['workdir' => '/x', 'spawned_at' => 1]);
-    write_pending_tool($liveName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]);
-    write_sidecar($deadName, ['workdir' => '/x', 'spawned_at' => 1]);
-    write_pending_tool($deadName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]);
+    SidecarStore::write_sidecar($liveName, ['workdir' => '/x', 'spawned_at' => 1]);
+    PendingToolStore::write_pending_tool($liveName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]);
+    SidecarStore::write_sidecar($deadName, ['workdir' => '/x', 'spawned_at' => 1]);
+    PendingToolStore::write_pending_tool($deadName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]);
 
-    prune_orphaned_sidecars([$liveName]);
+    SidecarStore::prune_orphaned_sidecars([$liveName]);
 
-    assert_true(read_sidecar($liveName) !== null, 'prune_orphaned_sidecars: a live session\'s plain sidecar survives');
-    assert_true(read_pending_tool($liveName) !== null, 'prune_orphaned_sidecars: a live session\'s pending-tool file survives (not mistaken for an orphan by its own filename)');
-    assert_equal(null, read_sidecar($deadName), 'prune_orphaned_sidecars: a dead session\'s plain sidecar is pruned');
-    assert_equal(null, read_pending_tool($deadName), 'prune_orphaned_sidecars: a dead session\'s pending-tool file is pruned too');
+    assert_true(SidecarStore::read_sidecar($liveName) !== null, 'prune_orphaned_sidecars: a live session\'s plain sidecar survives');
+    assert_true(PendingToolStore::read_pending_tool($liveName) !== null, 'prune_orphaned_sidecars: a live session\'s pending-tool file survives (not mistaken for an orphan by its own filename)');
+    assert_equal(null, SidecarStore::read_sidecar($deadName), 'prune_orphaned_sidecars: a dead session\'s plain sidecar is pruned');
+    assert_equal(null, PendingToolStore::read_pending_tool($deadName), 'prune_orphaned_sidecars: a dead session\'s pending-tool file is pruned too');
 
     // --- the actual hook script: no CSM_SESSION_NAME env -> no-op ---
 
     $sidecarName = 'cc-hooktest-' . bin2hex(random_bytes(3));
-    write_sidecar($sidecarName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => 'old-id']);
+    SidecarStore::write_sidecar($sidecarName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => 'old-id']);
 
     run_session_start_hook(null, ['session_id' => 'new-id']);
-    assert_equal('old-id', read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when CSM_SESSION_NAME is unset');
+    assert_equal('old-id', SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when CSM_SESSION_NAME is unset');
 
     // --- CSM_SESSION_NAME set, but no matching sidecar (already killed/never tracked) -> no-op, no crash ---
 
     run_session_start_hook('cc-does-not-exist', ['session_id' => 'new-id']);
-    assert_equal(null, read_sidecar('cc-does-not-exist'), 'session_start.php: no-op when CSM_SESSION_NAME has no sidecar file');
+    assert_equal(null, SidecarStore::read_sidecar('cc-does-not-exist'), 'session_start.php: no-op when CSM_SESSION_NAME has no sidecar file');
 
     // --- CSM_SESSION_NAME set + real sidecar + valid payload -> rebinds claude_session_id, keeps the rest ---
 
     run_session_start_hook($sidecarName, ['session_id' => 'new-id']);
-    $rebound = read_sidecar($sidecarName);
+    $rebound = SidecarStore::read_sidecar($sidecarName);
     assert_equal('new-id', $rebound['claude_session_id'] ?? null, 'session_start.php: rebinds claude_session_id to the new session-id from stdin');
     assert_equal('/fixture/workdir', $rebound['workdir'] ?? null, 'session_start.php: preserves workdir across the rebind');
     assert_equal(1000, $rebound['spawned_at'] ?? null, 'session_start.php: preserves spawned_at across the rebind');
@@ -277,36 +280,36 @@ try {
     // --- malformed/empty stdin -> no-op, never crashes, sidecar untouched ---
 
     run_session_start_hook($sidecarName, null);
-    assert_equal('new-id', read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
+    assert_equal('new-id', SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
 
     // --- pre_tool_use.php: no CSM_SESSION_NAME env -> no-op ---
 
     $preToolSessionName = 'cc-pretooltest-' . bin2hex(random_bytes(3));
 
     run_pre_tool_use_hook(null, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]);
-    assert_equal(null, read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op (no file written) when CSM_SESSION_NAME is unset');
+    assert_equal(null, PendingToolStore::read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op (no file written) when CSM_SESSION_NAME is unset');
 
     // --- CSM_SESSION_NAME set + valid payload -> writes tool_name/tool_input, no sidecar required first ---
 
     run_pre_tool_use_hook($preToolSessionName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'echo hi'], 'tool_use_id' => 'toolu_1']);
-    $written = read_pending_tool($preToolSessionName);
+    $written = PendingToolStore::read_pending_tool($preToolSessionName);
     assert_equal('Bash', $written['tool_name'] ?? null, 'pre_tool_use.php: records tool_name from stdin');
     assert_equal('echo hi', $written['tool_input']['command'] ?? null, 'pre_tool_use.php: records the full tool_input from stdin');
 
     // --- a later tool call overwrites the previous one (only the latest is ever kept) ---
 
     run_pre_tool_use_hook($preToolSessionName, ['tool_name' => 'Write', 'tool_input' => ['file_path' => '/tmp/x', 'content' => 'y']]);
-    $overwritten = read_pending_tool($preToolSessionName);
+    $overwritten = PendingToolStore::read_pending_tool($preToolSessionName);
     assert_equal('Write', $overwritten['tool_name'] ?? null, 'pre_tool_use.php: a later tool call overwrites the earlier pending-tool file');
 
     // --- malformed/empty stdin, or a payload missing tool_name/tool_input -> no-op, never crashes ---
 
-    delete_pending_tool($preToolSessionName);
+    PendingToolStore::delete_pending_tool($preToolSessionName);
     run_pre_tool_use_hook($preToolSessionName, null);
-    assert_equal(null, read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op on empty/malformed stdin payload');
+    assert_equal(null, PendingToolStore::read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op on empty/malformed stdin payload');
 
     run_pre_tool_use_hook($preToolSessionName, ['hook_event_name' => 'PreToolUse']);
-    assert_equal(null, read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op when tool_name/tool_input are missing from the payload');
+    assert_equal(null, PendingToolStore::read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op when tool_name/tool_input are missing from the payload');
 
     // --- never emits stdout - a hook that prints anything (even {}) could be read as an explicit permission decision ---
 
@@ -367,7 +370,7 @@ function run_session_start_hook(?string $csmSessionName, ?array $payload): void
 /**
  * Same shape as run_session_start_hook(), for host-agent/hooks/pre_tool_use.php
  * - returns its stdout so callers can assert it's always empty (see
- * write_pending_tool()'s "never affects the permission decision" contract).
+ * PendingToolStore::write_pending_tool()'s "never affects the permission decision" contract).
  *
  * @param array<string, mixed>|null $payload
  */

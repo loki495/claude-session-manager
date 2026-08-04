@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/Sessions.php';
 
 use HostAgent\Services\Config;
+use HostAgent\Services\HookService;
 use HostAgent\Services\ProcessRunner;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
@@ -814,7 +815,7 @@ function health_check(): array
 
     $checks = [];
 
-    foreach (app_hooks_status($settings) as $hook) {
+    foreach (HookService::app_hooks_status($settings) as $hook) {
         $checks[] = [
             'key' => 'hook_' . strtolower($hook['event']),
             'label' => $hook['event'] . ' hook',

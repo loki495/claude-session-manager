@@ -14,10 +14,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/lib/Sessions.php';
 
-$result = run_claude_quota();
+use HostAgent\Services\QuotaService;
+
+$result = QuotaService::run_claude_quota();
 
 if ($result['ok']) {
-    write_quota_cache($result['quota'], time());
+    QuotaService::write_quota_cache($result['quota'], time());
 }
 
-@unlink(quota_refresh_marker_file());
+@unlink(QuotaService::quota_refresh_marker_file());
