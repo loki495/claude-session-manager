@@ -280,39 +280,51 @@ function push_finished_body(?array $lastMessage): string
  * "do you want to proceed?" (that's what the pane-scraped blocked_reason
  * usually reduces to for this prompt shape - see push_blocked_body()).
  *
- * $taskTitle (push_notification_title() of the same session) is prefixed
- * on when given, e.g. "Check the todos: npm test" instead of just
- * "npm test" - the notification's own title field already carries this,
- * but some lock screens/previews de-emphasize or truncate the title
- * enough that the command alone reads as context-free. Optional (default
- * '', no prefix) so callers that only care about the command/action
- * formatting itself don't need to think about it.
+ * Deliberately does NOT prefix the session's title (push_notification_title())
+ * onto this - tried that, reverted. The title comes live from Claude
+ * Code's own tmux pane-title, which it doesn't necessarily keep current
+ * across a long, multi-topic session (can be set once early on and never
+ * updated) - prefixing a stale title onto an unrelated later command
+ * read as confusing noise rather than useful context, confirmed live.
+ *
+ * A Bash call's own `description` field (the short human-readable summary
+ * Claude Code itself writes alongside every Bash tool_input, e.g. "Run
+ * full test suite after X changes") IS prefixed when present, though -
+ * real per-command context rather than a stale session-wide label, and
+ * already the exact same source format_pending_tool_input() uses for the
+ * in-app blocked-prompt card (see there). Confirmed live: this is the
+ * same descriptive text Anthropic's own Claude app shows (without a
+ * command) for the identical permission prompt - this combines both.
  *
  * @param array<string, mixed> $toolInput
  */
-function push_permission_body(string $toolName, array $toolInput, string $taskTitle = ''): string
+function push_permission_body(string $toolName, array $toolInput): string
 {
     switch ($toolName) {
         case 'Bash':
             $command = is_string($toolInput['command'] ?? null) ? trim($toolInput['command']) : '';
-            $action = $command !== '' ? $command : 'Run a Bash command';
-            break;
+
+            if ($command === '') {
+                return 'Run a Bash command';
+            }
+
+            $description = is_string($toolInput['description'] ?? null) ? trim($toolInput['description']) : '';
+
+            return push_truncate($description !== '' ? "{$description}: {$command}" : $command);
 
         case 'Write':
             $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
-            $action = $path !== null ? "Write {$path}" : 'Write a file';
-            break;
+
+            return $path !== null ? "Write {$path}" : 'Write a file';
 
         case 'Edit':
             $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
-            $action = $path !== null ? "Edit {$path}" : 'Edit a file';
-            break;
+
+            return $path !== null ? "Edit {$path}" : 'Edit a file';
 
         default:
-            $action = "Run {$toolName}";
+            return "Run {$toolName}";
     }
-
-    return push_truncate($taskTitle !== '' ? "{$taskTitle}: {$action}" : $action);
 }
 
 /**
@@ -331,10 +343,39 @@ function push_blocked_body(array $session): string
     $toolInput = is_array($session['prompt_tool_input'] ?? null) ? $session['prompt_tool_input'] : null;
 
     if ($toolName !== null && $toolName !== 'AskUserQuestion' && $toolInput !== null) {
-        return push_permission_body($toolName, $toolInput, push_notification_title($session));
+        return push_permission_body($toolName, $toolInput);
     }
 
     return (string)($session['blocked_reason'] ?? 'Waiting on input');
+}
+
+/**
+ * The title for a newly-blocked prompt's push notification - unlike
+ * push_notification_title() alone (which only ever conveys WHICH session
+ * this is about), this leads with WHAT KIND of prompt it is, confirmed
+ * live to match how Anthropic's own Claude app titles the identical
+ * underlying prompt ("Claude needs your permission: ..."). Multiple
+ * simultaneous sessions is this whole app's reason to exist (unlike a
+ * single-conversation mobile app), so the session's own title is still
+ * folded in after the type, not dropped - "which session" still matters
+ * here in a way it doesn't for a single-session app.
+ *
+ * @param array{blocked_reason?:mixed, prompt_tool_name?:mixed}&array{name?:mixed, title?:mixed, workdir?:mixed} $session
+ */
+function push_blocked_title(array $session): string
+{
+    $toolName = is_string($session['prompt_tool_name'] ?? null) ? $session['prompt_tool_name'] : null;
+    $sessionTitle = push_notification_title($session);
+
+    if ($toolName === 'AskUserQuestion') {
+        return "Claude has a question: {$sessionTitle}";
+    }
+
+    if ($toolName !== null) {
+        return "Claude needs permission: {$sessionTitle}";
+    }
+
+    return $sessionTitle;
 }
 
 /**
@@ -494,7 +535,7 @@ function check_and_send_pushes(array $sessions, ?int $now = null): array
 
         if ($state === 'blocked' && $previousStateName !== 'blocked') {
             $notification = [
-                'title' => push_notification_title($session),
+                'title' => push_blocked_title($session),
                 'body' => push_blocked_body($session),
             ];
         } elseif (

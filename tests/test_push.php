@@ -172,24 +172,24 @@ try {
     $longCommand = str_repeat('a', 200);
     assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand])), 'push_permission_body: a long command is truncated the same as push_finished_body');
 
-    // --- push_permission_body()'s optional $taskTitle: prefixes "<title>: "
-    // onto the action so the body still carries task context even if a
-    // lock screen de-emphasizes/truncates the notification's own title
-    // field - omitted (default '') leaves the body exactly as before, per
-    // the assertions just above ---
-    assert_equal('Check the todos: npm test', push_permission_body('Bash', ['command' => 'npm test'], 'Check the todos'), 'push_permission_body: prefixes the given task title onto the command');
-    assert_equal('Check the todos: Write /tmp/foo.txt', push_permission_body('Write', ['file_path' => '/tmp/foo.txt'], 'Check the todos'), 'push_permission_body: prefixes the given task title onto a Write action too');
-    assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand], 'Check the todos')), 'push_permission_body: truncation still applies to the combined title+command');
+    // A Bash call's own `description` field - real per-command context
+    // Claude Code itself writes, confirmed live to be exactly what
+    // Anthropic's own Claude app shows (without the command) for the
+    // identical prompt - IS prefixed, unlike the reverted session-title
+    // prefix above (a stale, session-wide label rather than real
+    // per-command context).
+    assert_equal('Run the test suite: npm test', push_permission_body('Bash', ['command' => 'npm test', 'description' => 'Run the test suite']), 'push_permission_body: prefixes the Bash call\'s own description before the command');
+    assert_equal('npm test', push_permission_body('Bash', ['command' => 'npm test', 'description' => '']), 'push_permission_body: an empty description is treated as no description');
+    assert_equal(141, mb_strlen(push_permission_body('Bash', ['command' => $longCommand, 'description' => 'A description'])), 'push_permission_body: truncation still applies to the combined description+command');
 
+    // Deliberately does NOT prefix the session's title onto this anymore -
+    // tried it, reverted (see push_permission_body()'s own comment): a
+    // stale tmux pane-title from earlier in a long session read as
+    // confusing noise prefixed onto a later, unrelated command.
     assert_equal(
-        'Claude session: npm test',
+        'npm test',
         push_blocked_body(['blocked_reason' => 'Do you want to proceed?', 'prompt_tool_name' => 'Bash', 'prompt_tool_input' => ['command' => 'npm test']]),
-        'push_blocked_body: a permission prompt (matched pending tool) shows the command prefixed with the session\'s task title (push_notification_title()) - "Claude session" here since this session has no title/workdir/name of its own to derive one from'
-    );
-    assert_equal(
-        'Fix the login bug: npm test',
-        push_blocked_body(['name' => 'cc-20260101-1200', 'title' => 'Fix the login bug', 'blocked_reason' => 'Do you want to proceed?', 'prompt_tool_name' => 'Bash', 'prompt_tool_input' => ['command' => 'npm test']]),
-        'push_blocked_body: uses the session\'s real title when it has one'
+        'push_blocked_body: a permission prompt (matched pending tool) shows the command, not the generic question, and not prefixed with the session\'s (possibly stale) title'
     );
     assert_equal(
         'Which color do you prefer?',
@@ -205,6 +205,28 @@ try {
         'Waiting on input',
         push_blocked_body([]),
         'push_blocked_body: a completely empty session still returns something, not a crash'
+    );
+
+    // --- push_blocked_title(): leads with WHAT KIND of prompt this is,
+    // confirmed live to match how Anthropic's own Claude app titles the
+    // identical underlying prompt - the session's own title is still
+    // folded in after, since "which session" matters here in a way it
+    // doesn't for a single-conversation app ---
+
+    assert_equal(
+        'Claude needs permission: Fix the login bug',
+        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'Bash']),
+        'push_blocked_title: leads with "needs permission" for a permission-type prompt (any matched tool other than AskUserQuestion)'
+    );
+    assert_equal(
+        'Claude has a question: Fix the login bug',
+        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'AskUserQuestion']),
+        'push_blocked_title: leads with "has a question" for AskUserQuestion specifically'
+    );
+    assert_equal(
+        'Fix the login bug',
+        push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => null]),
+        'push_blocked_title: no matched tool at all (trust dialog, stale/missing PreToolUse record) -> just the session title, no false type claim'
     );
 
     // --- check_and_send_pushes(): the "finished a long task" notification
