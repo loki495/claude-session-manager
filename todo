@@ -6,7 +6,6 @@ Quick wins (small surface area, bug fixes / high annoyance relief):
 - Prevent swipe triggers (nav gestures) from firing on the compose box and
   prompt textarea when the user is just text-selecting/scrolling within
   them.
-- Create a CLAUDE.md for this project with project-specific details.
 
 Small-to-medium features (good gain/effort ratio):
 
