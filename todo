@@ -6,26 +6,6 @@ Quick wins (small surface area, bug fixes / high annoyance relief):
 - Prevent swipe triggers (nav gestures) from firing on the compose box and
   prompt textarea when the user is just text-selecting/scrolling within
   them.
-- session.php: the new-content glow shouldn't start fading until it's
-  actually been confirmed visible on screen - entries above the current
-  viewport should stay glowing until Andres scrolls up and sees them,
-  not fade on a timer regardless. Surprising since there's already a
-  visibility-gated mechanism for exactly this (markNewContent(), an
-  IntersectionObserver + NEW_CONTENT_VISIBLE_DELAY_MS = 2500ms grace
-  period before the fade starts) - needs investigating why Andres is
-  still seeing premature fading rather than assuming it's simply
-  missing. Two real candidates worth checking first: (1) the observer
-  only watches the ONE "New" divider element, not each individual
-  highlighted entry, so a long batch of new entries could have some
-  scroll into view (and the divider along with them, triggering the
-  fade for the WHOLE batch) while others in the same batch are still
-  off-screen; (2) markNewContent() clears the PREVIOUS batch's
-  highlight outright (no fade, no visibility check at all) the moment a
-  newer poll cycle calls it again ("only ever one batch marked at a
-  time") - if the user hasn't scrolled to an older still-glowing batch
-  yet, a new poll arriving would abruptly kill its highlight, which
-  could easily read as "faded on a timer" even though the actual
-  mechanism is different (instant clear, not a graceful fade).
 - Create a CLAUDE.md for this project with project-specific details.
 
 Small-to-medium features (good gain/effort ratio):

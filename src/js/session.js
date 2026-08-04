@@ -45,14 +45,6 @@
   var lastRenderedThinkingShown; // undefined, not null - see renderThinkingIndicator()
   var lastRenderedStaticInfoKey; // undefined, not null - see renderStaticInfo()
 
-  // The most recent "new since you last looked" markers (see
-  // markNewContent()) - a divider above the batch plus a highlight ring on
-  // each entry in it, tracked so a later poll can clear both before
-  // placing a fresh batch's markers, rather than letting them pile up one
-  // per poll cycle.
-  var newContentDivider = null;
-  var newContentHighlighted = [];
-
   // Mirrors the $composeBlocked SSR toggle above - hides the message
   // input (not the whole compose bar; quota/mode stay visible) while a
   // prompt is pending, forcing it to be answered first. The textarea
@@ -1503,88 +1495,80 @@
   // visually complete rather than cutting it off mid-animation.
   var NEW_CONTENT_HIGHLIGHT_FADE_MS = 1200;
 
-  // Removes both markers from the previous "new" batch (if any) - the
-  // divider is removed from the DOM outright (purely decorative), each
-  // entry just loses its highlight ring (real content, stays put).
-  function clearNewContentMarkers() {
-    if (newContentDivider && newContentDivider.parentNode) {
-      newContentDivider.parentNode.removeChild(newContentDivider);
-    }
-    newContentDivider = null;
-
-    newContentHighlighted.forEach(function (el) { el.classList.remove('new-content-highlight'); });
-    newContentHighlighted = [];
-  }
-
   // Marks entries fresh off this poll cycle: a "New" divider above the
   // batch plus a highlight ring on each entry in it, so it's obvious what
-  // just arrived without having to spot it by eye in a long list. Clears
-  // the previous cycle's markers first - only ever one batch marked at a
-  // time. $beforeNode and every element in $entryElements must already be
-  // attached to `list` (not a detached DocumentFragment) - the
+  // just arrived without having to spot it by eye in a long list. Each
+  // call's divider/entries/observer/seen-tracking all live in this one
+  // closure, entirely independent of any other batch's - unlike the
+  // single-shared-state version this replaced (a global "current batch"
+  // pair that a later call would clear outright, no fade, no visibility
+  // check, the instant a newer poll cycle brought fresh content), so a
+  // batch the user hasn't scrolled to yet is never destroyed just because
+  // another poll landed in the meantime. Every element in the batch (the
+  // divider AND each entry, not just the divider) must have actually
+  // intersected the viewport at least once before the fade starts - a
+  // long batch used to fade in full the instant its divider was seen,
+  // even while later entries in the same batch were still off-screen
+  // below the fold. $beforeNode and every element in $entryElements must
+  // already be attached to `list` (not a detached DocumentFragment) - the
   // IntersectionObserver below only fires once the divider is actually
   // connected to the document, and inserting into a fragment first would
   // leave a window where "attached but not yet observed" could miss the
   // very first paint.
   function markNewContent(beforeNode, entryElements) {
-    clearNewContentMarkers();
-
     var divider = document.createElement('div');
     divider.className = 'new-content-divider flex items-center gap-2 my-1 text-xs text-indigo-400';
     divider.innerHTML = '<span class="flex-1 border-t border-indigo-500/50"></span>'
       + '<span>New</span>'
       + '<span class="flex-1 border-t border-indigo-500/50"></span>';
     list.insertBefore(divider, beforeNode);
-    newContentDivider = divider;
 
     entryElements.forEach(function (el) { el.classList.add('new-content-highlight'); });
-    newContentHighlighted = entryElements;
 
     if (typeof IntersectionObserver === 'undefined') {
       return; // no observer support - markers just stay put, harmless
     }
 
+    var watched = [divider].concat(entryElements);
+    var seen = [];
+
     var observer = new IntersectionObserver(function (observerEntries) {
       observerEntries.forEach(function (observerEntry) {
-        if (!observerEntry.isIntersecting) {
-          return;
+        if (observerEntry.isIntersecting && seen.indexOf(observerEntry.target) === -1) {
+          seen.push(observerEntry.target);
         }
-
-        observer.disconnect();
-
-        setTimeout(function () {
-          if (newContentDivider === divider) {
-            divider.classList.add('fading');
-            divider.addEventListener('transitionend', function () {
-              if (divider.parentNode) {
-                divider.parentNode.removeChild(divider);
-              }
-              if (newContentDivider === divider) {
-                newContentDivider = null;
-              }
-            }, { once: true });
-          }
-
-          if (newContentHighlighted === entryElements) {
-            // .fading (not a straight classList.remove('new-content-highlight'))
-            // so `transition` stays on the element for the whole animation -
-            // removing the base class immediately would strip `transition`
-            // at the same instant as `box-shadow`, snapping the ring off
-            // instead of fading it. Full cleanup (both classes) happens
-            // after the animation's own duration, not tied to transitionend
-            // per-element (cheaper for a whole batch, and box-shadow's
-            // computed value is already fully faded out by then either way).
-            entryElements.forEach(function (el) { el.classList.add('fading'); });
-            setTimeout(function () {
-              entryElements.forEach(function (el) { el.classList.remove('new-content-highlight', 'fading'); });
-            }, NEW_CONTENT_HIGHLIGHT_FADE_MS);
-            newContentHighlighted = [];
-          }
-        }, NEW_CONTENT_VISIBLE_DELAY_MS);
       });
+
+      if (seen.length < watched.length) {
+        return;
+      }
+
+      observer.disconnect();
+
+      setTimeout(function () {
+        divider.classList.add('fading');
+        divider.addEventListener('transitionend', function () {
+          if (divider.parentNode) {
+            divider.parentNode.removeChild(divider);
+          }
+        }, { once: true });
+
+        // .fading (not a straight classList.remove('new-content-highlight'))
+        // so `transition` stays on the element for the whole animation -
+        // removing the base class immediately would strip `transition`
+        // at the same instant as `box-shadow`, snapping the ring off
+        // instead of fading it. Full cleanup (both classes) happens
+        // after the animation's own duration, not tied to transitionend
+        // per-element (cheaper for a whole batch, and box-shadow's
+        // computed value is already fully faded out by then either way).
+        entryElements.forEach(function (el) { el.classList.add('fading'); });
+        setTimeout(function () {
+          entryElements.forEach(function (el) { el.classList.remove('new-content-highlight', 'fading'); });
+        }, NEW_CONTENT_HIGHLIGHT_FADE_MS);
+      }, NEW_CONTENT_VISIBLE_DELAY_MS);
     });
 
-    observer.observe(divider);
+    watched.forEach(function (el) { observer.observe(el); });
   }
 
   function pollHistory(wasNearBottom) {
