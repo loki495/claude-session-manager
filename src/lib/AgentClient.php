@@ -889,6 +889,16 @@ function push_notify_button_html(string $vapidPublicKey, string $csrfToken): str
         return; // not supported on this browser/OS - button stays hidden
       }
 
+      // Badging API: opening either page counts as "seen" - clears
+      // whatever badge sw.js's push handler set for a notification that
+      // arrived while the app wasn't open. Feature-detected since support
+      // (particularly on iOS home-screen PWAs, which is the only real
+      // target for the push feature this rides along with) isn't
+      // guaranteed - a harmless no-op everywhere else.
+      if ('setAppBadge' in navigator) {
+        navigator.clearAppBadge().catch(function () {});
+      }
+
       // Web Push's applicationServerKey wants a raw Uint8Array, not the
       // base64url string VAPID::createVapidKeys() produces.
       function urlBase64ToUint8Array(base64String) {
