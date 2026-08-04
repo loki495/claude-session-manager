@@ -137,3 +137,33 @@ Tier 2 - bigger or investigative items:
   present, tmux socket dir OK, VAPID push keys configured, Composer vendor/
   installed, etc. - one place to see setup status at a glance instead of
   discovering each piece is missing separately.
+- csm-push-check systemd timer: log more per tick than it does today - not
+  just that a send happened, but the actual result the push service (Apple)
+  returned (ok vs error/reason), so a failing send isn't silently invisible.
+  Surface this on the dashboard somehow, probably folded into the health box
+  above rather than a separate UI. Also: push notification content -
+  push_permission_body() already shows the real command/action, which is
+  fine, but consider also including the title/what the overall prompt or
+  task is about (not just the bare command), since a command alone can lack
+  context about which task it belongs to. Andres's original phrasing here
+  was garbled (likely dictation) - worth a quick clarify-with-Andres pass
+  before implementing, particularly an unclear opening fragment ("file
+  downloads") that doesn't obviously connect to the rest of the note.
+- Add a way to adjust the csm-push-check systemd timer's poll interval
+  (currently hardcoded 10s in the .timer unit) from the dashboard, instead
+  of editing/reinstalling the unit file by hand on the host.
+- session.php: the fading highlight ring on newly-polled entries
+  (.new-content-highlight, box-shadow rgba(129, 140, 248, ...) - currently
+  indigo, matching .new-content-divider's fade pattern) - Andres wants to
+  try yellow/gold instead, maybe as a drop-shadow rather than the current
+  box-shadow ring. Exact color/shadow style not decided yet, just the
+  general direction away from indigo.
+- index.php: answering a prompt from the dashboard (both the plain-option
+  handler and submitFreetextReply(), lines ~280/324) just replaces the
+  prompt UI with a static "Sent - refresh to see the result" note instead
+  of actually showing the result - the code's own comment notes there's
+  "no live poll on this page yet" for individual session rows. Andres
+  wants this fixed; probably means having the dashboard actually poll/
+  refresh that session's row after a send instead of leaving a manual-
+  refresh note, but worth confirming the exact desired behavior before
+  implementing.
