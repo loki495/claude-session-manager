@@ -76,42 +76,6 @@
     }).observe(composeBar);
   }
 
-  // iOS Safari's position:fixed is anchored to the *layout* viewport, not
-  // the *visual* one - its dynamic toolbar (hides/shows on scroll) shrinks
-  // and grows the visual viewport independently of the layout viewport, so
-  // a fixed bottom-0 element visibly drifts/jumps rather than staying
-  // glued to what's actually on screen. Found live: this was most obvious
-  // with an empty textarea (a shorter page, closer to the toolbar's
-  // collapse threshold) - with text in it the page happened to already sit
-  // past that threshold, masking the bug rather than avoiding it.
-  // visualViewport tracks the real visible area (both for this and for the
-  // keyboard, same API isNearBottom() below already relies on) -
-  // translating the fixed elements by how much of the layout viewport
-  // currently sits below the visible area keeps them correctly pinned
-  // regardless of toolbar state or keyboard.
-  function updateFixedFooterOffset() {
-    if (!window.visualViewport) {
-      return;
-    }
-
-    var hiddenBelow = window.innerHeight - (window.visualViewport.height + window.visualViewport.offsetTop);
-    var transform = hiddenBelow > 0 ? 'translateY(-' + hiddenBelow + 'px)' : '';
-
-    if (composeBar) {
-      composeBar.style.transform = transform;
-    }
-
-    if (goToBottomBtn) {
-      goToBottomBtn.style.transform = transform;
-    }
-  }
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', updateFixedFooterOffset);
-    window.visualViewport.addEventListener('scroll', updateFixedFooterOffset);
-    updateFixedFooterOffset();
-  }
-
   // --- slideable sidebar: other sessions' status/prompt, fetched fresh each
   // time it's opened rather than polled continuously in the background. ---
 

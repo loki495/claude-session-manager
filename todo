@@ -1,11 +1,118 @@
 Work queue (in this order, per Andres - new items get appended at the end unless he
-says otherwise). Reordered 2026-08-02.
+says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
-Bigger or investigative items:
+Quick wins (small surface area, bug fixes / high annoyance relief):
 
+- Check whether this has already been done: group helpers and related
+  non-frontend code into service classes (e.g. for sessions, tmux handling,
+  etc). (Andres: do this one first/next.)
+- Prevent invalid CSRF token errors when coming back to a page that's been
+  open for a while.
+- Prevent swipe triggers (nav gestures) from firing on the compose box and
+  prompt textarea when the user is just text-selecting/scrolling within
+  them.
+- session.php: after answering a prompt that popped up mid-typing (covering
+  the compose textarea while it's focused), the compose textarea sometimes
+  comes back too short once the prompt clears - text still there but only a
+  sliver of it visible, not the normal auto-grown height. Andres currently
+  has to navigate to the dashboard and back to get a normal-sized textarea
+  again. Likely related to autoGrowCompose() not re-running (or running
+  against a stale/zeroed scrollHeight) at the right moment when the compose
+  bar's visibility is toggled back on by renderComposeVisibility().
+- session.php: the new-content glow shouldn't start fading until it's
+  actually been confirmed visible on screen - entries above the current
+  viewport should stay glowing until Andres scrolls up and sees them,
+  not fade on a timer regardless. Surprising since there's already a
+  visibility-gated mechanism for exactly this (markNewContent(), an
+  IntersectionObserver + NEW_CONTENT_VISIBLE_DELAY_MS = 2500ms grace
+  period before the fade starts) - needs investigating why Andres is
+  still seeing premature fading rather than assuming it's simply
+  missing. Two real candidates worth checking first: (1) the observer
+  only watches the ONE "New" divider element, not each individual
+  highlighted entry, so a long batch of new entries could have some
+  scroll into view (and the divider along with them, triggering the
+  fade for the WHOLE batch) while others in the same batch are still
+  off-screen; (2) markNewContent() clears the PREVIOUS batch's
+  highlight outright (no fade, no visibility check at all) the moment a
+  newer poll cycle calls it again ("only ever one batch marked at a
+  time") - if the user hasn't scrolled to an older still-glowing batch
+  yet, a new poll arriving would abruptly kill its highlight, which
+  could easily read as "faded on a timer" even though the actual
+  mechanism is different (instant clear, not a graceful fade).
+- Create a CLAUDE.md for this project with project-specific details.
+
+Small-to-medium features (good gain/effort ratio):
+
+- Show context percent usage in the footer of sessions as well.
+- Save the quota reset date somewhere.
+- session.php: recognize the /clear slash command in the transcript (and
+  other local commands going forward) and, on displaying it, clear the
+  screen of prior entries - similar in spirit to how a real terminal
+  clears on /clear rather than just rendering it as a generic command
+  entry mixed in with everything before it.
+- session.php: when Claude sends a non-image file, show a download link
+  for it (currently renders as a plain tool_use/tool_result pair, no
+  special treatment at all - only images get that, via
+  render_transcript_image_html()/renderImageHtml()). Also show the
+  actual filename for both images and regular files - currently neither
+  is shown even for images (only media_type + base64 data are extracted
+  in Transcript.php, no filename field). Worth checking upfront:
+  filename availability likely differs by source - a Write tool's
+  file_path input is right there, but an image block's real underlying
+  filename (if any) may not be - Anthropic's image content blocks are
+  just base64 source objects with no name field, so it may only be
+  derivable when the image came from a Read tool_result (whose
+  file_path input would be known) and not otherwise.
+- When polling, pass the last message timestamp (or other identifier) so
+  the server only returns messages since the last pull, instead of
+  re-fetching everything each time.
 - index.php: make the whole session-row "card" a link to its transcript page,
   except for known interactive bits (Kill button, show-last-3 toggle, blocked-prompt
   option buttons, etc.) which should keep working normally without navigating away.
+
+Bigger features needing research first (moderate-high surface area):
+
+- Research: how would file uploads work (Andres wants to send an image/file
+  from his phone to a session, not just receive them from the transcript).
+  Needs a real look at the mechanism - tmux send-keys/paste-buffer only moves
+  text, so this isn't just "extend the existing compose box"; worth checking
+  whether Claude Code's CLI has any file-drop/paste-image support at the
+  terminal level to hook into, or whether this needs an entirely different
+  delivery path (e.g. writing the file somewhere on disk and referencing its
+  path in a message).
+- Preview uploaded images/files above the compose box (before sending),
+  not just after they've been sent. (Depends on the file-uploads research
+  item above.)
+- Add notifications for quota getting close to over, quota being over,
+  and quota resetting - probably triggered from the systemd timer app
+  (the same one likely already polling for other periodic app logic;
+  needs a look at what it currently does before adding hooks into it).
+- Recognize plan-mode entries and mode switches for better display on
+  session.php, and better push notifications for them. Two related but
+  distinct things: (1) when Claude presents a plan (ExitPlanMode), it
+  currently just renders as generic assistant text in the transcript -
+  worth its own distinct visual treatment, similar to how subagent
+  calls/reports got their own entry kind and color. (2) mode CHANGES
+  (accept edits / plan / manual / auto) aren't currently visible as
+  discrete events in the transcript at all - render_mode_toggle_html()
+  only shows the CURRENT mode, there's no record of "mode switched from
+  X to Y at this point." Needs research: does the transcript JSONL
+  actually record a plan-presentation or mode-switch as a distinguishable
+  entry/field at all (parse_transcript_line() in Transcript.php would be
+  the place to check), or would this need new detection logic (e.g.
+  matching on ExitPlanMode tool_use the same way Agent/subagent calls
+  are already detected)? For notifications: presumably a plan ready for
+  review should push-notify similarly to a blocked prompt (it's
+  functionally "waiting on you"), which check_and_send_pushes() doesn't
+  currently know how to detect at all.
+- Investigate: Andres reports messages he typed sometimes disappear from
+  session.php after navigating to another page and back to the session.
+  Needs more detail to reproduce - which messages (his own compose sends,
+  or ones typed directly into a real Claude Code session outside the app?),
+  how soon after sending, whether a poll cycle happens in between.
+
+Larger architecture / consolidation work (bigger surface area):
+
 - index.php: list all known sessions grouped by project folder (not just currently-
   running ones - scan ~/.claude/projects for past sessions per cwd), and offer to
   restart/reattach a listed-but-not-currently-running one via `claude --resume
@@ -28,6 +135,27 @@ Bigger or investigative items:
   never get send-keys/capture-pane support - at most a read-only transcript
   link - so a small residual "unmanageable" category likely still remains
   after this.
+- Examine whether to use rewrites and a route file so every request goes
+  through the same path.
+- Research: now that this app has a PreToolUse hook (see the pending-tool
+  full-command-preview feature), survey whether other Claude Code hook events
+  (PostToolUse, Notification, UserPromptSubmit, etc) could replace/improve any
+  of the pane-scraping this app currently does - e.g. catching a tool result
+  right as it lands instead of waiting for the next transcript poll. Stop is
+  already ruled out (tried 2026-08-02: Claude Code writes the transcript file
+  ~1.7-2s BEFORE the Stop hook fires, the opposite of what you'd assume, so it
+  has nothing to add over reading the transcript directly - verify actual
+  hook firing order/latency against a real session before building on an
+  assumption about it, same as this finding).
+
+Exploratory / speculative / lower priority:
+
+- Research: investigate whether subagent calls (Agent/Task tool invocations) are
+  retrievable from a session's own JSONL transcript, or only exist in a separate
+  sub-transcript file - and more generally, survey what other info sits in these
+  JSONL files that this app doesn't currently surface (sidechain/isSidechain
+  entries, agent_id/agent_type fields, file-history-snapshot diffs, etc.) that
+  might be worth rendering on session.php.
 - Research: use reptyr to close the "no tmux pane at all" gap in the item just
   above, instead of leaving it a permanent residual "unmanageable" category.
   reptyr hijacks a running process's controlling terminal via ptrace and moves
@@ -63,111 +191,9 @@ Bigger or investigative items:
     echo "Success! Process $PID moved to tmux session: $SESSION_NAME"
     sleep 1
     exec tmux attach-session -t "$SESSION_NAME"
-- Research: investigate whether subagent calls (Agent/Task tool invocations) are
-  retrievable from a session's own JSONL transcript, or only exist in a separate
-  sub-transcript file - and more generally, survey what other info sits in these
-  JSONL files that this app doesn't currently surface (sidechain/isSidechain
-  entries, agent_id/agent_type fields, file-history-snapshot diffs, etc.) that
-  might be worth rendering on session.php.
-- Research: how worthwhile would a refactor into classes be, or even a full move
-  to Laravel 13/Livewire 4, versus the current plain-function/plain-PHP-file
-  style this whole app is written in. A real architecture question, not a quick
-  investigation; weigh against how much this app is likely to keep growing (it's
-  picked up a lot of surface area this session alone) vs. the cost of a
-  rewrite/migration for what's currently a personal single-user tool with no
-  other contributors.
-- Research: how would file uploads work (Andres wants to send an image/file
-  from his phone to a session, not just receive them from the transcript).
-  Needs a real look at the mechanism - tmux send-keys/paste-buffer only moves
-  text, so this isn't just "extend the existing compose box"; worth checking
-  whether Claude Code's CLI has any file-drop/paste-image support at the
-  terminal level to hook into, or whether this needs an entirely different
-  delivery path (e.g. writing the file somewhere on disk and referencing its
-  path in a message).
-- session.php: after answering a prompt that popped up mid-typing (covering
-  the compose textarea while it's focused), the compose textarea sometimes
-  comes back too short once the prompt clears - text still there but only a
-  sliver of it visible, not the normal auto-grown height. Andres currently
-  has to navigate to the dashboard and back to get a normal-sized textarea
-  again. Likely related to autoGrowCompose() not re-running (or running
-  against a stale/zeroed scrollHeight) at the right moment when the compose
-  bar's visibility is toggled back on by renderComposeVisibility().
-- Research: now that this app has a PreToolUse hook (see the pending-tool
-  full-command-preview feature), survey whether other Claude Code hook events
-  (PostToolUse, Notification, UserPromptSubmit, etc) could replace/improve any
-  of the pane-scraping this app currently does - e.g. catching a tool result
-  right as it lands instead of waiting for the next transcript poll. Stop is
-  already ruled out (tried 2026-08-02: Claude Code writes the transcript file
-  ~1.7-2s BEFORE the Stop hook fires, the opposite of what you'd assume, so it
-  has nothing to add over reading the transcript directly - verify actual
-  hook firing order/latency against a real session before building on an
-  assumption about it, same as this finding).
-- Investigate: Andres reports messages he typed sometimes disappear from
-  session.php after navigating to another page and back to the session.
-  Needs more detail to reproduce - which messages (his own compose sends,
-  or ones typed directly into a real Claude Code session outside the app?),
-  how soon after sending, whether a poll cycle happens in between.
-- session.php: when Claude sends a non-image file, show a download link
-  for it (currently renders as a plain tool_use/tool_result pair, no
-  special treatment at all - only images get that, via
-  render_transcript_image_html()/renderImageHtml()). Also show the
-  actual filename for both images and regular files - currently neither
-  is shown even for images (only media_type + base64 data are extracted
-  in Transcript.php, no filename field). Worth checking upfront:
-  filename availability likely differs by source - a Write tool's
-  file_path input is right there, but an image block's real underlying
-  filename (if any) may not be - Anthropic's image content blocks are
-  just base64 source objects with no name field, so it may only be
-  derivable when the image came from a Read tool_result (whose
-  file_path input would be known) and not otherwise.
-- session.php: the new-content glow shouldn't start fading until it's
-  actually been confirmed visible on screen - entries above the current
-  viewport should stay glowing until Andres scrolls up and sees them,
-  not fade on a timer regardless. Surprising since there's already a
-  visibility-gated mechanism for exactly this (markNewContent(), an
-  IntersectionObserver + NEW_CONTENT_VISIBLE_DELAY_MS = 2500ms grace
-  period before the fade starts) - needs investigating why Andres is
-  still seeing premature fading rather than assuming it's simply
-  missing. Two real candidates worth checking first: (1) the observer
-  only watches the ONE "New" divider element, not each individual
-  highlighted entry, so a long batch of new entries could have some
-  scroll into view (and the divider along with them, triggering the
-  fade for the WHOLE batch) while others in the same batch are still
-  off-screen; (2) markNewContent() clears the PREVIOUS batch's
-  highlight outright (no fade, no visibility check at all) the moment a
-  newer poll cycle calls it again ("only ever one batch marked at a
-  time") - if the user hasn't scrolled to an older still-glowing batch
-  yet, a new poll arriving would abruptly kill its highlight, which
-  could easily read as "faded on a timer" even though the actual
-  mechanism is different (instant clear, not a graceful fade).
-- Recognize plan-mode entries and mode switches for better display on
-  session.php, and better push notifications for them. Two related but
-  distinct things: (1) when Claude presents a plan (ExitPlanMode), it
-  currently just renders as generic assistant text in the transcript -
-  worth its own distinct visual treatment, similar to how subagent
-  calls/reports got their own entry kind and color. (2) mode CHANGES
-  (accept edits / plan / manual / auto) aren't currently visible as
-  discrete events in the transcript at all - render_mode_toggle_html()
-  only shows the CURRENT mode, there's no record of "mode switched from
-  X to Y at this point." Needs research: does the transcript JSONL
-  actually record a plan-presentation or mode-switch as a distinguishable
-  entry/field at all (parse_transcript_line() in Transcript.php would be
-  the place to check), or would this need new detection logic (e.g.
-  matching on ExitPlanMode tool_use the same way Agent/subagent calls
-  are already detected)? For notifications: presumably a plan ready for
-  review should push-notify similarly to a blocked prompt (it's
-  functionally "waiting on you"), which check_and_send_pushes() doesn't
-  currently know how to detect at all.
-- session.php: recognize the /clear slash command in the transcript (and
-  other local commands going forward) and, on displaying it, clear the
-  screen of prior entries - similar in spirit to how a real terminal
-  clears on /clear rather than just rendering it as a generic command
-  entry mixed in with everything before it.
-- Add notifications for quota getting close to over, quota being over,
-  and quota resetting - probably triggered from the systemd timer app
-  (the same one likely already polling for other periodic app logic;
-  needs a look at what it currently does before adding hooks into it).
 - Investigate ways to make the web app UI feel more "tight" / native-app-
   like: less "moveable"/rubber-banding scroll behavior in scrollable
   sections, so it reads less like a plain webpage-with-no-browser-chrome
   and more like a native app.
+- Future end-user/contributor separation concerns: remove hardcoded paths,
+  README is out of date/too long (split into files if necessary).
