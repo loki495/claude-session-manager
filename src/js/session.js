@@ -513,11 +513,24 @@
       return !!selection && !selection.isCollapsed;
     }
 
+    // window.getSelection() above never sees a selection inside a
+    // <textarea> (#compose-textarea, the free-text prompt-reply textarea)
+    // - form controls keep their own separate selectionStart/selectionEnd
+    // state, invisible to the document-level Selection API - so a swipe-
+    // to-select drag starting there used to fall straight through to the
+    // sidebar/back-navigation gesture instead. Any touch landing on a
+    // textarea at all is excluded here, not just an active-selection one:
+    // that gesture belongs to the textarea (caret placement, selecting,
+    // scrolling a tall one), never to the app-level swipe.
+    function touchTargetsTextarea(e) {
+      return !!(e.target.closest && e.target.closest('textarea'));
+    }
+
     document.addEventListener('touchstart', function (e) {
       // Ignore touches starting inside a horizontally-scrollable command/
       // output block - that gesture is for scrolling the block itself,
       // not for opening/closing the sidebar.
-      if (e.touches.length !== 1 || (e.target.closest && e.target.closest('.overflow-x-auto, .overflow-auto')) || touchTargetsActiveSelection()) {
+      if (e.touches.length !== 1 || (e.target.closest && e.target.closest('.overflow-x-auto, .overflow-auto')) || touchTargetsActiveSelection() || touchTargetsTextarea(e)) {
         touchStartX = null;
         touchStartY = null;
         return;
@@ -528,7 +541,7 @@
     }, { passive: true });
 
     document.addEventListener('touchend', function (e) {
-      if (touchStartX === null || e.changedTouches.length !== 1 || touchTargetsActiveSelection()) {
+      if (touchStartX === null || e.changedTouches.length !== 1 || touchTargetsActiveSelection() || touchTargetsTextarea(e)) {
         touchStartX = null;
         touchStartY = null;
         return;
@@ -1497,83 +1510,64 @@
 
   // Marks entries fresh off this poll cycle: a "New" divider above the
   // batch plus a highlight ring on each entry in it, so it's obvious what
-  // just arrived without having to spot it by eye in a long list. Each
-  // batch's divider/entries/observer/seen-tracking all live in one object
-  // (see activeBatches below), entirely independent of any other batch's -
-  // unlike the single-shared-state version this replaced (a global
-  // "current batch" pair that a later call would clear outright, no fade,
-  // no visibility check, the instant a newer poll cycle brought fresh
-  // content), so a batch the user hasn't scrolled to yet is never
-  // destroyed just because another poll landed in the meantime. Every
-  // element in a batch (the divider AND each entry, not just the divider)
-  // must have actually intersected the viewport at least once before the
-  // fade starts - a long batch used to fade in full the instant its
-  // divider was seen, even while later entries in the same batch were
-  // still off-screen below the fold. $beforeNode and every element in
-  // $entryElements must already be attached to `list` (not a detached
-  // DocumentFragment) - the IntersectionObserver below only fires once the
-  // divider is actually connected to the document, and inserting into a
-  // fragment first would leave a window where "attached but not yet
-  // observed" could miss the very first paint.
-  var activeBatches = [];
+  // just arrived without having to spot it by eye in a long list.
+  //
+  // Two independent lifecycles, on purpose:
+  //  - At most ONE divider ever exists. A newer call removes the previous
+  //    one immediately, no fade, no visibility check - it's purely a "new
+  //    stuff starts here" landmark, and once a newer batch has arrived,
+  //    that's no longer where new stuff starts. This also sidesteps a real
+  //    bug the per-batch version this replaced had: if a batch's entries
+  //    are ALL currently hidden (Andres toggles "Show tool calls"/"Show
+  //    tool outputs" off - see body.hide-tool-calls/.hide-tool-details in
+  //    the <style> above - which sets display:none on whole entries, not
+  //    just a class), a display:none element can never intersect the
+  //    viewport, so a fade condition requiring every element in a batch to
+  //    be seen could never be satisfied - the divider got stuck forever,
+  //    and a poll landing while it was still stuck (very likely, since it
+  //    could never clear) produced another one right after it, reading as
+  //    the "New" label repeating.
+  //  - Each entry's own highlight ring fades independently, the instant
+  //    THAT entry has actually been on screen for NEW_CONTENT_VISIBLE_DELAY_MS
+  //    - not tied to the divider, not tied to any other entry in the same
+  //    poll batch. A hidden entry's ring just never fades, same as before,
+  //    but that's invisible and harmless on its own now that it can't also
+  //    block the divider or any other entry's fade.
+  //
+  // $beforeNode and every element in $entryElements must already be
+  // attached to `list` (not a detached DocumentFragment) - the
+  // IntersectionObserver below only fires once an element is actually
+  // connected to the document, and inserting into a fragment first would
+  // leave a window where "attached but not yet observed" could miss the
+  // very first paint.
+  var currentDivider = null;
 
-  function startBatchFade(batch) {
-    if (batch.done) {
-      return;
-    }
-
-    batch.done = true;
-    batch.observer.disconnect();
-
-    setTimeout(function () {
-      batch.divider.classList.add('fading');
-      batch.divider.addEventListener('transitionend', function () {
-        if (batch.divider.parentNode) {
-          batch.divider.parentNode.removeChild(batch.divider);
-        }
-      }, { once: true });
-
-      // .fading (not a straight classList.remove('new-content-highlight'))
-      // so `transition` stays on the element for the whole animation -
-      // removing the base class immediately would strip `transition`
-      // at the same instant as `box-shadow`, snapping the ring off
-      // instead of fading it. Full cleanup (both classes) happens
-      // after the animation's own duration, not tied to transitionend
-      // per-element (cheaper for a whole batch, and box-shadow's
-      // computed value is already fully faded out by then either way).
-      batch.entries.forEach(function (el) { el.classList.add('fading'); });
-      setTimeout(function () {
-        batch.entries.forEach(function (el) { el.classList.remove('new-content-highlight', 'fading'); });
-      }, NEW_CONTENT_HIGHLIGHT_FADE_MS);
-
-      var idx = activeBatches.indexOf(batch);
-      if (idx !== -1) {
-        activeBatches.splice(idx, 1);
+  var newEntryObserver = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver(function (observerEntries) {
+    observerEntries.forEach(function (observerEntry) {
+      if (!observerEntry.isIntersecting) {
+        return;
       }
-    }, NEW_CONTENT_VISIBLE_DELAY_MS);
-  }
+
+      var el = observerEntry.target;
+      newEntryObserver.unobserve(el);
+
+      setTimeout(function () {
+        // .fading (not a straight classList.remove('new-content-highlight'))
+        // so `transition` stays on the element for the whole animation -
+        // removing the base class immediately would strip `transition`
+        // at the same instant as `box-shadow`, snapping the ring off
+        // instead of fading it.
+        el.classList.add('fading');
+        setTimeout(function () {
+          el.classList.remove('new-content-highlight', 'fading');
+        }, NEW_CONTENT_HIGHLIGHT_FADE_MS);
+      }, NEW_CONTENT_VISIBLE_DELAY_MS);
+    });
+  });
 
   function markNewContent(beforeNode, entryElements) {
-    // Seen live: a regularly-scheduled poll and the out-of-band one fired
-    // right after sending a message (see sendComposedMessage()) can each
-    // catch a different slice of genuinely-new lines close together,
-    // landing two batches back to back with nothing else between them -
-    // each getting its own "New" divider reads as the label just
-    // repeating. If the immediately-preceding batch is still active (not
-    // yet faded) and this new batch's first entry is its very next
-    // sibling, fold these entries into that batch instead of stacking a
-    // second, redundant divider right after the first.
-    var lastBatch = activeBatches[activeBatches.length - 1];
-
-    if (lastBatch && !lastBatch.done && lastBatch.lastEntry.nextSibling === beforeNode) {
-      entryElements.forEach(function (el) {
-        el.classList.add('new-content-highlight');
-        lastBatch.entries.push(el);
-        lastBatch.watched.push(el);
-        lastBatch.observer.observe(el);
-      });
-      lastBatch.lastEntry = entryElements[entryElements.length - 1];
-      return;
+    if (currentDivider && currentDivider.parentNode) {
+      currentDivider.parentNode.removeChild(currentDivider);
     }
 
     var divider = document.createElement('div');
@@ -1582,38 +1576,41 @@
       + '<span>New</span>'
       + '<span class="flex-1 border-t border-indigo-500/50"></span>';
     list.insertBefore(divider, beforeNode);
+    currentDivider = divider;
 
     entryElements.forEach(function (el) { el.classList.add('new-content-highlight'); });
 
-    if (typeof IntersectionObserver === 'undefined') {
+    if (!newEntryObserver) {
       return; // no observer support - markers just stay put, harmless
     }
 
-    var batch = {
-      divider: divider,
-      entries: entryElements.slice(),
-      lastEntry: entryElements[entryElements.length - 1],
-      watched: [divider].concat(entryElements),
-      seen: [],
-      observer: null,
-      done: false
-    };
-    activeBatches.push(batch);
+    entryElements.forEach(function (el) { newEntryObserver.observe(el); });
 
-    var observer = new IntersectionObserver(function (observerEntries) {
+    var dividerObserver = new IntersectionObserver(function (observerEntries) {
       observerEntries.forEach(function (observerEntry) {
-        if (observerEntry.isIntersecting && batch.seen.indexOf(observerEntry.target) === -1) {
-          batch.seen.push(observerEntry.target);
+        if (!observerEntry.isIntersecting) {
+          return;
         }
-      });
 
-      if (batch.seen.length >= batch.watched.length) {
-        startBatchFade(batch);
-      }
+        dividerObserver.disconnect();
+
+        setTimeout(function () {
+          if (currentDivider !== divider) {
+            return; // already replaced by a newer one, nothing left to fade
+          }
+
+          divider.classList.add('fading');
+          divider.addEventListener('transitionend', function () {
+            if (divider.parentNode) {
+              divider.parentNode.removeChild(divider);
+            }
+          }, { once: true });
+          currentDivider = null;
+        }, NEW_CONTENT_VISIBLE_DELAY_MS);
+      });
     });
 
-    batch.observer = observer;
-    batch.watched.forEach(function (el) { observer.observe(el); });
+    dividerObserver.observe(divider);
   }
 
   function pollHistory(wasNearBottom) {
