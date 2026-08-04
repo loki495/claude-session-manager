@@ -6,10 +6,12 @@ require_once __DIR__ . '/lib/Auth.php';
 require_once __DIR__ . '/lib/Views/QuotaFooterView.php';
 require_once __DIR__ . '/lib/Views/PushNotifyView.php';
 require_once __DIR__ . '/lib/Views/HealthBoxView.php';
+require_once __DIR__ . '/lib/Views/SessionRowView.php';
 
 use App\Views\HealthBoxView;
 use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
+use App\Views\SessionRowView;
 
 start_app_session();
 
@@ -134,7 +136,7 @@ $csrfToken = csrf_token();
   <header class="mb-6 flex items-start justify-between gap-2">
     <div class="min-w-0">
       <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
-      <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= session_count_label_html(count($sessions)) ?></p>
+      <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= SessionRowView::session_count_label_html(count($sessions)) ?></p>
     </div>
     <select id="poll-interval-select" aria-label="Polling interval"
       class="shrink-0 text-xs font-medium pl-1.5 pr-5 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-400">
@@ -211,11 +213,11 @@ $csrfToken = csrf_token();
   </form>
 
   <?php if ($agentReachable): ?>
-    <div id="sessions-container"><?= sessions_list_html($sessions, $csrfToken) ?></div>
+    <div id="sessions-container"><?= SessionRowView::sessions_list_html($sessions, $csrfToken) ?></div>
   <?php endif; ?>
 
   <?php if ($agentReachable): ?>
-    <div id="bare-container"><?= bare_processes_html($bare, $csrfToken) ?></div>
+    <div id="bare-container"><?= SessionRowView::bare_processes_html($bare, $csrfToken) ?></div>
   <?php endif; ?>
 
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">

@@ -6,10 +6,12 @@ require_once __DIR__ . '/lib/Auth.php';
 require_once __DIR__ . '/lib/Views/QuotaFooterView.php';
 require_once __DIR__ . '/lib/Views/PushNotifyView.php';
 require_once __DIR__ . '/lib/Views/BlockedPromptView.php';
+require_once __DIR__ . '/lib/Views/SessionRowView.php';
 
 use App\Views\BlockedPromptView;
 use App\Views\PushNotifyView;
 use App\Views\QuotaFooterView;
+use App\Views\SessionRowView;
 
 start_app_session();
 
@@ -99,7 +101,7 @@ function render_session_static_info_html(array $detail): string
     }
 
     $html .= '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2">';
-    $html .= '<span>' . htmlspecialchars(relative_time((int)$detail['activity']), ENT_QUOTES) . '</span>';
+    $html .= '<span>' . htmlspecialchars(SessionRowView::relative_time((int)$detail['activity']), ENT_QUOTES) . '</span>';
     $html .= '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>';
     $html .= $detail['attached'] ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>';
     $html .= '</div>';
@@ -298,7 +300,7 @@ function render_transcript_entry(array $entry): string
         default => htmlspecialchars(ucfirst((string)$role), ENT_QUOTES),
     };
     $parsedTimestamp = is_string($entry['timestamp'] ?? null) ? strtotime($entry['timestamp']) : false;
-    $timestamp = $parsedTimestamp !== false ? htmlspecialchars(relative_time($parsedTimestamp), ENT_QUOTES) : '';
+    $timestamp = $parsedTimestamp !== false ? htmlspecialchars(SessionRowView::relative_time($parsedTimestamp), ENT_QUOTES) : '';
     $colors = entry_color_classes($colorKind);
     // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
     // block) once the matching "Show tool outputs"/"Show tool calls"
@@ -1238,8 +1240,8 @@ function render_transcript_entry(array $entry): string
     goToBottomBtn.addEventListener('click', function () { scrollToBottom(true); });
   }
 
-  // Mirrors host-agent's relative_time() (see src/lib/AgentClient.php) so
-  // a poll-refreshed timestamp reads the same as the server-rendered one.
+  // Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed
+  // timestamp reads the same as the server-rendered one.
   function relativeTimeLabel(timestamp) {
     var diff = Math.floor(Date.now() / 1000) - timestamp;
 
