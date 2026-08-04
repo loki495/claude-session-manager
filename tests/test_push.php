@@ -16,6 +16,7 @@ require dirname(__DIR__) . '/host-agent/lib/Push.php';
 
 use HostAgent\Services\NotificationContentBuilder;
 use HostAgent\Services\PushDeliveryService;
+use HostAgent\Services\PushHealthService;
 use HostAgent\Services\PushTimerService;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
@@ -332,7 +333,7 @@ try {
     $withRealSubscriber = PushDeliveryService::check_and_send_pushes([['name' => 'cc-real-send', 'blocked_reason' => 'Proceed?', 'working' => false]]);
     assert_equal(['cc-real-send'], $withRealSubscriber['notified'], 'check_and_send_pushes: still reports the transition even though the actual send to the one subscriber failed');
 
-    // --- PushDeliveryService::record_push_check_result()/push_delivery_check(): the failed
+    // --- PushDeliveryService::record_push_check_result()/PushHealthService::push_delivery_check(): the failed
     // send just above must leave a real, readable trace - previously a
     // non-expiry send failure left NO record anywhere at all, only an
     // expired subscription being silently pruned did. ---
@@ -342,7 +343,7 @@ try {
     assert_equal(1, $statusAfterFailure['failed'] ?? null, 'record_push_check_result: counts the one failure (an unreachable endpoint is a real, non-expiry failure)');
     assert_equal(true, is_string($statusAfterFailure['last_failure_message'] ?? null) && $statusAfterFailure['last_failure_message'] !== '', 'record_push_check_result: persists a non-empty failure message, not just a bare count');
 
-    $deliveryCheckAfterFailure = push_delivery_check();
+    $deliveryCheckAfterFailure = PushHealthService::push_delivery_check();
     assert_equal(false, $deliveryCheckAfterFailure['ok'], 'push_delivery_check: ok=false right after a tick with a real send failure');
     assert_equal(true, str_contains($deliveryCheckAfterFailure['detail'], '1 send(s) failed'), 'push_delivery_check: detail mentions the failure count');
 
@@ -356,14 +357,14 @@ try {
     $statusAfterQuietTick = json_decode((string)file_get_contents(PushDeliveryService::push_check_status_file()), true);
     assert_equal(0, $statusAfterQuietTick['sent'] ?? null, 'record_push_check_result: a tick with nothing to send still records (0 sent), proving the timer ran');
     assert_equal(0, $statusAfterQuietTick['failed'] ?? null, 'record_push_check_result: no failures on a quiet tick');
-    assert_equal(true, push_delivery_check()['ok'], 'push_delivery_check: ok=true right after a clean, recent tick');
+    assert_equal(true, PushHealthService::push_delivery_check()['ok'], 'push_delivery_check: ok=true right after a clean, recent tick');
 
     @unlink(PushDeliveryService::push_check_status_file());
-    assert_equal(false, push_delivery_check()['ok'], 'push_delivery_check: ok=false when the timer has never run at all (no status file yet)');
+    assert_equal(false, PushHealthService::push_delivery_check()['ok'], 'push_delivery_check: ok=false when the timer has never run at all (no status file yet)');
 
     putenv('VAPID_PUBLIC_KEY');
     putenv('VAPID_PRIVATE_KEY');
-    assert_equal(true, push_delivery_check()['ok'], 'push_delivery_check: ok=true (nothing to check yet) when VAPID isn\'t configured, not a false alarm on top of the separate "VAPID push keys" health check');
+    assert_equal(true, PushHealthService::push_delivery_check()['ok'], 'push_delivery_check: ok=true (nothing to check yet) when VAPID isn\'t configured, not a false alarm on top of the separate "VAPID push keys" health check');
     putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
     putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
 
