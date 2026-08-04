@@ -368,7 +368,7 @@ try {
     putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
     putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
 
-    // --- get/PushTimerService::set_push_timer_interval(): reads/writes the INSTALLED unit
+    // --- PushTimerService get/set_push_timer_interval(): reads/writes the INSTALLED unit
     // file (isolated to a fixture path above, never the real one), and
     // PushTimerService::set_push_timer_interval()'s systemctl calls target a fake unit name
     // (also isolated above) so a test run can never touch the real
