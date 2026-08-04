@@ -6,8 +6,10 @@ declare(strict_types=1);
  * mirrors push_subscribe.php.
  */
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -28,4 +30,4 @@ require_csrf();
 
 header('Content-Type: application/json');
 
-echo json_encode(agent_call(['action' => 'push_unsubscribe', 'endpoint' => (string)($_POST['endpoint'] ?? '')]));
+echo json_encode(AgentClient::agent_call(['action' => 'push_unsubscribe', 'endpoint' => (string)($_POST['endpoint'] ?? '')]));

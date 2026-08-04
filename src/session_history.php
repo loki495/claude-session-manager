@@ -12,8 +12,10 @@ declare(strict_types=1);
  * for the full story on why that matters.
  */
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -29,7 +31,7 @@ start_app_session();
 // this overrides the session limiter's value.
 header('Cache-Control: no-store');
 header('Content-Type: application/json');
-echo json_encode(agent_call([
+echo json_encode(AgentClient::agent_call([
     'action' => 'session_history',
     'session' => (string)($_GET['session'] ?? ''),
     'before' => isset($_GET['before']) ? (int)$_GET['before'] : null,

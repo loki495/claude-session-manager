@@ -94,7 +94,7 @@ try {
     assert_contains(CANNED_VAPID_PUBLIC_KEY, $result['body'], 'GET /: the actual VAPID public key is embedded for the frontend subscribe flow');
     // Both canned sessions have working=true, but only the non-blocked one
     // should ever show the indicator - the blocked one must not, proving
-    // dashboard_thinking_indicator_html()'s blocked_reason check actually
+    // SessionRowView::dashboard_thinking_indicator_html()'s blocked_reason check actually
     // wins rather than just happening to not be exercised by the fixture.
     assert_equal(1, substr_count($result['body'], 'Thinking&hellip;'), 'GET /: thinking indicator shown exactly once - for the working, non-blocked session, not the working-but-blocked one');
     assert_contains('id="poll-interval-select"', $result['body'], 'GET /: dashboard polling-interval dropdown present in the header');
@@ -178,9 +178,9 @@ try {
 
     // --- sessions_fragment.php: pre-rendered HTML for index.php's own live
     // poll - same underlying data as sessions_list.php, but rendered
-    // through the exact same sessions_list_html()/bare_processes_html()/
-    // session_count_label_html() functions index.php's SSR render itself
-    // calls (see AgentClient.php), so this must contain the same
+    // through the exact same App\Views\SessionRowView methods
+    // (sessions_list_html()/bare_processes_html()/session_count_label_html())
+    // index.php's SSR render itself calls, so this must contain the same
     // content/markers the initial GET / assertions above already checked. ---
     $result = curl_request('GET', "{$baseUrl}/sessions_fragment.php");
     assert_equal(200, $result['status'], 'GET /sessions_fragment.php: 200');

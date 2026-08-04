@@ -21,8 +21,10 @@ declare(strict_types=1);
  * refresh gesture exists there at all, and the app can stay resumed in
  * the same JS session for hours.
  */
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
 
 start_app_session();
 
@@ -32,4 +34,4 @@ start_app_session();
 // serve a stale cached response to this exact fetch() URL for up to 60s.
 header('Cache-Control: no-store');
 header('Content-Type: application/json');
-echo json_encode(agent_call(['action' => 'session_detail', 'session' => (string)($_GET['session'] ?? '')]));
+echo json_encode(AgentClient::agent_call(['action' => 'session_detail', 'session' => (string)($_GET['session'] ?? '')]));

@@ -58,7 +58,7 @@ function find_transcript_path(string $claudeSessionId): ?string
 }
 
 // A hard safety cap, not a display preview length - the UI already collapses
-// blocks by default (see render_collapsible_block() in AgentClient.php), so
+// blocks by default (see App\Views\BlockedPromptView::render_collapsible_block()), so
 // this only exists to stop a truly pathological single block (e.g. a huge
 // file dump) from bloating the page. Expanding a block should show it in
 // full for any normal-sized command/tool output.
@@ -186,7 +186,7 @@ function is_subagent_metadata_text(string $text): bool
     return preg_match('/^agentId:\s*\S+.*<usage>/s', $text) === 1;
 }
 
-// Matches collapsible_summary()'s own single-line threshold (the
+// Matches BlockedPromptView::collapsible_summary()'s own single-line threshold (the
 // downstream render_collapsible_block()/renderCollapsibleBlock() rule
 // that skips the expand affordance entirely for trivial content) - the
 // decision has to be made here, not there, since once this returns a

@@ -73,8 +73,8 @@ class NotificationContentBuilder
     }
 
     /**
-     * Same 140-char preview convention as last_message_preview_html() in
-     * AgentClient.php, shared by every push body that echoes real
+     * Same 140-char preview convention as App\Views\BlockedPromptView::last_message_preview_html(),
+     * shared by every push body that echoes real
      * user/session-generated text (as opposed to a fixed generic string) so a
      * long command or reply doesn't blow out a notification.
      */

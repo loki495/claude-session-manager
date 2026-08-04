@@ -8,7 +8,9 @@ declare(strict_types=1);
  * quota.php, which also have none.
  */
 
-require __DIR__ . '/lib/AgentClient.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use App\AgentClient;
 
 header('Content-Type: application/json');
-echo json_encode(agent_call(['action' => 'browse_dir', 'path' => (string)($_GET['path'] ?? '')]));
+echo json_encode(AgentClient::agent_call(['action' => 'browse_dir', 'path' => (string)($_GET['path'] ?? '')]));

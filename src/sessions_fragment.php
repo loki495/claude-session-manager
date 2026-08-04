@@ -5,10 +5,10 @@ declare(strict_types=1);
  * GET-only JSON endpoint, polled by index.php's own visibility-gated poll
  * (mirrors session.php's) to keep the dashboard's session list, bare-
  * process list, and active-session count live without a manual refresh.
- * Renders through the exact same sessions_list_html()/bare_processes_html()/
- * session_count_label_html() functions index.php's own SSR render calls
- * (see AgentClient.php) - one source of truth for the markup, never two
- * copies (a JS port and a PHP original) to keep in sync.
+ * Renders through the exact same App\Views\SessionRowView methods
+ * (sessions_list_html()/bare_processes_html()/session_count_label_html())
+ * index.php's own SSR render calls - one source of truth for the markup,
+ * never two copies (a JS port and a PHP original) to keep in sync.
  *
  * Read-only from this endpoint's own perspective (no state mutated here),
  * same as quota.php/sessions_list.php/browse.php - no CSRF/same-origin
@@ -18,8 +18,11 @@ declare(strict_types=1);
  * for the full story on why that matters.
  */
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
+use App\Views\SessionRowView;
 
 start_app_session();
 
@@ -31,7 +34,7 @@ header('Cache-Control: no-store');
 header('Content-Type: application/json');
 
 $csrfToken = csrf_token();
-$listResult = agent_call(['action' => 'list']);
+$listResult = AgentClient::agent_call(['action' => 'list']);
 $agentReachable = (bool)($listResult['ok'] ?? false);
 
 if (!$agentReachable) {
@@ -44,7 +47,7 @@ $bare = $listResult['bare'] ?? [];
 
 echo json_encode([
     'ok' => true,
-    'session_count_html' => session_count_label_html(count($sessions)),
-    'sessions_html' => sessions_list_html($sessions, $csrfToken),
-    'bare_html' => bare_processes_html($bare, $csrfToken),
+    'session_count_html' => SessionRowView::session_count_label_html(count($sessions)),
+    'sessions_html' => SessionRowView::sessions_list_html($sessions, $csrfToken),
+    'bare_html' => SessionRowView::bare_processes_html($bare, $csrfToken),
 ]);

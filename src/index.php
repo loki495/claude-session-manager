@@ -1,8 +1,14 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
+use App\Views\HealthBoxView;
+use App\Views\PushNotifyView;
+use App\Views\QuotaFooterView;
+use App\Views\SessionRowView;
 
 start_app_session();
 
@@ -24,27 +30,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     switch ($action) {
         case 'new':
             $workdir = trim((string)($_POST['workdir'] ?? ''));
-            $result = agent_call(['action' => 'create', 'workdir' => $workdir]);
+            $result = AgentClient::agent_call(['action' => 'create', 'workdir' => $workdir]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
             break;
 
         case 'kill':
             $requested = (string)($_POST['session'] ?? '');
-            $result = agent_call(['action' => 'kill', 'session' => $requested]);
+            $result = AgentClient::agent_call(['action' => 'kill', 'session' => $requested]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
             break;
 
         case 'kill_bare':
             $pid = (int)($_POST['pid'] ?? 0);
-            $result = agent_call(['action' => 'kill_bare', 'pid' => $pid]);
+            $result = AgentClient::agent_call(['action' => 'kill_bare', 'pid' => $pid]);
             $ok = (bool)($result['ok'] ?? false);
             $message = (string)($result['message'] ?? 'Unknown error');
             break;
 
         case 'cleanup':
-            $result = agent_call(['action' => 'cleanup']);
+            $result = AgentClient::agent_call(['action' => 'cleanup']);
             $killed = $result['killed'] ?? [];
             $failed = $result['failed'] ?? [];
             $ok = (bool)($result['ok'] ?? false);
@@ -57,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
 
         case 'install_hook':
-            $result = agent_call(['action' => 'install_session_hook']);
+            $result = AgentClient::agent_call(['action' => 'install_session_hook']);
             $ok = (bool)($result['ok'] ?? false);
             $message = $ok
                 ? 'App hooks installed in ~/.claude/settings.json.'
@@ -66,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         case 'set_push_timer_interval':
             $seconds = (int)($_POST['seconds'] ?? 0);
-            $result = agent_call(['action' => 'set_push_timer_interval', 'seconds' => $seconds]);
+            $result = AgentClient::agent_call(['action' => 'set_push_timer_interval', 'seconds' => $seconds]);
             $ok = (bool)($result['ok'] ?? false);
             $message = $ok
                 ? "Push-check interval set to {$seconds}s."
@@ -85,24 +91,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 /* ---------- render (GET) ---------- */
 
-$listResult = agent_call(['action' => 'list']);
+$listResult = AgentClient::agent_call(['action' => 'list']);
 $agentReachable = (bool)($listResult['ok'] ?? false);
 $sessions = $agentReachable ? ($listResult['sessions'] ?? []) : [];
 $bare = $agentReachable ? ($listResult['bare'] ?? []) : [];
 
 // Only checked when the agent is reachable at all - no point surfacing a
 // second, redundant warning about host state we already can't see.
-$hookResult = $agentReachable ? agent_call(['action' => 'check_session_hook']) : ['ok' => false];
+$hookResult = $agentReachable ? AgentClient::agent_call(['action' => 'check_session_hook']) : ['ok' => false];
 $hookCheckOk = (bool)($hookResult['ok'] ?? false);
 $hookInstalled = (bool)($hookResult['installed'] ?? false);
 
-$pushResult = $agentReachable ? agent_call(['action' => 'push_public_key']) : ['ok' => false];
+$pushResult = $agentReachable ? AgentClient::agent_call(['action' => 'push_public_key']) : ['ok' => false];
 $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
 
-$healthResult = $agentReachable ? agent_call(['action' => 'health_check']) : ['ok' => false];
+$healthResult = $agentReachable ? AgentClient::agent_call(['action' => 'health_check']) : ['ok' => false];
 $healthChecks = (bool)($healthResult['ok'] ?? false) ? ($healthResult['checks'] ?? []) : [];
 
-$pushTimerResult = $agentReachable ? agent_call(['action' => 'get_push_timer_interval']) : ['ok' => false];
+$pushTimerResult = $agentReachable ? AgentClient::agent_call(['action' => 'get_push_timer_interval']) : ['ok' => false];
 $pushTimerIntervalSeconds = (bool)($pushTimerResult['ok'] ?? false) ? (int)($pushTimerResult['interval_seconds'] ?? 0) : null;
 
 $flash = $_SESSION['flash'] ?? null;
@@ -127,7 +133,7 @@ $csrfToken = csrf_token();
   <header class="mb-6 flex items-start justify-between gap-2">
     <div class="min-w-0">
       <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
-      <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= session_count_label_html(count($sessions)) ?></p>
+      <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= SessionRowView::session_count_label_html(count($sessions)) ?></p>
     </div>
     <select id="poll-interval-select" aria-label="Polling interval"
       class="shrink-0 text-xs font-medium pl-1.5 pr-5 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-400">
@@ -172,7 +178,7 @@ $csrfToken = csrf_token();
     </div>
   <?php endif; ?>
 
-  <?= health_box_html($healthChecks, $pushTimerIntervalSeconds, $csrfToken) ?>
+  <?= HealthBoxView::health_box_html($healthChecks, $pushTimerIntervalSeconds, $csrfToken) ?>
 
   <details id="new-session-details" class="mb-3 rounded-xl border border-slate-800 bg-slate-900/50">
     <summary id="new-session-summary" class="min-h-[3rem] flex items-center justify-center rounded-xl bg-indigo-600 active:bg-indigo-700 font-medium text-base px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
@@ -204,23 +210,23 @@ $csrfToken = csrf_token();
   </form>
 
   <?php if ($agentReachable): ?>
-    <div id="sessions-container"><?= sessions_list_html($sessions, $csrfToken) ?></div>
+    <div id="sessions-container"><?= SessionRowView::sessions_list_html($sessions, $csrfToken) ?></div>
   <?php endif; ?>
 
   <?php if ($agentReachable): ?>
-    <div id="bare-container"><?= bare_processes_html($bare, $csrfToken) ?></div>
+    <div id="bare-container"><?= SessionRowView::bare_processes_html($bare, $csrfToken) ?></div>
   <?php endif; ?>
 
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
     <div class="max-w-2xl mx-auto">
       <div class="flex items-start justify-between gap-3">
-        <?= quota_footer_html() ?>
+        <?= QuotaFooterView::quota_footer_html() ?>
         <a href="/"
           class="min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
           Refresh
         </a>
       </div>
-      <?= push_notify_button_html($vapidPublicKey, $csrfToken) ?>
+      <?= PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
     </div>
   </div>
 
@@ -235,7 +241,7 @@ $csrfToken = csrf_token();
 // (up to 15s, if they've picked a slower one).
 var requestSessionsPollNow = function () {};
 
-// Answer-prompt buttons (see blocked_prompt_rich_html() in AgentClient.php)
+// Answer-prompt buttons (see BlockedPromptView::blocked_prompt_rich_html())
 // use data-confirm-label the same way session.php's do - one delegated
 // listener here instead of inline onsubmit, since these forms are
 // rendered per-row and their count varies with how many sessions are

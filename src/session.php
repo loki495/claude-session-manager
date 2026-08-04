@@ -1,8 +1,14 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . '/lib/AgentClient.php';
-require __DIR__ . '/lib/Auth.php';
+require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/lib/Auth.php';
+
+use App\AgentClient;
+use App\Views\BlockedPromptView;
+use App\Views\PushNotifyView;
+use App\Views\QuotaFooterView;
+use App\Views\SessionRowView;
 
 start_app_session();
 
@@ -15,13 +21,13 @@ if ($sessionName === '') {
 
 $csrfToken = csrf_token();
 
-$detail = agent_call(['action' => 'session_detail', 'session' => $sessionName]);
+$detail = AgentClient::agent_call(['action' => 'session_detail', 'session' => $sessionName]);
 $found = (bool)($detail['ok'] ?? false);
 
-$pushResult = agent_call(['action' => 'push_public_key']);
+$pushResult = AgentClient::agent_call(['action' => 'push_public_key']);
 $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
 
-$history = $found ? agent_call(['action' => 'session_history', 'session' => $sessionName, 'before' => null, 'limit' => 30]) : ['ok' => false];
+$history = $found ? AgentClient::agent_call(['action' => 'session_history', 'session' => $sessionName, 'before' => null, 'limit' => 30]) : ['ok' => false];
 $historyOk = (bool)($history['ok'] ?? false);
 $entries = $historyOk ? ($history['entries'] ?? []) : [];
 $nextBefore = $historyOk ? ($history['next_before'] ?? null) : null;
@@ -61,13 +67,13 @@ function render_transcript_block(array $block): string
     // 51 chars) widened the whole page horizontally without this.
     return match ($block['kind']) {
         'text' => '<p class="whitespace-pre-wrap break-words text-sm text-slate-100">' . $text . '</p>',
-        'tool_use' => '<div class="tool-use-block">' . render_collapsible_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; ') . '</div>',
+        'tool_use' => '<div class="tool-use-block">' . BlockedPromptView::render_collapsible_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; ') . '</div>',
         // The image (a browser-automation screenshot, most likely) is a
         // SIBLING of .tool-detail, not nested inside it - unlike the raw
         // text output, Andres wants a screenshot visible regardless of
         // the show/hide-tool-details toggle, since it's often the whole
         // point of having run the tool in the first place.
-        'tool_result' => '<div class="tool-detail">' . render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', '') . '</div>' . $imageHtml,
+        'tool_result' => '<div class="tool-detail">' . BlockedPromptView::render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', '') . '</div>' . $imageHtml,
         'image' => $imageHtml !== '' ? $imageHtml : ($text !== '' ? '<p class="break-words text-xs text-slate-600">' . $text . '</p>' : ''),
         default => $text !== '' ? '<p class="break-words text-xs text-slate-600">' . $text . '</p>' : '',
     };
@@ -92,7 +98,7 @@ function render_session_static_info_html(array $detail): string
     }
 
     $html .= '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2">';
-    $html .= '<span>' . htmlspecialchars(relative_time((int)$detail['activity']), ENT_QUOTES) . '</span>';
+    $html .= '<span>' . htmlspecialchars(SessionRowView::relative_time((int)$detail['activity']), ENT_QUOTES) . '</span>';
     $html .= '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>';
     $html .= $detail['attached'] ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>';
     $html .= '</div>';
@@ -114,7 +120,7 @@ function render_session_static_info_html(array $detail): string
 /**
  * The blocked-prompt card (question, the pending command/context in a
  * collapsed-by-default block, Approve/Deny buttons - all one unified
- * card, via the shared blocked_prompt_rich_html()) - empty string when
+ * card, via the shared BlockedPromptView::blocked_prompt_rich_html()) - empty string when
  * the session isn't currently blocked. Placed after the history list, and
  * re-rendered in place by the same visibility-gated poll that appends new
  * messages, so it always sits right where the latest activity is, not
@@ -122,7 +128,7 @@ function render_session_static_info_html(array $detail): string
  */
 function render_blocked_prompt_section_html(array $detail, string $csrfToken): string
 {
-    return blocked_prompt_rich_html($detail, $csrfToken);
+    return BlockedPromptView::blocked_prompt_rich_html($detail, $csrfToken);
 }
 
 /**
@@ -291,7 +297,7 @@ function render_transcript_entry(array $entry): string
         default => htmlspecialchars(ucfirst((string)$role), ENT_QUOTES),
     };
     $parsedTimestamp = is_string($entry['timestamp'] ?? null) ? strtotime($entry['timestamp']) : false;
-    $timestamp = $parsedTimestamp !== false ? htmlspecialchars(relative_time($parsedTimestamp), ENT_QUOTES) : '';
+    $timestamp = $parsedTimestamp !== false ? htmlspecialchars(SessionRowView::relative_time($parsedTimestamp), ENT_QUOTES) : '';
     $colors = entry_color_classes($colorKind);
     // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
     // block) once the matching "Show tool outputs"/"Show tool calls"
@@ -546,8 +552,8 @@ function render_transcript_entry(array $entry): string
         Answer the prompt above to continue.
       </div>
       <div class="mt-2">
-        <?= quota_footer_html(render_mode_toggle_html($detail)) ?>
-        <?= push_notify_button_html($vapidPublicKey, $csrfToken) ?>
+        <?= QuotaFooterView::quota_footer_html(render_mode_toggle_html($detail)) ?>
+        <?= PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
       </div>
     </div>
   </div>
@@ -1231,8 +1237,8 @@ function render_transcript_entry(array $entry): string
     goToBottomBtn.addEventListener('click', function () { scrollToBottom(true); });
   }
 
-  // Mirrors host-agent's relative_time() (see src/lib/AgentClient.php) so
-  // a poll-refreshed timestamp reads the same as the server-rendered one.
+  // Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed
+  // timestamp reads the same as the server-rendered one.
   function relativeTimeLabel(timestamp) {
     var diff = Math.floor(Date.now() / 1000) - timestamp;
 
@@ -1248,7 +1254,7 @@ function render_transcript_entry(array $entry): string
     return d + ' day' + (d > 1 ? 's' : '') + ' ago';
   }
 
-  // Mirrors collapsible_summary() in session.php.
+  // Mirrors BlockedPromptView::collapsible_summary().
   function collapsibleSummary(text) {
     var trimmed = text.trim();
     var firstLine = trimmed.split('\n', 1)[0];
@@ -1256,7 +1262,7 @@ function render_transcript_entry(array $entry): string
     return summary + (trimmed.length > summary.length ? ' …' : '');
   }
 
-  // Mirrors render_collapsible_block() in AgentClient.php - tool commands/
+  // Mirrors BlockedPromptView::render_collapsible_block() - tool commands/
   // output default to collapsed (a <details>, no JS needed to expand/
   // collapse), except trivial content (short, single line - the summary
   // would show it in full anyway), which skips the wrapper entirely.
@@ -1608,7 +1614,7 @@ function render_transcript_entry(array $entry): string
     }
   }
 
-  // Mirrors blocked_prompt_rich_html() in AgentClient.php - the JS-side
+  // Mirrors BlockedPromptView::blocked_prompt_rich_html() - the JS-side
   // counterpart feeding the same poll. One unified card (question, the
   // pending command collapsed by default, Approve/Deny buttons) - not a
   // separate bubble, which read as something that already happened
@@ -1686,7 +1692,7 @@ function render_transcript_entry(array $entry): string
       var optionsHtml = '';
       var hasFreeText = false;
 
-      // See blocked_prompt_options_html() in AgentClient.php (PHP) for why
+      // See BlockedPromptView::blocked_prompt_options_html() (PHP) for why
       // - a multi-question AskUserQuestion prompt needs Prev/Next buttons
       // to reach any question besides whichever tab currently happens to
       // be showing.
@@ -1699,7 +1705,7 @@ function render_transcript_entry(array $entry): string
 
         if (opt.label.toLowerCase().indexOf('type something') !== -1) {
           hasFreeText = true;
-          // break-words + max-w-full - see blocked_prompt_options_html() in
+          // break-words + max-w-full - see BlockedPromptView::blocked_prompt_options_html() in
           // AgentClient.php (PHP) for why both are needed together (an
           // option label has no length limit imposed by the tool itself,
           // and break-words alone doesn't help without max-w-full capping
