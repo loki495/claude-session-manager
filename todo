@@ -142,3 +142,14 @@ Tier 2 - bigger or investigative items:
   PWAs has historically lagged well behind other platforms - confirm it
   actually works in Andres's real installed-app context before assuming
   this is a straightforward addition on top of the existing sw.js.
+- Investigate: Andres reports tapping a push notification on iOS opens
+  the dashboard instead of the specific session it was about. sw.js's
+  notificationclick handler already looks correct in the code - it reads
+  event.notification.data.url (set from the real per-session URL
+  check_and_send_pushes() passes to send_push_notification(), e.g.
+  /session.php?session=cc-...) and calls clients.openWindow(url)/focus()
+  on a matching existing client - so this smells like a known-ish iOS/
+  WebKit limitation with openWindow() in home-screen-installed PWA
+  (standalone display) mode rather than an app-side bug, but needs
+  confirming live on Andres's actual device before assuming that's really
+  the cause or looking for a workaround.
