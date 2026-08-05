@@ -194,9 +194,15 @@ class SessionService
     }
 
     /**
+     * $after (when given) takes priority over $before - session.php's
+     * regular poll passes the last line it's already rendered so only
+     * genuinely new entries come back (see TranscriptService::
+     * read_transcript_page_since()), while "Load older messages" (which
+     * never has an $after) still pages backward via $before as before.
+     *
      * @return array{ok:bool, entries?:array<int, array>, next_before?:?int, has_more?:bool, message?:string}
      */
-    public static function session_history(string $name, ?int $before, int $limit): array
+    public static function session_history(string $name, ?int $before, int $limit, ?int $after = null): array
     {
         $sidecar = SidecarStore::read_sidecar($name);
         $claudeSessionId = $sidecar['claude_session_id'] ?? null;
@@ -209,6 +215,10 @@ class SessionService
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];
+        }
+
+        if ($after !== null) {
+            return TranscriptService::read_transcript_page_since($path, $after, max(1, min($limit, 200)));
         }
 
         return TranscriptService::read_transcript_page($path, $before, max(1, min($limit, 200)));

@@ -35,7 +35,8 @@ function dispatch_action(array $request): array
             return SessionService::session_history(
                 (string)($request['session'] ?? ''),
                 isset($request['before']) ? (int)$request['before'] : null,
-                isset($request['limit']) ? (int)$request['limit'] : 30
+                isset($request['limit']) ? (int)$request['limit'] : 30,
+                isset($request['after']) ? (int)$request['after'] : null
             );
 
         case 'session_attachment':

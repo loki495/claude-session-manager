@@ -109,6 +109,7 @@ class SessionController extends Controller
             'session' => (string)($_GET['session'] ?? ''),
             'before' => isset($_GET['before']) ? (int)$_GET['before'] : null,
             'limit' => isset($_GET['limit']) ? (int)$_GET['limit'] : 30,
+            'after' => isset($_GET['after']) ? (int)$_GET['after'] : null,
         ]));
     }
 

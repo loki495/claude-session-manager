@@ -29,6 +29,59 @@ const CANNED_LAST_MESSAGE = [
     'blocks' => [['kind' => 'text', 'text' => "I'll clean up the temp directory now."]],
 ];
 
+/** @return array<int, array<string, mixed>> */
+function canned_session_history_entries(): array
+{
+    return [
+        ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:00Z', 'blocks' => [['kind' => 'text', 'text' => 'Fix the login redirect bug']], 'line' => 2],
+        ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:05Z', 'blocks' => [['kind' => 'text', 'text' => 'Looking into it now.']], 'line' => 3],
+        ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:10Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'Bash(pwd)']], 'line' => 4],
+        ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:15Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'done', 'image' => ['media_type' => 'image/png', 'data' => CANNED_TEST_IMAGE_BASE64]]], 'line' => 5],
+        // Real shape captured live 2026-08-02 against an actual
+        // subagent call - see agent_type in TranscriptService's
+        // parse_transcript_line()/summarize_content_block().
+        ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:20Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Agent - general-purpose: Investigate the login bug', 'agent_type' => 'general-purpose']], 'line' => 6],
+        ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:25Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Found it: the redirect URL was hardcoded.', 'agent_type' => 'general-purpose']], 'line' => 7],
+        // A SendUserFile-style tool_result: real file metadata
+        // threaded from the outer toolUseResult.attachments field
+        // (see TranscriptService::transcript_attachments_from_tool_use_result())
+        // rather than embedded in the content blocks themselves.
+        // Two attachments on one line - the real shape a SendUserFile
+        // call sending both a download and a screenshot produces
+        // (verified live 2026-08-04 against this app's own transcript).
+        ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:30Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Sent 2 file(s) to the user.', 'attachments' => [
+            ['file_uuid' => CANNED_ATTACHMENT_FILE_UUID, 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES), 'isImage' => false, 'media_type' => 'text/plain'],
+            ['file_uuid' => CANNED_IMAGE_ATTACHMENT_FILE_UUID, 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true)), 'isImage' => true, 'media_type' => 'image/png'],
+        ]]], 'line' => 8],
+    ];
+}
+
+/**
+ * `after` (when present) mirrors TranscriptService::read_transcript_page_since()'s
+ * real filtering - lets test_ui_smoke.php prove session_history.php's
+ * &after= param actually reaches the agent action, not just that the
+ * endpoint responds.
+ *
+ * @param array<string, mixed> $request
+ * @return array<string, mixed>
+ */
+function canned_session_history(array $request): array
+{
+    if (($request['session'] ?? null) !== CANNED_SESSION_NAME) {
+        return ['ok' => false, 'message' => 'No transcript recorded for this session'];
+    }
+
+    $entries = canned_session_history_entries();
+
+    if (isset($request['after'])) {
+        $after = (int)$request['after'];
+
+        return ['ok' => true, 'entries' => array_values(array_filter($entries, static fn(array $e): bool => $e['line'] > $after))];
+    }
+
+    return ['ok' => true, 'entries' => $entries, 'next_before' => 1, 'has_more' => true];
+}
+
 $input = stream_get_contents(STDIN);
 $request = json_decode((string)$input, true);
 $action = is_array($request) ? ($request['action'] ?? null) : null;
@@ -101,35 +154,7 @@ $response = match ($action) {
     'answer_prompt_with_text' => ($request['session'] ?? null) === CANNED_SESSION_NAME && ($request['option'] ?? null) === 3 && trim((string)($request['text'] ?? '')) !== ''
         ? ['ok' => true, 'message' => 'Sent free-text reply to ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Reply cannot be empty'],
-    'session_history' => ($request['session'] ?? null) === CANNED_SESSION_NAME
-        ? [
-            'ok' => true,
-            'entries' => [
-                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:00Z', 'blocks' => [['kind' => 'text', 'text' => 'Fix the login redirect bug']], 'line' => 2],
-                ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:05Z', 'blocks' => [['kind' => 'text', 'text' => 'Looking into it now.']], 'line' => 3],
-                ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:10Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'Bash(pwd)']], 'line' => 4],
-                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:15Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'done', 'image' => ['media_type' => 'image/png', 'data' => CANNED_TEST_IMAGE_BASE64]]], 'line' => 5],
-                // Real shape captured live 2026-08-02 against an actual
-                // subagent call - see agent_type in TranscriptService's
-                // parse_transcript_line()/summarize_content_block().
-                ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:20Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Agent - general-purpose: Investigate the login bug', 'agent_type' => 'general-purpose']], 'line' => 6],
-                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:25Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Found it: the redirect URL was hardcoded.', 'agent_type' => 'general-purpose']], 'line' => 7],
-                // A SendUserFile-style tool_result: real file metadata
-                // threaded from the outer toolUseResult.attachments field
-                // (see TranscriptService::transcript_attachments_from_tool_use_result())
-                // rather than embedded in the content blocks themselves.
-                // Two attachments on one line - the real shape a SendUserFile
-                // call sending both a download and a screenshot produces
-                // (verified live 2026-08-04 against this app's own transcript).
-                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:30Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Sent 2 file(s) to the user.', 'attachments' => [
-                    ['file_uuid' => CANNED_ATTACHMENT_FILE_UUID, 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES), 'isImage' => false, 'media_type' => 'text/plain'],
-                    ['file_uuid' => CANNED_IMAGE_ATTACHMENT_FILE_UUID, 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true)), 'isImage' => true, 'media_type' => 'image/png'],
-                ]]], 'line' => 8],
-            ],
-            'next_before' => 1,
-            'has_more' => true,
-        ]
-        : ['ok' => false, 'message' => 'No transcript recorded for this session'],
+    'session_history' => canned_session_history($request),
     'session_attachment' => (string)($request['session'] ?? null) === CANNED_SESSION_NAME
         ? match ($request['file_uuid'] ?? null) {
             CANNED_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES)],

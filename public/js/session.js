@@ -1714,13 +1714,26 @@
       return Promise.resolve(); // no transcript for this session - nothing to append to
     }
 
-    return fetch('/session_history.php?session=' + encodeURIComponent(sessionName) + '&limit=50', { credentials: 'same-origin', signal: pollAbortController.signal })
+    // Once there's a known newestLine, ask the server for only what's newer
+    // than it (see TranscriptService::read_transcript_page_since() on the
+    // host-agent side) instead of re-fetching and re-filtering the same
+    // recent window every single poll cycle - only the very first poll of a
+    // session with no history at all yet (newestLine still null) falls back
+    // to the plain "most recent N" fetch.
+    var url = '/session_history.php?session=' + encodeURIComponent(sessionName) + '&limit=50'
+      + (newestLine !== null ? '&after=' + newestLine : '');
+
+    return fetch(url, { credentials: 'same-origin', signal: pollAbortController.signal })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data || !data.ok) {
           return;
         }
 
+        // The server already guarantees every entry is newer than
+        // newestLine (via &after= above) once that's known - this filter
+        // only still does real work on the null-newestLine bootstrap poll,
+        // where nothing's rendered yet and everything returned is "fresh".
         var fresh = (data.entries || []).filter(function (entry) {
           return newestLine === null || entry.line > newestLine;
         });

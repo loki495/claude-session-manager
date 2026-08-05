@@ -315,6 +315,27 @@ assert_equal(false, $page3['has_more'] ?? null, 'read_transcript_page: page3 has
 $missing = TranscriptService::read_transcript_page('/does/not/exist.jsonl', null, 10);
 assert_equal(false, $missing['ok'] ?? null, 'read_transcript_page: missing file -> ok=false');
 
+// --- TranscriptService::read_transcript_page_since(): the regular-poll
+// counterpart - reads FORWARD from just after a given line, oldest-first
+// (no reversal needed, unlike read_transcript_page()'s backward walk) -
+// renderable lines in the fixture are 2, 3, 4, 5, 8 (see the file itself:
+// 1/6 are meta, 7 is thinking-only, 9 is malformed, 10 has no message). ---
+$since2 = TranscriptService::read_transcript_page_since(FIXTURE_TRANSCRIPT, 2, 10);
+assert_true($since2['ok'] ?? false, 'read_transcript_page_since: ok=true');
+assert_equal([3, 4, 5, 8], array_column($since2['entries'], 'line'), 'read_transcript_page_since: after line 2, every renderable line that follows it comes back in ascending order');
+
+$since5 = TranscriptService::read_transcript_page_since(FIXTURE_TRANSCRIPT, 5, 10);
+assert_equal([8], array_column($since5['entries'], 'line'), 'read_transcript_page_since: after line 5, only line 8 remains');
+
+$since8 = TranscriptService::read_transcript_page_since(FIXTURE_TRANSCRIPT, 8, 10);
+assert_equal([], $since8['entries'], 'read_transcript_page_since: after the last renderable line, nothing comes back');
+
+$since0Capped = TranscriptService::read_transcript_page_since(FIXTURE_TRANSCRIPT, 0, 2);
+assert_equal([2, 3], array_column($since0Capped['entries'], 'line'), 'read_transcript_page_since: $limit caps how many entries come back even when more exist further in the file');
+
+$sinceMissing = TranscriptService::read_transcript_page_since('/does/not/exist.jsonl', 0, 10);
+assert_equal(false, $sinceMissing['ok'] ?? null, 'read_transcript_page_since: missing file -> ok=false');
+
 // --- TranscriptService::transcript_attachments_from_tool_use_result()/
 // parse_transcript_line(): a SendUserFile tool_result's real file
 // metadata (path, size, isImage, media_type, file_uuid) lives on the

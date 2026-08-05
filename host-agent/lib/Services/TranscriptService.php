@@ -608,6 +608,44 @@ class TranscriptService
     }
 
     /**
+     * The regular-poll counterpart to read_transcript_page() above - reads
+     * FORWARD from just after line number $afterLine (1-indexed, same raw
+     * line count every entry already carries as its own 'line' field) to
+     * the end of the file, oldest-first (already the order a poll wants to
+     * append in, no reversal needed). Exists so a poll can ask the server
+     * for only what's actually new since the last one it saw, instead of
+     * re-fetching and re-filtering the same recent window every cycle -
+     * every entry returned is guaranteed to have line > $afterLine, so the
+     * caller needs no client-side re-check of its own.
+     *
+     * @return array{ok:bool, entries:array<int, array>, message?:string}
+     */
+    public static function read_transcript_page_since(string $path, int $afterLine, int $limit): array
+    {
+        $lines = @file($path, FILE_IGNORE_NEW_LINES);
+
+        if ($lines === false) {
+            return ['ok' => false, 'entries' => [], 'message' => 'Transcript file could not be read'];
+        }
+
+        $totalLines = count($lines);
+        $entries = [];
+        $index = max(0, $afterLine); // $afterLine is 1-indexed, so this 0-indexed start is already the next unseen line
+
+        while ($index < $totalLines && count($entries) < $limit) {
+            $parsed = self::parse_transcript_line($lines[$index]);
+
+            if ($parsed !== null) {
+                $entries[] = $parsed + ['line' => $index + 1];
+            }
+
+            $index++;
+        }
+
+        return ['ok' => true, 'entries' => $entries];
+    }
+
+    /**
      * Re-reads a single transcript line by number and returns the real file
      * bytes for one of its attachments (see
      * transcript_attachments_from_tool_use_result() above) as base64 - the

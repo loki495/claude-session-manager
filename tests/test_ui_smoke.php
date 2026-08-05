@@ -490,6 +490,17 @@ try {
     assert_true(is_array($historyBody) && ($historyBody['ok'] ?? false), 'GET /session_history.php: response decodes as ok=true JSON');
     assert_equal(7, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
 
+    // --- session_history.php: &after= (the regular-poll path) reaches the
+    // agent action - proves the plumbing (controller -> agent_call ->
+    // canned_session_history()) actually forwards it, not just that the
+    // real filtering logic works (already unit-tested directly against
+    // TranscriptService::read_transcript_page_since()). ---
+    $afterResult = curl_request('GET', "{$baseUrl}/session_history.php?session=cc-20260101-1200&after=5");
+    assert_equal(200, $afterResult['status'], 'GET /session_history.php?after=5: 200');
+    $afterBody = json_decode($afterResult['body'], true);
+    assert_true(is_array($afterBody) && ($afterBody['ok'] ?? false), 'GET /session_history.php?after=5: response decodes as ok=true JSON');
+    assert_equal([6, 7, 8], array_column($afterBody['entries'] ?? [], 'line'), 'GET /session_history.php?after=5: only entries past line 5 come back, proving &after= reached the agent action');
+
     // --- session.php: compose bar present for a real session ---
     $result = curl_request('GET', "{$baseUrl}/session.php?session=cc-20260101-1200");
     assert_contains('id="compose-bar"', $result['body'], 'GET /session.php: message compose bar present');
