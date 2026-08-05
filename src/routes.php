@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Controllers\BrowseController;
+use App\Controllers\DashboardController;
 use App\Controllers\QuotaController;
+use App\Controllers\SessionController;
+use App\Controllers\UploadController;
 use App\Http\Router;
 
 $router = new Router();
@@ -13,5 +17,15 @@ $router = new Router();
 // old flat file.
 
 $router->get('/quota.php', [QuotaController::class, 'show']);
+
+$router->get('/browse.php', [BrowseController::class, 'browse']);
+
+$router->get('/sessions_fragment.php', [DashboardController::class, 'fragment']);
+$router->get('/sessions_list.php', [DashboardController::class, 'list']);
+
+$router->get('/session_detail.php', [SessionController::class, 'detail']);
+$router->get('/session_history.php', [SessionController::class, 'history']);
+
+$router->get('/uploaded_files.php', [UploadController::class, 'list']);
 
 return $router;
