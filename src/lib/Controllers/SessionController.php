@@ -5,9 +5,61 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\AgentClient;
+use App\Services\AuthService;
+use App\Views\PageView;
 
 class SessionController extends Controller
 {
+    /**
+     * The session-detail page's full-page GET render. Reads `session`
+     * from either GET or POST with no method check at all - matches the
+     * old file exactly, so both are registered to this same method in
+     * routes.php. Deliberately doesn't call either Controller guard
+     * helper for the same reason as DashboardController::index() - this
+     * is a full HTML page/redirect, never JSON, never a 405.
+     */
+    public function show(): void
+    {
+        AuthService::start_app_session();
+
+        $sessionName = trim((string)($_GET['session'] ?? $_POST['session'] ?? ''));
+
+        if ($sessionName === '') {
+            header('Location: /', true, 303);
+
+            return;
+        }
+
+        $csrfToken = AuthService::csrf_token();
+
+        $detail = AgentClient::agent_call(['action' => 'session_detail', 'session' => $sessionName]);
+        $found = (bool)($detail['ok'] ?? false);
+
+        $pushResult = AgentClient::agent_call(['action' => 'push_public_key']);
+        $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
+
+        $history = $found ? AgentClient::agent_call(['action' => 'session_history', 'session' => $sessionName, 'before' => null, 'limit' => 30]) : ['ok' => false];
+        $historyOk = (bool)($history['ok'] ?? false);
+        $entries = $historyOk ? ($history['entries'] ?? []) : [];
+        $nextBefore = $historyOk ? ($history['next_before'] ?? null) : null;
+        $hasMore = $historyOk && ($history['has_more'] ?? false);
+        $newestLine = !empty($entries) ? end($entries)['line'] : null;
+
+        echo PageView::render_session_page([
+            'sessionName' => $sessionName,
+            'csrfToken' => $csrfToken,
+            'detail' => $detail,
+            'found' => $found,
+            'vapidPublicKey' => $vapidPublicKey,
+            'history' => $history,
+            'historyOk' => $historyOk,
+            'entries' => $entries,
+            'nextBefore' => $nextBefore,
+            'hasMore' => $hasMore,
+            'newestLine' => $newestLine,
+        ]);
+    }
+
     /**
      * GET-only JSON endpoint backing session.php's live info/blocked-prompt
      * panel (polled while the page is visible - see session.php's inline

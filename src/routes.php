@@ -56,4 +56,12 @@ $router->post('/session_navigate.php', [SessionController::class, 'navigate']);
 $router->get('/answer_prompt.php', [SessionController::class, 'answerPrompt']);
 $router->post('/answer_prompt.php', [SessionController::class, 'answerPrompt']);
 
+$router->get('/', [DashboardController::class, 'index']);
+$router->post('/', [DashboardController::class, 'handleAction']);
+
+// Reads `session` from either GET or POST with no method check at all -
+// matches the old file exactly, both registered to the same method.
+$router->get('/session.php', [SessionController::class, 'show']);
+$router->post('/session.php', [SessionController::class, 'show']);
+
 return $router;
