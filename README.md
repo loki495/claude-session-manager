@@ -148,21 +148,29 @@ claude-session-manager/
 ├── .gitignore
 ├── README.md
 ├── CLAUDE.md               # architecture/conventions guidance for Claude Code sessions
-├── src/                    # bind-mounted into the container at /var/www/src (vendor/ alongside it at /var/www/vendor)
-│   ├── index.php           # thin controller: POST action handling, then AgentClient + PageView for the GET render
-│   ├── session.php         # thin controller: session-detail page (same pattern)
-│   ├── session_send.php, session_mode.php, session_escape.php, session_navigate.php,
-│   │   session_history.php, session_detail.php, sessions_list.php, sessions_fragment.php,
-│   │   answer_prompt.php, browse.php, quota.php, upload_file.php, uploaded_files.php,
-│   │   delete_uploaded_file.php, delete_all_uploaded_files.php,
-│   │   push_subscribe.php, push_unsubscribe.php
-│   │                       # one thin entry point per action/JSON endpoint - same
-│   │                       # AuthService -> AgentClient -> render pattern throughout
+├── public/                 # the document root - the ONLY directory a web server ever serves from
+│   ├── index.php            # the one front controller - bootstraps, loads src/routes.php, dispatches.
+│   │                         # Also directly usable as a `php -S` router-script argument (how Docker
+│   │                         # runs it - see docker-compose.yml); public/.htaccess covers Apache,
+│   │                         # nginx needs an equivalent try_files directive in its own config.
+│   ├── .htaccess             # standard front-controller rewrite rules (inert unless served via Apache)
+│   └── js/*.js, sw.js        # the only real static files - everything else funnels through index.php
+├── src/                    # application code - never directly web-accessible (see public/ above)
+│   ├── routes.php           # route table: App\Http\Router::get()/post() registrations, one per URL
 │   └── lib/
 │       ├── AgentClient.php  # App\AgentClient - talks to the host agent over a UNIX socket
-│       ├── Assets.php       # App\Assets - cache-busting for src/js/*.js via a ?v=<mtime> query string
+│       ├── Assets.php       # App\Assets - cache-busting for public/js/*.js via a ?v=<mtime> query string
+│       ├── Http/
+│       │   └── Router.php    # App\Http\Router - deliberately simple exact-path matcher, no groups/
+│       │                     # middleware/path params yet; match() is a pure lookup, no output of its own
+│       ├── Controllers/      # App\Controllers\* - one class per feature area (DashboardController,
+│       │                     # SessionController, BrowseController, UploadController, PushController,
+│       │                     # QuotaController), each method a thin action: an AuthService guard (via
+│       │                     # Controller's require_post_json()/start_readonly_json() helpers, for
+│       │                     # everything except the two full-page renders), an AgentClient::agent_call(),
+│       │                     # then handing the result to a View to render
 │       ├── Services/
-│       │   └── AuthService.php  # same-origin check + CSRF token + session start, shared by every entry point
+│       │   └── AuthService.php  # same-origin check + CSRF token + session start, shared by every controller
 │       └── Views/           # App\Views\* - one render class per feature area (TranscriptView,
 │                             # SessionRowView, BlockedPromptView, QuotaFooterView, HealthBoxView,
 │                             # PushNotifyView, plus PageView for the two full-page templates) -
@@ -170,8 +178,8 @@ claude-session-manager/
 │                             # own; View.php owns the shared League\Plates engine they all extend
 ├── src/partials/            # every template Plates resolves against, grouped by feature, not one flat dir
 │   ├── layout.php             # shared <html>/<head>/<body> shell (Plates layout()/section())
-│   ├── pages/                  # session.php/index.php's own page content - what PageView renders
-│   ├── header.php, sidebar.php, compose-bar.php  # session.php's chrome - plain `include`s, not Plates templates
+│   ├── pages/                  # the dashboard/session-detail page content - what PageView renders
+│   ├── header.php, sidebar.php, compose-bar.php  # session page chrome - plain `include`s, not Plates templates
 │   └── transcript/, blocked-prompt/, session-row/, quota-footer/, health-box/, push-notify/
 │                             # one subdirectory of templates per App\Views\* class above
 ├── host-agent/             # installed natively on the HOST, not in Docker
@@ -205,16 +213,30 @@ claude-session-manager/
 ```
 
 Both `App\` (→ `src/lib/`) and `HostAgent\` (→ `host-agent/lib/`) are
-Composer PSR-4 autoloaded from the one root `composer.json` - `vendor/` is
-bind-mounted into the container alongside `src/` so the same autoloader
-works in both places (see `docker-compose.yml`'s volumes comment for why
-the container's directory layout has to mirror the host's).
+Composer PSR-4 autoloaded from the one root `composer.json` - `vendor/`
+and `src/` are bind-mounted into the container as siblings of `public/`
+(mirroring the host's own repo-root layout) so the same autoloader works
+in both places (see `docker-compose.yml`'s volumes comment for why the
+container's directory layout has to mirror the host's).
 
 There is no standalone `Dockerfile` for the container — its build steps
 live inline in `docker-compose.yml` under `build.dockerfile_inline`.
-`src/` is bind-mounted into the container rather than copied into the
-image, so editing any PHP file there takes effect on the next page load
-with no rebuild or restart.
+`public/`, `src/`, and `vendor/` are all bind-mounted rather than copied
+into the image, so editing any PHP file takes effect on the next page
+load with no rebuild or restart - only a `docker-compose.yml`/Dockerfile
+change itself (docroot, CMD, PHP extensions, ...) needs
+`docker compose up -d --build`.
+
+**Deploying behind a real web server instead of `php -S`**: point its
+document root at `public/`, nothing else. Apache: enable `mod_rewrite`
+and use `public/.htaccess` as-is (it rewrites any request that isn't a
+real file/directory to `index.php`). nginx: no file to copy, just add the
+equivalent to its own config, e.g.
+```nginx
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}
+```
 
 ## Setup
 

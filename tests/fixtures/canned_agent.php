@@ -6,8 +6,8 @@ declare(strict_types=1);
  * Stand-in for host-agent/agent.php used only by test_ui_smoke.php: same
  * one-request-one-response JSON-over-stdio shape (see socket_harness.php),
  * but returns fixed canned data instead of touching tmux. This lets the UI
- * smoke test exercise src/index.php's rendering and form-handling logic
- * without ever creating a real (or even fixture) tmux session.
+ * smoke test exercise DashboardController's rendering and form-handling
+ * logic without ever creating a real (or even fixture) tmux session.
  */
 
 const CANNED_SESSION_NAME = 'cc-20260101-1200';

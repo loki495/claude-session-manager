@@ -30,12 +30,13 @@ what it covers and what fixtures it needs).
 
 No PHPStan/Pint/Rector here — this is not a Laravel project.
 
-The container never needs a rebuild for PHP/JS edits (`src/` is
-bind-mounted); `docker compose up -d --build` is only needed if
-`docker-compose.yml`'s inline Dockerfile itself changes. The host agent
-(`host-agent/`) also runs directly off the checked-out repo path with no
-restart needed per edit — each connection gets a fresh PHP process, spawned
-by systemd socket activation.
+The container never needs a rebuild for PHP/JS edits (`src/`, `public/`,
+and `vendor/` are all bind-mounted); `docker compose up -d --build` is
+only needed if `docker-compose.yml`'s inline Dockerfile itself changes
+(docroot, CMD, PHP extensions, etc.). The host agent (`host-agent/`) also
+runs directly off the checked-out repo path with no restart needed per
+edit — each connection gets a fresh PHP process, spawned by systemd
+socket activation.
 
 ## Architecture: two runtimes, one repo
 
@@ -56,16 +57,35 @@ Docker-spawned, makes that impossible by construction — not by convention.
 
 ### Request flow
 
-1. A browser hits an entry-point script directly under `src/` (`index.php`,
-   `session.php`, `session_send.php`, ...). Each is a thin controller: call
-   `AuthService` (CSRF/session), call `AgentClient::agent_call([...])` to
-   talk to the agent, then hand the result to a `PageView`/`App\Views\*`
-   class to render — no inline HTML in the controller files themselves.
-2. `AgentClient` opens the UNIX socket, writes one JSON request, reads one
+1. `public/` is the document root - every request goes through
+   `public/index.php`, the one front controller (standard Laravel/Symfony/
+   Slim-style layout, not something tied to `php -S` specifically - it also
+   works as a `php -S` router-script argument, which is how the Docker
+   container actually runs it today; `public/.htaccess` covers Apache,
+   nginx needs an equivalent `try_files` directive in its own config).
+   `public/js/*.js` and `public/sw.js` are the only real static files there
+   - `index.php` returns `false` for those two patterns and lets whatever's
+   in front serve them directly.
+2. `index.php` matches the request against `App\Http\Router`
+   (`src/lib/Http/Router.php`, loaded via `src/routes.php`) - a
+   deliberately simple exact-path matcher, no groups/middleware/path
+   parameters yet. A match instantiates the mapped `App\Controllers\*`
+   class (`src/lib/Controllers/`, one class per feature area -
+   `DashboardController`, `SessionController`, `BrowseController`,
+   `UploadController`, `PushController`, `QuotaController`) and calls the
+   mapped method; no match is a hard 404. Every controller method is a
+   thin action: call `AuthService` (CSRF/session - via one of
+   `App\Controllers\Controller`'s two shared guard helpers,
+   `require_post_json()`/`start_readonly_json()`, for everything except
+   the two full-page renders and `BrowseController`, which have their own
+   reasons not to), call `AgentClient::agent_call([...])` to talk to the
+   agent, then hand the result to a `PageView`/`App\Views\*` class to
+   render - no inline HTML in the controllers themselves.
+4. `AgentClient` opens the UNIX socket, writes one JSON request, reads one
    JSON response. `agent.php` (host-agent's entry point) is a per-connection
    process spawned by systemd; it decodes the request, dispatches on
    `action`, and writes back one JSON response.
-3. Two dispatchers on the host-agent side: `Push.php`'s
+5. Two dispatchers on the host-agent side: `Push.php`'s
    `dispatch_push_action()` handles `push_*` actions, falling through
    (`null`) to `Sessions.php`'s `dispatch_action()` for everything else.
    Both are now thin switches — the real logic lives in
@@ -76,13 +96,13 @@ Docker-spawned, makes that impossible by construction — not by convention.
    `host-agent/lib/Stores/*` (`SidecarStore`, `PendingToolStore`,
    `PushSubscriptionStore`, `PushSessionStateStore`) — all PSR-4 autoloaded
    under namespace `HostAgent\Services`/`HostAgent\Stores`.
-4. On the container side, the equivalent split is `App\Services\AuthService`
-   (CSRF/session) and `App\Views\*` (one render class per feature area —
-   `TranscriptView`, `SessionRowView`, `BlockedPromptView`, `QuotaFooterView`,
+6. `App\Views\*` (one render class per feature area — `TranscriptView`,
+   `SessionRowView`, `BlockedPromptView`, `QuotaFooterView`,
    `HealthBoxView`, `PushNotifyView`, plus `PageView` for the two full-page
-   templates). Views extend `App\Views\View`, which owns a shared
-   `League\Plates` engine rooted at `src/partials/` — templates are grouped
-   by feature (`partials/transcript/`, `partials/blocked-prompt/`,
+   templates) is what controllers hand their `AgentClient` result to.
+   Views extend `App\Views\View`, which owns a shared `League\Plates`
+   engine rooted at `src/partials/` — templates are grouped by feature
+   (`partials/transcript/`, `partials/blocked-prompt/`,
    `partials/session-row/`, `partials/pages/`, ...), not one flat directory.
 
 Both `App\` (→ `src/lib/`) and `HostAgent\` (→ `host-agent/lib/`) are
@@ -109,7 +129,7 @@ only `create_cc_session()`-spawned sessions have).
 
 ## Conventions worth knowing before editing
 
-- **`src/js/*.js` is plain ES5** (`var`, `function`, no `const`/`let`,
+- **`public/js/*.js` is plain ES5** (`var`, `function`, no `const`/`let`,
   arrow functions, `Set`, or template literals) — no transpiler in this
   project, and mobile Safari compatibility has repeatedly been the reason
   (see the several iOS-specific comments throughout `session.js`). Match
