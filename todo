@@ -3,11 +3,6 @@ says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
 Small-to-medium features (good gain/effort ratio):
 
-- session.php: recognize the /clear slash command in the transcript (and
-  other local commands going forward) and, on displaying it, clear the
-  screen of prior entries - similar in spirit to how a real terminal
-  clears on /clear rather than just rendering it as a generic command
-  entry mixed in with everything before it.
 - When polling, pass the last message timestamp (or other identifier) so
   the server only returns messages since the last pull, instead of
   re-fetching everything each time.
