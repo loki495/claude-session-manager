@@ -553,7 +553,7 @@ at the start of a phone notification.
 **iOS's subscription lifecycle is flaky, by design of the platform, not a
 bug here**: a subscription can silently die after roughly 1-2 weeks, or
 after as few as 3 pushes the service worker doesn't turn into a shown
-notification (see `src/sw.js` - its `push` handler is written specifically
+notification (see `public/sw.js` - its `push` handler is written specifically
 to never skip calling `showNotification`, to avoid tripping that). There's
 no error surfaced to the app when this happens. The frontend's own
 mitigation: every page load with an existing subscription silently re-POSTs

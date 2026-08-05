@@ -81,11 +81,11 @@ Docker-spawned, makes that impossible by construction — not by convention.
    reasons not to), call `AgentClient::agent_call([...])` to talk to the
    agent, then hand the result to a `PageView`/`App\Views\*` class to
    render - no inline HTML in the controllers themselves.
-4. `AgentClient` opens the UNIX socket, writes one JSON request, reads one
+3. `AgentClient` opens the UNIX socket, writes one JSON request, reads one
    JSON response. `agent.php` (host-agent's entry point) is a per-connection
    process spawned by systemd; it decodes the request, dispatches on
    `action`, and writes back one JSON response.
-5. Two dispatchers on the host-agent side: `Push.php`'s
+4. Two dispatchers on the host-agent side: `Push.php`'s
    `dispatch_push_action()` handles `push_*` actions, falling through
    (`null`) to `Sessions.php`'s `dispatch_action()` for everything else.
    Both are now thin switches — the real logic lives in
@@ -96,7 +96,7 @@ Docker-spawned, makes that impossible by construction — not by convention.
    `host-agent/lib/Stores/*` (`SidecarStore`, `PendingToolStore`,
    `PushSubscriptionStore`, `PushSessionStateStore`) — all PSR-4 autoloaded
    under namespace `HostAgent\Services`/`HostAgent\Stores`.
-6. `App\Views\*` (one render class per feature area — `TranscriptView`,
+5. `App\Views\*` (one render class per feature area — `TranscriptView`,
    `SessionRowView`, `BlockedPromptView`, `QuotaFooterView`,
    `HealthBoxView`, `PushNotifyView`, plus `PageView` for the two full-page
    templates) is what controllers hand their `AgentClient` result to.
@@ -106,9 +106,10 @@ Docker-spawned, makes that impossible by construction — not by convention.
    `partials/session-row/`, `partials/pages/`, ...), not one flat directory.
 
 Both `App\` (→ `src/lib/`) and `HostAgent\` (→ `host-agent/lib/`) are
-Composer PSR-4 autoloaded from the one root `composer.json` — `vendor/` is
-bind-mounted into the container alongside `src/` so the same autoloader
-works in both places.
+Composer PSR-4 autoloaded from the one root `composer.json` — `public/`,
+`src/`, and `vendor/` are bind-mounted into the container as siblings
+(mirroring the host's own repo-root layout) so the same autoloader works
+in both places.
 
 ### Two Claude Code hooks this app installs into `~/.claude/settings.json`
 
@@ -151,3 +152,14 @@ only `create_cc_session()`-spawned sessions have).
   a second git worktree, e.g. `../claude-session-manager-refactor`) is only
   spun up for a large phased refactor and merged back when done. This repo
   does not use the generic global `master → local → feature` model.
+- Andres may open-source this repo. When a design choice could go either
+  toward "simplest for the one deployment this runs today" or "the
+  standard/portable shape," default to the portable one, even if it's a
+  bit more setup now. Concrete precedent: `public/index.php` is a
+  conventional Laravel/Symfony/Slim-style front controller rather than a
+  `php -S`-router-script-only trick, even though `php -S` is the only
+  server this app actually runs on today - it still works as a `php -S`
+  router-script argument, but also works unmodified behind Apache
+  (`public/.htaccess`, added preemptively) or nginx (documented `try_files`
+  equivalent in the README). Flag the trade-off if you're unsure it's
+  worth the extra effort in a given case, but lean portable by default.
