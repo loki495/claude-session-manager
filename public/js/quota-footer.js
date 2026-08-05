@@ -3,6 +3,7 @@
   var toggleBtn = document.getElementById('quota-toggle-btn');
   var toggleIcon = document.getElementById('quota-toggle-icon');
   var el = document.getElementById('quota-info');
+  var sessionName = footer.dataset.session || '';
   var STORAGE_KEY = 'csm-quota-collapsed';
 
   function applyCollapsed(collapsed) {
@@ -35,6 +36,7 @@
   }
 
   function label(key) {
+    if (key === 'context') return 'Context';
     if (key === 'session') return 'Session';
     if (key === 'week_all') return 'Week';
     return key.replace(/^week_/, '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }) + ' (week)';
@@ -53,6 +55,22 @@
     var d = Math.floor(seconds / 86400);
     var wh = Math.floor((seconds % 86400) / 3600);
     return d > 0 ? (d + 'd ' + wh + 'h') : (wh + 'h');
+  }
+
+  // The relative duration alone ("1h 53m") doesn't say WHEN that actually
+  // is on the clock - this appends the absolute local time next to it, only
+  // adding the date when the reset isn't today (the common case for the
+  // 5-hour session bucket), so the compact mobile footer doesn't carry a
+  // redundant date on every single line.
+  function formatAbsolute(unixSeconds) {
+    var d = new Date(unixSeconds * 1000);
+    var now = new Date();
+    var timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    var sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+
+    if (sameDay) return timeStr;
+
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr;
   }
 
   // Mirrors App\Views\SessionRowView::relative_time() so "Captured ..."
@@ -91,7 +109,12 @@
     }
 
     var q = data.quota;
-    var order = ['session', 'week_all'].concat(Object.keys(q).filter(function (k) {
+    // 'context' (per-session, no reset timer) leads, ahead of the
+    // account-wide session/week buckets - only ever present when this
+    // footer was given a session name (see sessionName above) and that
+    // session's own pane currently has a status line to read; otherwise
+    // simply absent from q, same graceful omission as the week_* buckets.
+    var order = ['context', 'session', 'week_all'].concat(Object.keys(q).filter(function (k) {
       return k.indexOf('week_') === 0 && k !== 'week_all';
     }).sort());
 
@@ -106,7 +129,7 @@
 
       if (typeof bar.resets_at === 'number') {
         var kind = key === 'session' ? 'session' : 'week';
-        text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind);
+        text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind) + ' (' + formatAbsolute(bar.resets_at) + ')';
       }
 
       lines.push({ text: text, pct: bar.pct });
@@ -149,7 +172,9 @@
     if (loading) return; // a slow request is still out there - don't pile another on top of it
     loading = true;
 
-    fetch('/quota.php', { credentials: 'same-origin' })
+    var url = '/quota.php' + (sessionName !== '' ? ('?session=' + encodeURIComponent(sessionName)) : '');
+
+    fetch(url, { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(render)
       .catch(function () {

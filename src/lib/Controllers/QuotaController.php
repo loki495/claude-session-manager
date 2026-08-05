@@ -30,6 +30,13 @@ class QuotaController extends Controller
         // this HTTP response header.
         $this->start_readonly_json();
 
-        echo json_encode(AgentClient::agent_call(['action' => 'quota']));
+        // Optional - only session.php's footer sends this, to additionally
+        // overlay that one session's own context-window percentage. Unlike
+        // session/week_all (account-wide, same everywhere), context is
+        // genuinely per-session, so index.php's dashboard footer - which
+        // has no single relevant session - simply omits it.
+        $sessionName = trim((string)($_GET['session'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call(['action' => 'quota', 'session' => $sessionName]));
     }
 }

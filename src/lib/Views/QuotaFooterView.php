@@ -23,11 +23,18 @@ class QuotaFooterView extends View
      * replaces on every refresh - anything placed inside it would get wiped
      * out) - session.php uses this slot for its mode-toggle button so the
      * two controls share one line instead of stacking.
+     *
+     * $sessionName, when given, is threaded into the fetch/poll script via
+     * a data attribute so it can additionally ask for that one session's
+     * own context-window percentage (see QuotaController::show()) -
+     * index.php's dashboard-wide footer leaves this empty, since context is
+     * per-session and the dashboard has no single relevant one.
      */
-    public static function quota_footer_html(string $extraHtml = ''): string
+    public static function quota_footer_html(string $extraHtml = '', string $sessionName = ''): string
     {
         return self::render('quota-footer/footer', [
             'extraHtml' => $extraHtml,
+            'sessionName' => $sessionName,
         ]);
     }
 }

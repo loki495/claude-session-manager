@@ -72,7 +72,9 @@ function dispatch_action(array $request): array
             return SessionService::browse_dir((string)($request['path'] ?? ''));
 
         case 'quota':
-            return QuotaService::get_quota();
+            $quotaSession = trim((string)($request['session'] ?? ''));
+
+            return QuotaService::get_quota($quotaSession !== '' ? $quotaSession : null);
 
         case 'check_session_hook':
             return HookService::check_session_hook();

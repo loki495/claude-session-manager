@@ -1,4 +1,4 @@
-<div id="quota-footer" class="select-none">
+<div id="quota-footer" class="select-none" data-session="<?= $this->e($sessionName) ?>">
   <div class="flex items-center justify-between gap-2 mb-1">
     <button type="button" id="quota-toggle-btn" class="flex items-center gap-1 text-xs text-slate-500 active:text-slate-300">
       <span id="quota-toggle-icon">&#9662;</span>

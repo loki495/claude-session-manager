@@ -29,7 +29,7 @@ if ($found): ?>
         Answer the prompt above to continue.
       </div>
       <div class="mt-2">
-        <?= QuotaFooterView::quota_footer_html(TranscriptView::render_mode_toggle_html($detail)) ?>
+        <?= QuotaFooterView::quota_footer_html(TranscriptView::render_mode_toggle_html($detail), $sessionName) ?>
         <?= PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
       </div>
     </div>

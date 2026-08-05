@@ -649,6 +649,23 @@ try {
     $getQuotaResult = QuotaService::get_quota();
     assert_equal(51, $getQuotaResult['quota']['session']['pct'] ?? null, 'QuotaService::get_quota(): prefers the live pane reading over the cache/scrape fallback');
     assert_equal(false, $getQuotaResult['cached'] ?? null, 'QuotaService::get_quota(): a live pane reading is never reported as cached');
+    assert_true(!isset($getQuotaResult['quota']['context']), 'QuotaService::get_quota(): no context bucket when called without a session name');
+
+    // --- QuotaService::live_context_pct()/get_quota($sessionName): the
+    // per-session context-window overlay - genuinely distinct from the
+    // account-wide session/week_all buckets above (same pane, same status
+    // line, but this one is keyed to a specific session on purpose). ---
+    assert_equal(4, QuotaService::live_context_pct($quotaTestSession), 'live_context_pct: reads the ctx percentage from the requested session\'s own pane');
+    assert_equal(null, QuotaService::live_context_pct('cc-not-a-real-session'), 'live_context_pct: null for a session that isn\'t live');
+
+    $withContext = QuotaService::get_quota($quotaTestSession);
+    assert_equal(4, $withContext['quota']['context']['pct'] ?? null, 'get_quota($session): overlays that session\'s context pct alongside the account-wide buckets');
+    assert_equal(51, $withContext['quota']['session']['pct'] ?? null, 'get_quota($session): session/week_all buckets are unaffected by the context overlay');
+    assert_true(!isset($withContext['quota']['context']['resets_at']), 'get_quota($session): context has no reset timer, unlike session/week_all');
+
+    $unknownSessionResult = QuotaService::get_quota('cc-not-a-real-session');
+    assert_true(!isset($unknownSessionResult['quota']['context']), 'get_quota($session): no context bucket when the given session isn\'t live');
+    assert_equal(51, $unknownSessionResult['quota']['session']['pct'] ?? null, 'get_quota($session): account-wide buckets still come through for an unknown session name');
 
     TmuxService::tmux_run(['kill-session', '-t', $quotaTestSession]);
     $quotaTestSession = null;
