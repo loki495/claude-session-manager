@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Controllers\QuotaController;
 use App\Http\Router;
 
 $router = new Router();
@@ -10,5 +11,7 @@ $router = new Router();
 // old flat file under src/ is ported to a Controller. Until an endpoint
 // is registered here, public/index.php falls through to its untouched
 // old flat file.
+
+$router->get('/quota.php', [QuotaController::class, 'show']);
 
 return $router;
