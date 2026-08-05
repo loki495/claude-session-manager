@@ -95,6 +95,7 @@ try {
     );
     assert_contains('id="quota-footer"', $result['body'], 'GET /: collapsible quota footer present');
     assert_contains('id="quota-toggle-btn"', $result['body'], 'GET /: quota footer collapse/expand toggle present');
+    assert_contains('data-session=""', $result['body'], 'GET /: dashboard-wide quota footer has no session name (context is per-session, not shown here)');
     assert_true(!str_contains($result['body'], "isn't installed"), 'GET /: session-rotation hook banner not shown when the canned agent reports it already installed');
     assert_contains('id="push-notify-btn"', $result['body'], 'GET /: push-notification "Notify me" control present when the canned agent reports VAPID configured');
     assert_contains(CANNED_VAPID_PUBLIC_KEY, $result['body'], 'GET /: the actual VAPID public key is embedded for the frontend subscribe flow');
@@ -175,6 +176,17 @@ try {
     $quotaBody = json_decode($result['body'], true);
     assert_true(is_array($quotaBody) && ($quotaBody['ok'] ?? false), 'GET /quota.php: response decodes as ok=true JSON');
     assert_equal(73, $quotaBody['quota']['session']['pct'] ?? null, 'GET /quota.php: canned session percentage passed through');
+    assert_true(!isset($quotaBody['quota']['context']), 'GET /quota.php: no context bucket without a ?session= param');
+
+    // --- quota.php?session=...: the ?session= query param reaches the agent
+    // call (QuotaController::show() -> agent_call(['session' => ...]) ->
+    // Sessions.php's dispatch -> QuotaService::get_quota($session)) and a
+    // per-session context bucket comes back alongside the account-wide ones ---
+    $result = curl_request('GET', "{$baseUrl}/quota.php?session=cc-20260101-1200");
+    assert_equal(200, $result['status'], 'GET /quota.php?session=...: 200');
+    $quotaWithContext = json_decode($result['body'], true);
+    assert_equal(12, $quotaWithContext['quota']['context']['pct'] ?? null, 'GET /quota.php?session=...: canned context percentage for the named session passed through');
+    assert_equal(73, $quotaWithContext['quota']['session']['pct'] ?? null, 'GET /quota.php?session=...: account-wide session percentage still passed through alongside context');
 
     // --- browse.php: passes the canned agent's browse_dir action through as JSON ---
     $result = curl_request('GET', "{$baseUrl}/browse.php?path=" . urlencode('/home/andres/www'));
@@ -468,6 +480,7 @@ try {
         strpos($result['body'], 'id="quota-footer"') > strpos($result['body'], 'id="compose-textarea"'),
         'GET /session.php: quota footer is placed below the compose textarea, inside #compose-bar'
     );
+    assert_contains('data-session="cc-20260101-1200"', $result['body'], 'GET /session.php: quota footer carries this session\'s own name, for the context-percent overlay');
     assert_contains('id="push-notify-btn"', $result['body'], 'GET /session.php: push-notification "Notify me" control present when the canned agent reports VAPID configured');
     assert_contains(CANNED_VAPID_PUBLIC_KEY, $result['body'], 'GET /session.php: the actual VAPID public key is embedded for the frontend subscribe flow');
     assert_contains('id="mode-select"', $result['body'], 'GET /session.php: mode select present');

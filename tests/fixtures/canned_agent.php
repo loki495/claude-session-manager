@@ -161,14 +161,23 @@ $response = match ($action) {
     'cleanup' => ['ok' => true, 'killed' => [CANNED_SESSION_NAME], 'failed' => []],
     'check_session_hook' => ['ok' => true, 'installed' => true],
     'install_session_hook' => ['ok' => true, 'installed' => true],
+    // Mirrors QuotaService::get_quota($sessionName)'s real behavior: a
+    // 'context' bucket (no resets_at - it has no reset timer) only appears
+    // when the request names a known-live session, alongside the
+    // account-wide session/week_all buckets either way.
     'quota' => [
         'ok' => true,
-        'quota' => [
-            'session' => ['pct' => 73, 'resets' => '3pm (America/Los_Angeles)', 'resets_at' => time() + 3600 + 1800],
-            'week_all' => ['pct' => 29, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
-            'week_fable' => ['pct' => 92, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
-            'captured_at' => '2026-07-08T12:00:00-0700',
-        ],
+        'quota' => array_merge(
+            (string)($request['session'] ?? '') === CANNED_SESSION_NAME
+                ? ['context' => ['pct' => 12]]
+                : [],
+            [
+                'session' => ['pct' => 73, 'resets' => '3pm (America/Los_Angeles)', 'resets_at' => time() + 3600 + 1800],
+                'week_all' => ['pct' => 29, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
+                'week_fable' => ['pct' => 92, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
+                'captured_at' => '2026-07-08T12:00:00-0700',
+            ]
+        ),
         'fetched_at' => time() - 120,
         'cached' => true,
         'stale' => false,

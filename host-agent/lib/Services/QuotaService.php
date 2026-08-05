@@ -111,6 +111,28 @@ class QuotaService
     }
 
     /**
+     * Context-window usage for one specific session's own pane - unlike
+     * every other bucket in this class, this is genuinely per-session, not
+     * account-wide (see parse_quota_from_pane()'s docblock: "ctx" is
+     * deliberately not parsed there for exactly that reason). A dedicated
+     * capture-pane call keyed to the requested session, not folded into
+     * quota_from_live_pane()'s any-live-session-will-do scan, which would
+     * otherwise silently return some OTHER session's context percentage.
+     * Returns null if the session isn't live or its pane doesn't currently
+     * show a status line (e.g. mid-response, or mid a slash command).
+     */
+    public static function live_context_pct(string $sessionName): ?int
+    {
+        $paneContent = TmuxService::tmux_capture_pane($sessionName);
+
+        if (preg_match('/ctx:\s*(\d+)%/u', $paneContent, $m) !== 1) {
+            return null;
+        }
+
+        return (int)$m[1];
+    }
+
+    /**
      * Tries every currently-live managed tmux session's pane for the
      * status-line quota shape (see parse_quota_from_pane()) and returns the
      * first one found - a single capture-pane call per live session, no
@@ -326,14 +348,26 @@ class QuotaService
      * with whatever's cached (marked "stale") rather than making the request
      * wait 10-40s for a fresh scrape.
      *
+     * $sessionName, when given, additionally overlays that ONE session's own
+     * context-window percentage (see live_context_pct()) as a 'context'
+     * bucket - independent of which of the branches below the rest of the
+     * quota data came from, since context is a completely separate,
+     * per-session concept from the account-wide session/week_all buckets.
+     * Omitted entirely (not merged) when null/not live - the caller (the
+     * dashboard, which has no single relevant session) simply doesn't pass
+     * one, and session.php's footer degrades to showing session/week only if
+     * its own session's pane doesn't currently have a status line to read.
+     *
      * @return array{ok:bool, quota:?array, fetched_at:?int, cached:bool, stale:bool, refreshing:bool, message?:string}
      */
-    public static function get_quota(): array
+    public static function get_quota(?string $sessionName = null): array
     {
+        $contextPct = $sessionName !== null && $sessionName !== '' ? self::live_context_pct($sessionName) : null;
+
         $live = self::quota_from_live_pane();
 
         if ($live !== null) {
-            return [
+            $result = [
                 'ok' => true,
                 'quota' => $live['quota'],
                 'fetched_at' => $live['fetched_at'],
@@ -341,47 +375,58 @@ class QuotaService
                 'stale' => false,
                 'refreshing' => false,
             ];
+        } else {
+            $ttl = Config::quota_cache_ttl_seconds();
+            $cache = self::read_quota_cache();
+            $now = time();
+            $fresh = $cache !== null && ($now - $cache['fetched_at']) < $ttl;
+
+            if ($fresh) {
+                $result = [
+                    'ok' => true,
+                    'quota' => $cache['quota'],
+                    'fetched_at' => $cache['fetched_at'],
+                    'cached' => true,
+                    'stale' => false,
+                    'refreshing' => false,
+                ];
+            } else {
+                $refreshing = self::trigger_background_quota_refresh();
+
+                if ($cache !== null) {
+                    $result = [
+                        'ok' => true,
+                        'quota' => $cache['quota'],
+                        'fetched_at' => $cache['fetched_at'],
+                        'cached' => true,
+                        'stale' => true,
+                        'refreshing' => $refreshing,
+                    ];
+                } else {
+                    $result = [
+                        'ok' => $refreshing,
+                        'quota' => null,
+                        'fetched_at' => null,
+                        'cached' => false,
+                        'stale' => false,
+                        'refreshing' => $refreshing,
+                        'message' => $refreshing
+                            ? 'Fetching quota for the first time - this can take up to a minute'
+                            : 'Could not start quota refresh',
+                    ];
+                }
+            }
         }
 
-        $ttl = Config::quota_cache_ttl_seconds();
-        $cache = self::read_quota_cache();
-        $now = time();
-        $fresh = $cache !== null && ($now - $cache['fetched_at']) < $ttl;
-
-        if ($fresh) {
-            return [
-                'ok' => true,
-                'quota' => $cache['quota'],
-                'fetched_at' => $cache['fetched_at'],
-                'cached' => true,
-                'stale' => false,
-                'refreshing' => false,
-            ];
+        if ($contextPct === null) {
+            return $result;
         }
 
-        $refreshing = self::trigger_background_quota_refresh();
+        $contextBucket = ['context' => ['pct' => $contextPct]];
+        $result['quota'] = is_array($result['quota']) ? $contextBucket + $result['quota'] : $contextBucket;
+        $result['ok'] = true;
+        $result['fetched_at'] ??= time();
 
-        if ($cache !== null) {
-            return [
-                'ok' => true,
-                'quota' => $cache['quota'],
-                'fetched_at' => $cache['fetched_at'],
-                'cached' => true,
-                'stale' => true,
-                'refreshing' => $refreshing,
-            ];
-        }
-
-        return [
-            'ok' => $refreshing,
-            'quota' => null,
-            'fetched_at' => null,
-            'cached' => false,
-            'stale' => false,
-            'refreshing' => $refreshing,
-            'message' => $refreshing
-                ? 'Fetching quota for the first time - this can take up to a minute'
-                : 'Could not start quota refresh',
-        ];
+        return $result;
     }
 }
