@@ -60,7 +60,7 @@ $this->layout('layout', [
 
 <?php include __DIR__ . '/../sidebar.php'; ?>
 
-<div class="max-w-2xl mx-auto px-4 py-6 pb-44">
+<div id="page-content" class="max-w-2xl mx-auto px-4 py-6 pb-44">
 
   <?php if (!$found): ?>
     <div class="select-none rounded-lg px-4 py-3 text-sm bg-red-900/50 text-red-200 border border-red-700">

@@ -78,11 +78,24 @@
   }
 
   // The compose bar's height varies (quota footer collapsed/expanded, textarea
-  // auto-grow), so the floating button's offset is tracked live rather than fixed.
-  if (goToBottomBtn && composeBar && window.ResizeObserver) {
+  // auto-grow, push-notify button shown/hidden), so both the floating button's
+  // offset AND the page content's bottom padding are tracked live rather than
+  // fixed - a static pb-44 (the CSS fallback for no-ResizeObserver browsers)
+  // was tuned for the common case and left the last history entries tucked
+  // behind the compose bar whenever it grew taller than that guess (e.g. the
+  // quota footer expanded to 3 lines).
+  var pageContent = document.getElementById('page-content');
+
+  if (composeBar && window.ResizeObserver) {
     var GO_TO_BOTTOM_GAP_PX = 12;
+    var PAGE_CONTENT_GAP_PX = 16;
     new ResizeObserver(function () {
-      goToBottomBtn.style.bottom = (composeBar.offsetHeight + GO_TO_BOTTOM_GAP_PX) + 'px';
+      if (goToBottomBtn) {
+        goToBottomBtn.style.bottom = (composeBar.offsetHeight + GO_TO_BOTTOM_GAP_PX) + 'px';
+      }
+      if (pageContent) {
+        pageContent.style.paddingBottom = (composeBar.offsetHeight + PAGE_CONTENT_GAP_PX) + 'px';
+      }
     }).observe(composeBar);
   }
 
