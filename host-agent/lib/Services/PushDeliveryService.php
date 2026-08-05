@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace HostAgent\Services;
 
+use HostAgent\Stores\PushQuotaStateStore;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
 use Minishlink\WebPush\Subscription;
@@ -47,6 +48,17 @@ class PushDeliveryService
     }
 
     /**
+     * A quota bucket's pct at or above this counts as "close to over" for
+     * check_and_send_quota_pushes() - deliberately below 100 (that's its own
+     * separate "over" notification), configurable since what counts as
+     * "close enough to want a warning" is a judgment call, not a fact.
+     */
+    public static function push_quota_near_threshold_pct(): int
+    {
+        return (int)Config::csm_config('PUSH_QUOTA_NEAR_THRESHOLD_PCT', '90');
+    }
+
+    /**
      * False (and every push-related action a harmless no-op) until VAPID
      * keys are actually generated and set - see README for the one-time
      * generation step.
@@ -66,6 +78,20 @@ class PushDeliveryService
     public static function push_check_status_file(): string
     {
         return Config::csm_config('PUSH_CHECK_STATUS_FILE', Config::csm_repo_root() . '/host-agent/state/push-check-status.json');
+    }
+
+    /**
+     * Same heartbeat idea as push_check_status_file(), its own separate
+     * file - check_and_send_quota_pushes() runs as its own pass alongside
+     * check_and_send_pushes() every tick (see push_trigger.php), and each
+     * writing to the SAME file would have the second call's counts
+     * silently clobber the first's, breaking push_delivery_check()'s
+     * existing "the session-transition pass ran and its own sends
+     * succeeded" reading of that file.
+     */
+    public static function push_quota_check_status_file(): string
+    {
+        return Config::csm_config('PUSH_QUOTA_CHECK_STATUS_FILE', Config::csm_repo_root() . '/host-agent/state/push-quota-check-status.json');
     }
 
     /**
@@ -137,10 +163,16 @@ class PushDeliveryService
      * every tick regardless of whether there was anything to send, so
      * "checked_at" also works as a heartbeat - see push_check_status_file().
      *
+     * $statusFile defaults to push_check_status_file() - check_and_send_quota_pushes()
+     * passes push_quota_check_status_file() instead, its own separate file,
+     * so the two passes' heartbeats never clobber each other (see that
+     * file's own doc comment).
+     *
      * @param array<int, array{ok:bool, expired:bool, message?:string}> $sendResults
      */
-    public static function record_push_check_result(array $sendResults): void
+    public static function record_push_check_result(array $sendResults, ?string $statusFile = null): void
     {
+        $statusFile ??= self::push_check_status_file();
         $failures = array_values(array_filter(
             $sendResults,
             fn(array $r): bool => !$r['ok'] && !$r['expired']
@@ -157,13 +189,13 @@ class PushDeliveryService
             'last_failure_message' => $failures !== [] ? ($failures[count($failures) - 1]['message'] ?? 'unknown reason') : null,
         ];
 
-        $dir = dirname(self::push_check_status_file());
+        $dir = dirname($statusFile);
 
         if (!is_dir($dir)) {
             @mkdir($dir, 0700, true);
         }
 
-        @file_put_contents(self::push_check_status_file(), json_encode($status));
+        @file_put_contents($statusFile, json_encode($status));
     }
 
     /**
@@ -274,5 +306,135 @@ class PushDeliveryService
         self::record_push_check_result($sendResults);
 
         return ['ok' => true, 'notified' => $notified, 'pruned' => count($expiredEndpoints)];
+    }
+
+    /**
+     * A bucket's pct dropping by at least this many points since the last
+     * tick counts as its window actually resetting - see
+     * check_and_send_quota_pushes()'s own doc comment for why this (not
+     * resets_at moving forward) is the reliable signal.
+     */
+    public static function push_quota_reset_drop_threshold_pct(): int
+    {
+        return (int)Config::csm_config('PUSH_QUOTA_RESET_DROP_THRESHOLD_PCT', '10');
+    }
+
+    /**
+     * The quota counterpart to check_and_send_pushes() above, called
+     * alongside it on every csm-push-check timer tick (see
+     * host-agent/push_trigger.php) with QuotaService::get_quota(null)'s
+     * 'quota' sub-array - account-wide only (no session name is ever
+     * passed there), so the per-session 'context' bucket never appears
+     * here and needs no special exclusion.
+     *
+     * Three distinct notification kinds per bucket, all independent of each
+     * other within the same tick:
+     * - "near" once pct first reaches push_quota_near_threshold_pct()
+     * - "over" once pct first reaches 100
+     * - "reset" once pct is observed to DROP by at least
+     *   push_quota_reset_drop_threshold_pct() points since the last tick -
+     *   pct only ever climbs within a window otherwise (it's cumulative
+     *   usage), so a real drop is a reliable sign the window rolled over.
+     *   Deliberately NOT based on resets_at moving forward, despite that
+     *   seeming like the more obvious signal: found live (2026-08-05) that
+     *   resets_at is re-parsed from the live pane's own duration text (e.g.
+     *   "1h 53m") on every tick, which only has minute-level precision - it
+     *   jitters by up to ~60s between ticks even with nothing actually
+     *   resetting, and that alone was enough to fire repeated false
+     *   "reset" notifications every ~10s in production before this was
+     *   caught and fixed.
+     *
+     * Both the near and over flags are one-shot per window: once fired,
+     * they don't fire again until either a real reset (the pct-drop above)
+     * or the pct drops back under the near-threshold on its own (e.g. a
+     * plan change) - re-arming both for the next climb. $quota being
+     * null/empty (the quota fetch itself failed or hasn't completed yet
+     * this tick) is a harmless no-op, same as check_and_send_pushes() with
+     * zero live sessions.
+     *
+     * @param array<string, mixed>|null $quota
+     * @return array{ok:bool, notified:array<int, string>}
+     */
+    public static function check_and_send_quota_pushes(?array $quota): array
+    {
+        if (!self::push_configured() || $quota === null || $quota === []) {
+            return ['ok' => false, 'notified' => []];
+        }
+
+        $threshold = self::push_quota_near_threshold_pct();
+        $resetDropThreshold = self::push_quota_reset_drop_threshold_pct();
+        $previousState = PushQuotaStateStore::read_push_quota_state();
+        $currentState = [];
+        $notified = [];
+        $subscriptions = PushSubscriptionStore::read_push_subscriptions();
+        $expiredEndpoints = [];
+        $sendResults = [];
+
+        foreach ($quota as $key => $bucket) {
+            if (!is_array($bucket) || !isset($bucket['pct'])) {
+                continue; // not a real bucket (e.g. captured_at) - nothing to track
+            }
+
+            $pct = (int)$bucket['pct'];
+
+            $previousEntry = is_array($previousState[$key] ?? null) ? $previousState[$key] : null;
+            $previousPct = is_int($previousEntry['pct'] ?? null) ? $previousEntry['pct'] : null;
+            $notifiedNear = !empty($previousEntry['notified_near']);
+            $notifiedOver = !empty($previousEntry['notified_over']);
+
+            $justReset = $previousPct !== null && ($previousPct - $pct) >= $resetDropThreshold;
+
+            if ($justReset) {
+                $notifiedNear = false;
+                $notifiedOver = false;
+            }
+
+            $notifications = [];
+
+            if ($justReset) {
+                $notifications[] = ['title' => NotificationContentBuilder::push_quota_reset_title((string)$key), 'body' => NotificationContentBuilder::push_quota_reset_body((string)$key)];
+            }
+
+            if ($pct >= 100 && !$notifiedOver) {
+                $notifications[] = ['title' => NotificationContentBuilder::push_quota_over_title((string)$key), 'body' => NotificationContentBuilder::push_quota_over_body((string)$key, $pct)];
+                $notifiedOver = true;
+                $notifiedNear = true; // over implies near - no separate near notification right after
+            } elseif ($pct >= $threshold && !$notifiedNear) {
+                $notifications[] = ['title' => NotificationContentBuilder::push_quota_near_title((string)$key), 'body' => NotificationContentBuilder::push_quota_near_body((string)$key, $pct)];
+                $notifiedNear = true;
+            } elseif ($pct < $threshold) {
+                // Dropped back under the threshold on its own (a plan
+                // change, or a reset already handled above) - re-arm both
+                // so a future climb notifies again instead of staying
+                // permanently silenced from one earlier crossing.
+                $notifiedNear = false;
+                $notifiedOver = false;
+            }
+
+            $currentState[$key] = ['pct' => $pct, 'notified_near' => $notifiedNear, 'notified_over' => $notifiedOver];
+
+            foreach ($notifications as $notification) {
+                $notified[] = "{$key}:{$notification['title']}";
+
+                foreach ($subscriptions as $subscription) {
+                    $result = self::send_push_notification($subscription, $notification['title'], $notification['body']);
+                    $sendResults[] = $result;
+
+                    if ($result['expired']) {
+                        $expiredEndpoints[] = $subscription['endpoint'];
+                    }
+                }
+            }
+        }
+
+        if ($expiredEndpoints !== []) {
+            $subscriptions = array_values(array_filter($subscriptions, fn(array $s): bool => !in_array($s['endpoint'], $expiredEndpoints, true)));
+            PushSubscriptionStore::write_push_subscriptions($subscriptions);
+        }
+
+        PushQuotaStateStore::write_push_quota_state($currentState);
+        self::record_push_check_result($sendResults, self::push_quota_check_status_file());
+
+        return ['ok' => true, 'notified' => $notified];
     }
 }

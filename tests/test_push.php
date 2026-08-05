@@ -18,12 +18,15 @@ use HostAgent\Services\NotificationContentBuilder;
 use HostAgent\Services\PushDeliveryService;
 use HostAgent\Services\PushHealthService;
 use HostAgent\Services\PushTimerService;
+use HostAgent\Stores\PushQuotaStateStore;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
 
 const REAL_PUSH_SUBSCRIPTIONS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-subscriptions.json';
 const REAL_PUSH_STATE_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-session-state.json';
 const REAL_PUSH_CHECK_STATUS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-check-status.json';
+const REAL_PUSH_QUOTA_STATE_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-quota-state.json';
+const REAL_PUSH_QUOTA_CHECK_STATUS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-quota-check-status.json';
 const REAL_PUSH_TIMER_UNIT_NAME = 'csm-push-check.timer';
 
 $fixtureDir = sys_get_temp_dir() . '/csm-test-push-' . bin2hex(random_bytes(4));
@@ -32,6 +35,8 @@ mkdir($fixtureDir, 0700, true);
 putenv('PUSH_SUBSCRIPTIONS_FILE=' . $fixtureDir . '/push-subscriptions.json');
 putenv('PUSH_STATE_FILE=' . $fixtureDir . '/push-session-state.json');
 putenv('PUSH_CHECK_STATUS_FILE=' . $fixtureDir . '/push-check-status.json');
+putenv('PUSH_QUOTA_STATE_FILE=' . $fixtureDir . '/push-quota-state.json');
+putenv('PUSH_QUOTA_CHECK_STATUS_FILE=' . $fixtureDir . '/push-quota-check-status.json');
 putenv('PUSH_TIMER_UNIT_PATH=' . $fixtureDir . '/csm-push-check.timer');
 // PushTimerService::set_push_timer_interval() runs real `systemctl --user is-active`/
 // `restart` commands against this unit NAME - a fake one systemd has
@@ -43,6 +48,8 @@ if (
     PushSubscriptionStore::push_subscriptions_file() === REAL_PUSH_SUBSCRIPTIONS_FILE
     || PushSessionStateStore::push_state_file() === REAL_PUSH_STATE_FILE
     || PushDeliveryService::push_check_status_file() === REAL_PUSH_CHECK_STATUS_FILE
+    || PushQuotaStateStore::push_quota_state_file() === REAL_PUSH_QUOTA_STATE_FILE
+    || PushDeliveryService::push_quota_check_status_file() === REAL_PUSH_QUOTA_CHECK_STATUS_FILE
     || PushTimerService::push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
 ) {
     fwrite(STDERR, "REFUSING TO RUN: push subscription/state/timer files or unit name still resolve to the real ones.\n");
@@ -368,6 +375,103 @@ try {
     putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
     putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
 
+    // --- NotificationContentBuilder::push_quota_bucket_label()/push_quota_*_title()/*_body():
+    // quota notification content - mirrors quota-footer.js's own label()
+    // function (JS-side counterpart) so a push notification names a
+    // bucket the same way the in-app footer already does. ---
+
+    assert_equal('Session', NotificationContentBuilder::push_quota_bucket_label('session'), 'push_quota_bucket_label: session -> Session');
+    assert_equal('Week', NotificationContentBuilder::push_quota_bucket_label('week_all'), 'push_quota_bucket_label: week_all -> Week');
+    assert_equal('Fable (week)', NotificationContentBuilder::push_quota_bucket_label('week_fable'), 'push_quota_bucket_label: week_<plan> -> "<Plan> (week)"');
+
+    assert_equal('Quota near limit: Week', NotificationContentBuilder::push_quota_near_title('week_all'), 'push_quota_near_title: names the bucket');
+    assert_equal('97% of your Week quota used', NotificationContentBuilder::push_quota_near_body('week_all', 97), 'push_quota_near_body: includes the real pct and bucket label');
+    assert_equal('Quota limit reached: Session', NotificationContentBuilder::push_quota_over_title('session'), 'push_quota_over_title: names the bucket');
+    assert_equal('Session quota is at 100%', NotificationContentBuilder::push_quota_over_body('session', 100), 'push_quota_over_body: includes the real pct and bucket label');
+    assert_equal('Quota reset: Week', NotificationContentBuilder::push_quota_reset_title('week_all'), 'push_quota_reset_title: names the bucket');
+    assert_equal('Your Week quota has reset', NotificationContentBuilder::push_quota_reset_body('week_all'), 'push_quota_reset_body: names the bucket');
+
+    // --- PushDeliveryService::check_and_send_quota_pushes(): transition
+    // detection, with zero subscriptions configured so no real send is
+    // ever attempted for these (see the real-subscriber test further
+    // below). ---
+
+    putenv('VAPID_PUBLIC_KEY');
+    putenv('VAPID_PRIVATE_KEY');
+    assert_equal(['ok' => false, 'notified' => []], PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 95]]), 'check_and_send_quota_pushes: a harmless no-op when VAPID keys are not configured');
+    putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
+    putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
+
+    assert_equal(['ok' => false, 'notified' => []], PushDeliveryService::check_and_send_quota_pushes(null), 'check_and_send_quota_pushes: a harmless no-op when quota itself is null (the fetch failed this tick)');
+    assert_equal(['ok' => false, 'notified' => []], PushDeliveryService::check_and_send_quota_pushes([]), 'check_and_send_quota_pushes: a harmless no-op when quota is an empty array');
+
+    @unlink(PushQuotaStateStore::push_quota_state_file());
+
+    $quotaFirst = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 50], 'week_all' => ['pct' => 30]]);
+    assert_equal([], $quotaFirst['notified'], 'check_and_send_quota_pushes: nothing near/over on the first tick when both buckets are comfortably under the threshold');
+
+    $quotaNear = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 92], 'week_all' => ['pct' => 30]]);
+    assert_equal(['session:Quota near limit: Session'], $quotaNear['notified'], 'check_and_send_quota_pushes: session crossing the 90% near-threshold is notified; week_all (still under) is not');
+
+    $quotaNearAgain = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 93], 'week_all' => ['pct' => 30]]);
+    assert_equal([], $quotaNearAgain['notified'], 'check_and_send_quota_pushes: still above the threshold on the next tick -> not notified again (one-shot per crossing)');
+
+    $quotaOver = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 100], 'week_all' => ['pct' => 30]]);
+    assert_equal(['session:Quota limit reached: Session'], $quotaOver['notified'], 'check_and_send_quota_pushes: session reaching 100% fires the OVER notification, not another near one');
+
+    $quotaStillOver = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 100], 'week_all' => ['pct' => 30]]);
+    assert_equal([], $quotaStillOver['notified'], 'check_and_send_quota_pushes: still at 100% on the next tick -> not notified again');
+
+    // --- the actual bug found live 2026-08-05: a bucket's resets_at jitters
+    // by up to ~60s between ticks (re-parsed from the live pane's own
+    // duration text, only minute-precision) even when nothing has reset -
+    // that alone must NEVER be treated as a reset. Only a real pct DROP
+    // is. A tiny pct fluctuation that isn't a real drop of at least
+    // push_quota_reset_drop_threshold_pct() points must not fire "reset"
+    // either. ---
+
+    $quotaTinyWobble = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 99], 'week_all' => ['pct' => 30]]);
+    assert_equal([], $quotaTinyWobble['notified'], 'check_and_send_quota_pushes: pct going 100 -> 99 (a 1-point wobble, not a real reset) does not fire a reset notification');
+
+    $quotaRealReset = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 5], 'week_all' => ['pct' => 30]]);
+    assert_equal(['session:Quota reset: Session'], $quotaRealReset['notified'], 'check_and_send_quota_pushes: pct dropping from 99 to 5 (a real reset) fires the reset notification');
+
+    $quotaClimbsAgainAfterReset = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 91], 'week_all' => ['pct' => 30]]);
+    assert_equal(['session:Quota near limit: Session'], $quotaClimbsAgainAfterReset['notified'], 'check_and_send_quota_pushes: climbing back up past the threshold in the new window notifies again - the reset re-armed the one-shot flag');
+
+    // A 6-point drop (91 -> 85) - crosses back under the near-threshold on
+    // its own but is well under the reset-drop threshold (10), so this must
+    // re-arm silently, not also read as a reset.
+    $quotaDropsBelowThreshold = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 85], 'week_all' => ['pct' => 30]]);
+    assert_equal([], $quotaDropsBelowThreshold['notified'], 'check_and_send_quota_pushes: dropping back under the threshold on its own (a 6-point drop, well under the reset-drop threshold) fires nothing, just re-arms silently');
+    $quotaClimbsAgainAfterPlainDrop = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 91], 'week_all' => ['pct' => 30]]);
+    assert_equal(['session:Quota near limit: Session'], $quotaClimbsAgainAfterPlainDrop['notified'], 'check_and_send_quota_pushes: climbing past the threshold again after a plain (non-reset) drop still notifies - re-armed either way');
+
+    @unlink(PushQuotaStateStore::push_quota_state_file());
+
+    // --- a real send attempt (real VAPID keys, an unreachable endpoint) -
+    // reuses $unreachableSubscription from the check_and_send_pushes()
+    // real-send test above, and its own separate status file (see
+    // push_quota_check_status_file()'s doc comment for why quota can't
+    // share check_and_send_pushes()'s status file). ---
+
+    PushSubscriptionStore::add_push_subscription($unreachableSubscription);
+    $quotaWithRealSubscriber = PushDeliveryService::check_and_send_quota_pushes(['session' => ['pct' => 95]]);
+    assert_equal(['session:Quota near limit: Session'], $quotaWithRealSubscriber['notified'], 'check_and_send_quota_pushes: still reports the crossing even though the actual send to the one subscriber failed');
+
+    $quotaStatusAfterFailure = json_decode((string)file_get_contents(PushDeliveryService::push_quota_check_status_file()), true);
+    assert_equal(1, $quotaStatusAfterFailure['sent'] ?? null, 'check_and_send_quota_pushes: records its own send attempt in its OWN status file, separate from check_and_send_pushes()\'s');
+    assert_equal(1, $quotaStatusAfterFailure['failed'] ?? null, 'check_and_send_quota_pushes: counts the one failure');
+
+    assert_equal(false, PushHealthService::push_quota_delivery_check()['ok'], 'push_quota_delivery_check: ok=false right after a tick with a real send failure');
+    assert_equal(true, str_contains(PushHealthService::push_quota_delivery_check()['detail'], '1 send(s) failed'), 'push_quota_delivery_check: detail mentions the failure count');
+
+    PushSubscriptionStore::remove_push_subscription($unreachableSubscription['endpoint']);
+    @unlink(PushQuotaStateStore::push_quota_state_file());
+
+    @unlink(PushDeliveryService::push_quota_check_status_file());
+    assert_equal(false, PushHealthService::push_quota_delivery_check()['ok'], 'push_quota_delivery_check: ok=false when the timer has never run at all (no status file yet)');
+
     // --- PushTimerService get/set_push_timer_interval(): reads/writes the INSTALLED unit
     // file (isolated to a fixture path above, never the real one), and
     // PushTimerService::set_push_timer_interval()'s systemctl calls target a fake unit name
@@ -446,6 +550,8 @@ try {
     putenv('PUSH_SUBSCRIPTIONS_FILE');
     putenv('PUSH_STATE_FILE');
     putenv('PUSH_CHECK_STATUS_FILE');
+    putenv('PUSH_QUOTA_STATE_FILE');
+    putenv('PUSH_QUOTA_CHECK_STATUS_FILE');
     putenv('PUSH_TIMER_UNIT_PATH');
     putenv('PUSH_TIMER_UNIT_NAME');
     array_map('unlink', glob("{$fixtureDir}/*") ?: []);

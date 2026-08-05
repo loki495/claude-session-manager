@@ -14,24 +14,23 @@ namespace HostAgent\Services;
 class PushHealthService
 {
     /**
-     * health_check() entry for the csm-push-check timer itself - not just
-     * "are VAPID keys configured" (that's its own separate check, a
-     * prerequisite rather than this), but whether the timer is actually
-     * running AND whether its most recent tick's sends succeeded. Reads the
-     * status PushDeliveryService::record_push_check_result() writes every tick.
+     * Shared by push_delivery_check() and push_quota_delivery_check() below
+     * - both read a status file PushDeliveryService::record_push_check_result()
+     * writes every tick (a different file per pass - see
+     * PushDeliveryService::push_quota_check_status_file()'s own doc
+     * comment for why they can't share one), and both report the same
+     * three things: never run, stale (timer stopped ticking), or ran with
+     * some number of failed sends.
      *
      * @return array{key:string, label:string, ok:bool, detail:?string}
      */
-    public static function push_delivery_check(): array
+    private static function push_status_file_check(string $key, string $label, string $statusFile): array
     {
-        $key = 'push_delivery';
-        $label = 'Push delivery';
-
         if (!PushDeliveryService::push_configured()) {
             return ['key' => $key, 'label' => $label, 'ok' => true, 'detail' => 'VAPID not configured yet - nothing to check'];
         }
 
-        $raw = @file_get_contents(PushDeliveryService::push_check_status_file());
+        $raw = @file_get_contents($statusFile);
         $status = $raw !== false ? json_decode($raw, true) : null;
 
         if (!is_array($status) || !is_int($status['checked_at'] ?? null)) {
@@ -56,6 +55,31 @@ class PushHealthService
         }
 
         return ['key' => $key, 'label' => $label, 'ok' => true, 'detail' => "Last check {$ageSeconds}s ago, no failures"];
+    }
+
+    /**
+     * health_check() entry for the csm-push-check timer's session-transition
+     * pass - not just "are VAPID keys configured" (that's its own separate
+     * check, a prerequisite rather than this), but whether the timer is
+     * actually running AND whether its most recent tick's sends succeeded.
+     *
+     * @return array{key:string, label:string, ok:bool, detail:?string}
+     */
+    public static function push_delivery_check(): array
+    {
+        return self::push_status_file_check('push_delivery', 'Push delivery', PushDeliveryService::push_check_status_file());
+    }
+
+    /**
+     * Same idea as push_delivery_check(), for the timer's OTHER pass -
+     * PushDeliveryService::check_and_send_quota_pushes(), its own separate
+     * status file so one pass's heartbeat can't mask the other's.
+     *
+     * @return array{key:string, label:string, ok:bool, detail:?string}
+     */
+    public static function push_quota_delivery_check(): array
+    {
+        return self::push_status_file_check('push_quota_delivery', 'Quota push delivery', PushDeliveryService::push_quota_check_status_file());
     }
 
     /**
@@ -123,6 +147,7 @@ class PushHealthService
         ];
 
         $checks[] = self::push_delivery_check();
+        $checks[] = self::push_quota_delivery_check();
 
         $vendorAutoload = Config::csm_repo_root() . '/vendor/autoload.php';
         $checks[] = [

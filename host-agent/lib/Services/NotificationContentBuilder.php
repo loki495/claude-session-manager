@@ -233,4 +233,66 @@ class NotificationContentBuilder
     {
         return "Finished: " . self::push_notification_title($session);
     }
+
+    /**
+     * A quota bucket key ('session', 'week_all', 'week_fable', ...) -> its
+     * human label. Mirrors quota-footer.js's own label() function exactly
+     * (JS-side counterpart) so a quota push notification names a bucket the
+     * same way the in-app footer already does.
+     */
+    public static function push_quota_bucket_label(string $key): string
+    {
+        if ($key === 'session') {
+            return 'Session';
+        }
+
+        if ($key === 'week_all') {
+            return 'Week';
+        }
+
+        $name = ucwords(str_replace('_', ' ', preg_replace('/^week_/', '', $key) ?? $key));
+
+        return "{$name} (week)";
+    }
+
+    /**
+     * Title/body for a bucket crossing the "close to over" threshold (see
+     * PushDeliveryService::push_quota_near_threshold_pct()) - fires once per
+     * crossing, not every tick it stays above it (see check_and_send_quota_pushes()).
+     */
+    public static function push_quota_near_title(string $bucketKey): string
+    {
+        return 'Quota near limit: ' . self::push_quota_bucket_label($bucketKey);
+    }
+
+    public static function push_quota_near_body(string $bucketKey, int $pct): string
+    {
+        return "{$pct}% of your " . self::push_quota_bucket_label($bucketKey) . ' quota used';
+    }
+
+    /** Title/body for a bucket reaching (or passing) 100%. */
+    public static function push_quota_over_title(string $bucketKey): string
+    {
+        return 'Quota limit reached: ' . self::push_quota_bucket_label($bucketKey);
+    }
+
+    public static function push_quota_over_body(string $bucketKey, int $pct): string
+    {
+        return self::push_quota_bucket_label($bucketKey) . " quota is at {$pct}%";
+    }
+
+    /**
+     * Title/body for a bucket's window actually rolling over (resets_at
+     * moved forward - see check_and_send_quota_pushes()), regardless of how
+     * close to the limit it had gotten before resetting.
+     */
+    public static function push_quota_reset_title(string $bucketKey): string
+    {
+        return 'Quota reset: ' . self::push_quota_bucket_label($bucketKey);
+    }
+
+    public static function push_quota_reset_body(string $bucketKey): string
+    {
+        return 'Your ' . self::push_quota_bucket_label($bucketKey) . ' quota has reset';
+    }
 }
