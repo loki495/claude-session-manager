@@ -2,11 +2,13 @@
 declare(strict_types=1);
 
 /**
- * Boots PHP's built-in server serving src/ against a canned fake-agent
- * socket (tests/fixtures/canned_agent.php - never touches tmux) and drives
- * it with curl. Always runs standalone (no MCP / IDE dependency - just
- * php, curl, and optionally a headless browser binary already on the
- * host), per the requirement that tests/run.sh works outside Claude.
+ * Boots PHP's built-in server serving public/ (with public/index.php as
+ * the router-script argument, same as production - see docker-compose.yml)
+ * against a canned fake-agent socket (tests/fixtures/canned_agent.php -
+ * never touches tmux) and drives it with curl. Always runs standalone (no
+ * MCP / IDE dependency - just php, curl, and optionally a headless browser
+ * binary already on the host), per the requirement that tests/run.sh works
+ * outside Claude.
  */
 
 require __DIR__ . '/lib/assert.php';
@@ -29,7 +31,11 @@ $serverEnv = array_merge(getenv(), [
     'CSM_AGENT_SOCKET' => $agentSocket,
 ]);
 $serverProcess = proc_open(
-    ['php', '-S', "127.0.0.1:{$port}", '-t', dirname(__DIR__) . '/src'],
+    [
+        'php', '-S', "127.0.0.1:{$port}",
+        '-t', dirname(__DIR__) . '/public',
+        dirname(__DIR__) . '/public/index.php', // absolute - resolves relative to CWD, not -t
+    ],
     [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $serverPipes,
     null,
