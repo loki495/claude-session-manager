@@ -85,6 +85,10 @@ try {
     assert_contains('csm-test-adhoc', $result['body'], "GET /: canned bare process's owning tmux session shown");
     assert_contains("I&#039;ll clean up the temp directory now", $result['body'], 'GET /: last-message preview shown under a non-blocked session row');
     assert_contains('show-recent-btn', $result['body'], 'GET /: "show last 3 messages" toggle button present');
+    assert_true(
+        preg_match('#<a href="/session\.php\?session=cc-20260101-1200" class="absolute inset-0 rounded-xl"#', $result['body']) === 1,
+        'GET /: the whole session-row card is a stretched link to its transcript page (a plain <a>, not JS-driven), so clicking anywhere on the card that isn\'t a real interactive element navigates there'
+    );
     assert_contains('Found some old temp files worth cleaning up', $result['body'], 'GET /: blocked dashboard row includes the message that led up to the prompt');
     assert_contains('rm -rf /tmp/dashboard-example', $result['body'], 'GET /: blocked dashboard row (non-trust) shows the rich context+buttons treatment');
     $firstShowRecentPos = strpos($result['body'], 'show-recent-btn');
