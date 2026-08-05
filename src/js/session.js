@@ -680,6 +680,7 @@
     return '<details' + (forceOpen ? ' open' : '') + ' class="rounded border ' + borderClass + ' bg-slate-950/60">'
       + '<summary class="block w-full text-left cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' + textClass + '">' + prefix + summaryHtml + '</summary>'
       + '<pre class="whitespace-pre overflow-auto max-h-64 px-2 pb-1.5 text-xs ' + textClass + '">' + full + '</pre>'
+      + '<button type="button" class="expand-fullscreen-btn select-none block w-full text-center text-[11px] text-slate-500 active:text-slate-300 border-t border-slate-800 py-1">View full screen</button>'
       + '</details>';
   }
 
@@ -2043,15 +2044,17 @@
   // already handles the collapsed case (helped along by the block/w-full
   // class on it, so the whole row is a real tap target, not just wherever
   // the text glyphs render); this delegated handler is the backstop for
-  // the rest of the <details> box, expanded content included. Two things
+  // the rest of the <details> box, expanded content included. Three things
   // it must never do: double-toggle a tap that landed on <summary> itself
-  // (native behavior already fired), or collapse out from under an active
+  // (native behavior already fired), collapse out from under an active
   // text selection (a plain click event doesn't fire for a scroll-drag
   // gesture to begin with, so normal scrolling/reading is unaffected
   // either way - this guard is specifically for "tap elsewhere to dismiss
-  // a selection", not scrolling). ---
+  // a selection", not scrolling), or fire on the "View full screen" button
+  // (see common.js) - collapsing the block right as its own fullscreen
+  // modal opens over it would leave it collapsed once the modal closes. ---
   document.addEventListener('click', function (e) {
-    if (e.target.closest('summary')) {
+    if (e.target.closest('summary, .expand-fullscreen-btn')) {
       return;
     }
 

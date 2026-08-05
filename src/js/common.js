@@ -43,3 +43,60 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// --- full screen text view: a shared "View full screen" affordance for
+// any long tool call/output or prompt context that's still hard to read
+// even expanded (BlockedPromptView::render_collapsible_block() in PHP,
+// renderCollapsibleBlock() in session.js - both share this one modal
+// rather than each page rolling its own). Reads the text straight off the
+// triggering button's own preceding <pre> sibling instead of a data
+// attribute, so there's no risk of the modal ever showing something
+// different from what was actually expanded on the page. ---
+var fullscreenTextModal = document.getElementById('fullscreen-text-modal');
+var fullscreenTextModalContent = document.getElementById('fullscreen-text-modal-content');
+var fullscreenTextModalClose = document.getElementById('fullscreen-text-modal-close');
+
+if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClose) {
+  var bodyOverflowBeforeModal = '';
+
+  function openFullscreenTextModal(text) {
+    fullscreenTextModalContent.textContent = text;
+    fullscreenTextModal.classList.remove('hidden');
+    // Prevents the page behind the modal from also scrolling on iOS
+    // Safari (the modal's own <pre> captures touch-scroll fine on its
+    // own, but background scroll can still "leak through" underneath a
+    // plain fixed overlay there without this).
+    bodyOverflowBeforeModal = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeFullscreenTextModal() {
+    fullscreenTextModal.classList.add('hidden');
+    fullscreenTextModalContent.textContent = '';
+    document.body.style.overflow = bodyOverflowBeforeModal;
+  }
+
+  document.addEventListener('click', function (e) {
+    var trigger = e.target.closest('.expand-fullscreen-btn');
+
+    if (trigger) {
+      var pre = trigger.previousElementSibling;
+
+      if (pre) {
+        openFullscreenTextModal(pre.textContent);
+      }
+
+      return;
+    }
+
+    if (e.target === fullscreenTextModalClose || e.target === fullscreenTextModal) {
+      closeFullscreenTextModal();
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !fullscreenTextModal.classList.contains('hidden')) {
+      closeFullscreenTextModal();
+    }
+  });
+}
