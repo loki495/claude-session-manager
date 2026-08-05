@@ -723,7 +723,10 @@
           + '<a href="' + url + '" target="_blank" rel="noopener" class="block mt-0.5 max-w-24 truncate text-[11px] text-slate-500 active:text-slate-300">' + filename + '</a></div>';
       }
 
-      return '<a href="' + url + '" target="_blank" rel="noopener" class="flex items-center gap-1.5 rounded border border-slate-800 bg-slate-950/60 px-2 py-1.5 text-xs text-sky-300 active:text-sky-200">'
+      // download (not target="_blank") - see attachment.php (PHP) for why:
+      // target="_blank" on a Content-Disposition: attachment response
+      // opens a permanently blank tab instead of a real page.
+      return '<a href="' + url + '" download="' + filename + '" class="flex items-center gap-1.5 rounded border border-slate-800 bg-slate-950/60 px-2 py-1.5 text-xs text-sky-300 active:text-sky-200">'
         + '<span aria-hidden="true">&#8681;</span>'
         + '<span class="truncate max-w-[12rem]">' + filename + '</span>'
         + '<span class="shrink-0 text-slate-500">' + escapeHtml(formatFileSize(a.size)) + '</span></a>';
