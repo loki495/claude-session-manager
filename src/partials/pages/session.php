@@ -118,7 +118,7 @@ $this->layout('layout', [
 <?php include __DIR__ . '/../compose-bar.php'; ?>
 
 <script>
-window.CSM_BOOTSTRAP = <?= json_encode(['session' => $sessionName, 'csrfToken' => $csrfToken, 'newestLine' => $newestLine]) ?>;
+window.CSM_BOOTSTRAP = <?= json_encode(['session' => $sessionName, 'csrfToken' => $csrfToken, 'newestLine' => $newestLine, 'claudeSessionId' => $detail['claude_session_id'] ?? null]) ?>;
 </script>
 <script src="<?= \App\Assets::versioned_url('/js/common.js') ?>"></script>
 <script src="<?= \App\Assets::versioned_url('/js/session.js') ?>"></script>

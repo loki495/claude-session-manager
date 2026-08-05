@@ -21,6 +21,15 @@
   var composeInputRow = document.getElementById('compose-input-row');
   var composeBlockedNote = document.getElementById('compose-blocked-note');
   var newestLine = window.CSM_BOOTSTRAP.newestLine;
+  // /clear, /compact, --resume, and --fork-session all rotate Claude
+  // Code's own transcript to a brand new session-id file while staying in
+  // the same tmux pane (see host-agent/hooks/session_start.php) - none of
+  // them ever appear as an entry INSIDE a transcript (there's nothing to
+  // parse for), so a rotation is only detectable by this id changing
+  // between polls. null means "not known yet" (e.g. a session_detail.php
+  // call errors before this is ever set) - deliberately never treated as
+  // a change on its own, only a real id -> a DIFFERENT real id is.
+  var currentClaudeSessionId = window.CSM_BOOTSTRAP.claudeSessionId || null;
 
   // --- optimistic UI state: entries appended locally right after sending,
   // before a poll has confirmed they actually landed. See appendPendingEntry()
@@ -1537,11 +1546,39 @@
   var pollingActive = false; // whether polling should keep going - distinct from pollTimer, which is null during a cycle's in-flight window
   var pollAbortController = new AbortController(); // reset in startPolling() each time polling (re)starts, so a lingering abort from a previous stop can't affect a fresh one
 
+  // Wipes the rendered history and pagination state clean, same in spirit
+  // to how a real terminal clears on /clear - called once a rotation to a
+  // brand new transcript file is detected (see currentClaudeSessionId
+  // above), since every already-rendered entry belongs to the now-
+  // abandoned old file and the "Load older messages" cursor (btn.dataset.
+  // before) points into it too.
+  function resetHistoryForRotatedTranscript() {
+    if (list) {
+      list.innerHTML = '';
+    }
+
+    newestLine = null;
+    pendingEntries = [];
+    currentDivider = null;
+
+    if (btn) {
+      btn.classList.add('hidden');
+    }
+  }
+
   function pollInfo(wasNearBottom) {
     return fetch('/session_detail.php?session=' + encodeURIComponent(sessionName), { credentials: 'same-origin', signal: pollAbortController.signal })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data && data.ok) {
+          if (typeof data.claude_session_id === 'string' && data.claude_session_id !== '') {
+            if (currentClaudeSessionId !== null && data.claude_session_id !== currentClaudeSessionId) {
+              resetHistoryForRotatedTranscript();
+            }
+
+            currentClaudeSessionId = data.claude_session_id;
+          }
+
           renderStaticInfo(data);
           renderThinkingIndicator(data);
           renderModeToggle(data);
