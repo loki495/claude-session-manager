@@ -54,7 +54,7 @@ of scope to avoid adding a second, SIGTERM-based kill path alongside
   what it's waiting on plus the exact `tmux -S <socket> attach -t <name>`
   command to go answer it. Detected via the leading `❯ N.` cursor Claude
   Code renders on every such prompt's selected option
-  (`detect_blocking_prompt()` in `Sessions.php`), not by matching specific
+  (`detect_blocking_prompt()` in `PromptParser.php`), not by matching specific
   prompt wording. Never auto-answered — only ever a copy-pasteable hint, so
   nothing gets silently approved without a human actually looking.
 - Also lists any other real `claude` process found on the host that isn't
@@ -92,8 +92,9 @@ of scope to avoid adding a second, SIGTERM-based kill path alongside
 
 ## How commands are actually run
 
-All tmux invocations live in `host-agent/lib/Sessions.php` and go through
-`proc_open()` with the command given as an **array**, e.g.
+All tmux invocations are built in `host-agent/lib/Services/TmuxService.php`
+and run via `host-agent/lib/Services/ProcessRunner.php`'s `proc_open()`
+with the command given as an **array**, e.g.
 `['tmux', '-S', $socket, 'kill-session', '-t', $name]`. That form never
 goes through `/bin/sh`, so there's no shell metacharacter injection surface
 at all. Every session name used for `kill-session` is re-validated against
@@ -129,7 +130,7 @@ TUI), so it's never run inline while a request is waiting:
 - Each bucket's `resets` text (whatever Claude Code's own panel prints,
   e.g. `"3pm (America/Los_Angeles)"` or `"Jul 10, 8pm (America/Los_Angeles)"`)
   is parsed into an absolute `resets_at` unix timestamp
-  (`parse_resets_at()` in `Sessions.php`) before caching, so the frontend
+  (`parse_resets_at()` in `QuotaService.php`) before caching, so the frontend
   can render a live countdown instead of a string that goes stale the
   moment it's rendered.
 - If `CLAUDE_QUOTA_BIN` is unset, missing, or the scrape fails and there's
@@ -142,25 +143,58 @@ TUI), so it's never run inline while a request is waiting:
 ```
 claude-session-manager/
 ├── docker-compose.yml     # container: includes the Dockerfile inline (dockerfile_inline)
+├── composer.json           # one root autoloader: App\ -> src/lib/, HostAgent\ -> host-agent/lib/
 ├── .env.example           # copy to .env, fill in real values, never commit .env
 ├── .gitignore
 ├── README.md
+├── CLAUDE.md               # architecture/conventions guidance for Claude Code sessions
 ├── src/                    # bind-mounted into the container at /var/www/src (vendor/ alongside it at /var/www/vendor)
-│   ├── index.php           # action handling, HTML/Tailwind UI
-│   ├── quota.php           # GET-only JSON endpoint, polled by the footer's fetch()
+│   ├── index.php           # thin controller: POST action handling, then AgentClient + PageView for the GET render
+│   ├── session.php         # thin controller: session-detail page (same pattern)
+│   ├── session_send.php, session_mode.php, session_escape.php, session_navigate.php,
+│   │   session_history.php, session_detail.php, sessions_list.php, sessions_fragment.php,
+│   │   answer_prompt.php, browse.php, quota.php, upload_file.php, uploaded_files.php,
+│   │   delete_uploaded_file.php, delete_all_uploaded_files.php,
+│   │   push_subscribe.php, push_unsubscribe.php
+│   │                       # one thin entry point per action/JSON endpoint - same
+│   │                       # AuthService -> AgentClient -> render pattern throughout
 │   └── lib/
 │       ├── AgentClient.php  # App\AgentClient - talks to the host agent over a UNIX socket
-│       ├── Auth.php         # same-origin check + CSRF token, shared by every entry point
-│       └── Views/           # App\Views\* - dashboard/session-detail render classes
+│       ├── Assets.php       # App\Assets - cache-busting for src/js/*.js via a ?v=<mtime> query string
+│       ├── Services/
+│       │   └── AuthService.php  # same-origin check + CSRF token + session start, shared by every entry point
+│       └── Views/           # App\Views\* - one render class per feature area (TranscriptView,
+│                             # SessionRowView, BlockedPromptView, QuotaFooterView, HealthBoxView,
+│                             # PushNotifyView, plus PageView for the two full-page templates) -
+│                             # each a thin self::render('template', [...]) wrapper, no HTML of its
+│                             # own; View.php owns the shared League\Plates engine they all extend
+├── src/partials/            # every template Plates resolves against, grouped by feature, not one flat dir
+│   ├── layout.php             # shared <html>/<head>/<body> shell (Plates layout()/section())
+│   ├── pages/                  # session.php/index.php's own page content - what PageView renders
+│   ├── header.php, sidebar.php, compose-bar.php  # session.php's chrome - plain `include`s, not Plates templates
+│   └── transcript/, blocked-prompt/, session-row/, quota-footer/, health-box/, push-notify/
+│                             # one subdirectory of templates per App\Views\* class above
 ├── host-agent/             # installed natively on the HOST, not in Docker
 │   ├── agent.php            # per-connection entry point (systemd socket activation)
+│   ├── push_trigger.php     # entry point run periodically by the csm-push-check systemd timer
 │   ├── quota_refresh.php    # standalone entry point for a background quota scrape
 │   ├── .env.example         # copy to .env, host-specific paths, never commit .env
+│   ├── hooks/
+│   │   ├── session_start.php  # Claude Code SessionStart hook - see "Why the SessionStart hook exists"
+│   │   └── pre_tool_use.php   # Claude Code PreToolUse hook - see "Why the PreToolUse hook exists"
 │   ├── lib/
-│   │   └── Sessions.php      # tmux calls + /proc scanning + quota caching + all the real logic
+│   │   ├── Sessions.php      # dispatch_action() - thin switch, routes every non-push action
+│   │   ├── Push.php          # dispatch_push_action() - thin switch, routes every push_* action
+│   │   ├── Services/         # the real logic: SessionService, TmuxService, QuotaService,
+│   │   │                     # UploadService, HookService, TranscriptService, PromptParser,
+│   │   │                     # ProcessInspector, ProcessRunner, Config, plus the push-related
+│   │   │                     # services (PushDeliveryService, PushHealthService, PushTimerService,
+│   │   │                     # NotificationContentBuilder)
+│   │   └── Stores/           # SidecarStore, PendingToolStore, PushSubscriptionStore, PushSessionStateStore
 │   ├── systemd/
-│   │   ├── csm-agent.socket   # defines the UNIX socket (systemd --user)
-│   │   └── csm-agent@.service # spawns agent.php per connection, loads .env
+│   │   ├── csm-agent.socket                        # defines the UNIX socket (systemd --user)
+│   │   ├── csm-agent@.service                      # spawns agent.php per connection, loads .env
+│   │   └── csm-push-check.timer / .service          # periodic push_trigger.php run (opt-in, see "Web Push notifications")
 │   └── install.sh            # installs + enables the systemd units, creates .env
 └── tests/                  # dependency-free test suite, see "Running tests" below
     ├── run.sh               # entrypoint: bash tests/run.sh
@@ -169,6 +203,12 @@ claude-session-manager/
     ├── fixtures/            # fake claude binary, fake www root, canned fake agent
     └── test_*.php           # one file per area (protocol, session lifecycle, UI)
 ```
+
+Both `App\` (→ `src/lib/`) and `HostAgent\` (→ `host-agent/lib/`) are
+Composer PSR-4 autoloaded from the one root `composer.json` - `vendor/` is
+bind-mounted into the container alongside `src/` so the same autoloader
+works in both places (see `docker-compose.yml`'s volumes comment for why
+the container's directory layout has to mirror the host's).
 
 There is no standalone `Dockerfile` for the container — its build steps
 live inline in `docker-compose.yml` under `build.dockerfile_inline`.
@@ -231,7 +271,7 @@ socket, and everything will fail with "Cannot reach host agent."
    and `PreToolUse` hooks are both registered in `~/.claude/settings.json`,
    and shows a banner with an "Install hooks" button if either is missing.
    Click it — this calls `install_session_hook()` in
-   `host-agent/lib/Sessions.php`, which merges whichever hook entries are
+   `host-agent/lib/Services/HookService.php`, which merges whichever hook entries are
    missing into your existing settings.json without touching anything else
    already there (safe to click even if only one of the two ever went
    missing). Without the `SessionStart` hook, a tracked session's
@@ -249,7 +289,7 @@ under `~/.claude/projects/<cwd>/`) on `/clear`, `/compact` (auto or
 manual), `--resume`, or `--fork-session` — all while staying in the same
 tmux pane/process. This app's sidecar (`SIDECAR_DIR`, one JSON file per
 tracked session) records that session-id exactly once, at spawn
-(`create_cc_session()` in `host-agent/lib/Sessions.php`), and has no other
+(`create_cc_session()` in `host-agent/lib/Services/SessionService.php`), and has no other
 way to learn it changed. Without the hook, any of those events leaves the
 sidecar pointing at an abandoned, no-longer-growing transcript file
 forever after — not a polling-speed problem, the file the app is reading
@@ -310,18 +350,19 @@ ever lingers until the *next* tool call fires the hook again.
 
 ## Updating the host agent
 
-`host-agent/agent.php` and `host-agent/lib/Sessions.php` run directly off
-the checked-out repo path (`/home/andres/www/claude-session-manager/...`,
-hardcoded in `csm-agent@.service`'s `ExecStart`), so editing them takes
-effect on the *next* connection with no restart needed — each connection
-gets a fresh PHP process. You only need to re-run `install.sh` (or
-`systemctl --user daemon-reload`) if you change the `.socket`/`.service`
+`host-agent/agent.php` and everything under `host-agent/lib/` (`Sessions.php`/
+`Push.php`'s dispatchers, every `Services/*`/`Stores/*` class) run directly
+off the checked-out repo path (`/home/andres/www/claude-session-manager/...`,
+hardcoded in `csm-agent@.service`'s `ExecStart`), so editing any of them
+takes effect on the *next* connection with no restart needed — each
+connection gets a fresh PHP process. You only need to re-run `install.sh`
+(or `systemctl --user daemon-reload`) if you change the `.socket`/`.service`
 unit files themselves.
 
 ## Configuration (host agent)
 
-`host-agent/lib/Sessions.php` reads these host-specific values from the
-environment, each falling back to this box's real values if unset — a
+`host-agent/lib/Services/Config.php` reads these host-specific values from
+the environment, each falling back to this box's real values if unset — a
 fresh checkout with no `.env` behaves exactly as before this mechanism
 existed:
 

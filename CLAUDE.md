@@ -131,12 +131,3 @@ only `create_cc_session()`-spawned sessions have).
   a second git worktree, e.g. `../claude-session-manager-refactor`) is only
   spun up for a large phased refactor and merged back when done. This repo
   does not use the generic global `master → local → feature` model.
-
-## Known drift
-
-`README.md` predates the `Services`/`Stores`/Plates-templates refactors
-and still describes an older flat `Sessions.php`/`Auth.php` structure —
-treat its architecture/file-structure sections as historical context, not
-current fact, until it's updated (tracked in `todo`). Its operational
-sections (host-agent setup/systemd, Web Push setup, network binding
-caveats, env var table) are still accurate.
