@@ -95,8 +95,6 @@ Larger architecture / consolidation work (bigger surface area):
   never get send-keys/capture-pane support - at most a read-only transcript
   link - so a small residual "unmanageable" category likely still remains
   after this.
-- Examine whether to use rewrites and a route file so every request goes
-  through the same path.
 - Research: now that this app has a PreToolUse hook (see the pending-tool
   full-command-preview feature), survey whether other Claude Code hook events
   (PostToolUse, Notification, UserPromptSubmit, etc) could replace/improve any
