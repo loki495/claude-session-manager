@@ -116,7 +116,11 @@
   // Setting: whether tool_use/tool_result blocks show in the transcript at
   // all - a body-level class + CSS rule (see <style> in <head>) so it
   // applies to blocks the poll renders later too, without re-walking the DOM.
-  var SHOW_TOOL_DETAILS_KEY = 'csm-show-tool-details';
+  // Per-session (keyed by sessionName, same pattern as COMPOSE_DRAFT_KEY
+  // below) - a global key meant one session's "hide tool output" choice
+  // silently applied to every other session too, which read as broken
+  // when a different session's own output just wasn't showing.
+  var SHOW_TOOL_DETAILS_KEY = 'csm-show-tool-details-' + sessionName;
 
   function shouldShowToolDetails() {
     try {
@@ -149,8 +153,9 @@
   // Setting: whether tool_use blocks (the tool CALL itself - "Bash(...)",
   // "Write(...)", etc.) show in the transcript at all - separate from
   // SHOW_TOOL_DETAILS_KEY above, which only ever affects tool_result
-  // blocks (the output). Same body-level-class + CSS-rule pattern.
-  var SHOW_TOOL_CALLS_KEY = 'csm-show-tool-calls';
+  // blocks (the output). Same body-level-class + CSS-rule pattern, and
+  // same per-session reasoning.
+  var SHOW_TOOL_CALLS_KEY = 'csm-show-tool-calls-' + sessionName;
 
   function shouldShowToolCalls() {
     try {

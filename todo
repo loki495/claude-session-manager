@@ -5,11 +5,6 @@ Small-to-medium features (good gain/effort ratio):
 
 - Show context percent usage in the footer of sessions as well.
 - Save the quota reset date somewhere.
-- Make the "Show tool calls"/"Show tool outputs" sidebar toggles
-  per-session instead of global (SHOW_TOOL_DETAILS_KEY/SHOW_TOOL_CALLS_KEY
-  in session.js are currently one shared localStorage key across every
-  session - COMPOSE_DRAFT_KEY already does the per-session pattern to
-  copy: 'csm-compose-draft-' + sessionName).
 - session.php: recognize the /clear slash command in the transcript (and
   other local commands going forward) and, on displaying it, clear the
   screen of prior entries - similar in spirit to how a real terminal
