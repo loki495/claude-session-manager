@@ -8,19 +8,6 @@ Small-to-medium features (good gain/effort ratio):
   screen of prior entries - similar in spirit to how a real terminal
   clears on /clear rather than just rendering it as a generic command
   entry mixed in with everything before it.
-- session.php: when Claude sends a non-image file, show a download link
-  for it (currently renders as a plain tool_use/tool_result pair, no
-  special treatment at all - only images get that, via
-  render_transcript_image_html()/renderImageHtml()). Also show the
-  actual filename for both images and regular files - currently neither
-  is shown even for images (only media_type + base64 data are extracted
-  in Transcript.php, no filename field). Worth checking upfront:
-  filename availability likely differs by source - a Write tool's
-  file_path input is right there, but an image block's real underlying
-  filename (if any) may not be - Anthropic's image content blocks are
-  just base64 source objects with no name field, so it may only be
-  derivable when the image came from a Read tool_result (whose
-  file_path input would be known) and not otherwise.
 - When polling, pass the last message timestamp (or other identifier) so
   the server only returns messages since the last pull, instead of
   re-fetching everything each time.
