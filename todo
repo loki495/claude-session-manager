@@ -3,9 +3,6 @@ says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
 Small-to-medium features (good gain/effort ratio):
 
-- When polling, pass the last message timestamp (or other identifier) so
-  the server only returns messages since the last pull, instead of
-  re-fetching everything each time.
 - index.php: make the whole session-row "card" a link to its transcript page,
   except for known interactive bits (Kill button, show-last-3 toggle, blocked-prompt
   option buttons, etc.) which should keep working normally without navigating away.
