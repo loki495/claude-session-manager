@@ -1,12 +1,6 @@
 Work queue (in this order, per Andres - new items get appended at the end unless he
 says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
-Small-to-medium features (good gain/effort ratio):
-
-- index.php: make the whole session-row "card" a link to its transcript page,
-  except for known interactive bits (Kill button, show-last-3 toggle, blocked-prompt
-  option buttons, etc.) which should keep working normally without navigating away.
-
 Bigger features needing research first (moderate-high surface area):
 
 - Research: how would file uploads work (Andres wants to send an image/file
