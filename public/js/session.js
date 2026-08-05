@@ -1869,22 +1869,34 @@
   var composeTextarea = document.getElementById('compose-textarea');
   var composeSendBtn = document.getElementById('compose-send-btn');
   var composeStatus = document.getElementById('compose-status');
+  var composeAttachmentsPreview = document.getElementById('compose-attachments-preview');
 
   if (composeTextarea && composeSendBtn) {
     var COMPOSE_MAX_HEIGHT_PX = 128; // matches max-h-32
     var COMPOSE_DRAFT_KEY = 'csm-compose-draft-' + sessionName;
+    var COMPOSE_ATTACHMENTS_KEY = 'csm-compose-attachments-' + sessionName;
+
+    // Files uploaded via the "+" button but not yet sent - shown as their
+    // own removable chips above the textarea (see renderComposeAttachments()
+    // below), not appended as visible "[Attached: ...]" text into the
+    // user's own draft the way this used to work. That text still reaches
+    // Claude - SessionService::send_message() (host-agent) adds it silently
+    // right before the message is actually sent, from the plain paths this
+    // array tracks, so it's real bookkeeping Claude needs but never
+    // something the user has to see or accidentally edit/delete themselves.
+    var pendingAttachments = []; // {path, filename, size}
 
     function autoGrowCompose() {
       composeTextarea.style.height = 'auto';
       composeTextarea.style.height = Math.min(composeTextarea.scrollHeight, COMPOSE_MAX_HEIGHT_PX) + 'px';
     }
 
-    // Dims/disables Send whenever there's nothing (or only whitespace) to
-    // send - sendComposedMessage() already silently no-ops on blank text,
-    // but the button gave no visual sign of that, so it looked clickable
-    // when it wasn't.
+    // Dims/disables Send whenever there's nothing (or only whitespace) AND
+    // no pending attachment to send - an attachment-only send (no typed
+    // text at all) is valid, same as SessionService::send_message() allows
+    // server-side.
     function updateSendButtonState() {
-      composeSendBtn.disabled = composeTextarea.value.trim() === '';
+      composeSendBtn.disabled = composeTextarea.value.trim() === '' && pendingAttachments.length === 0;
     }
 
     // Per-session draft, so it survives navigating to the dashboard or
@@ -1908,12 +1920,64 @@
       } catch (e) {}
     }
 
+    // Same per-session persistence as the typed draft above, its own
+    // separate key - an upload made, then the page reloaded/navigated away
+    // from before Send was pressed, shouldn't silently lose track of a file
+    // that's already sitting in .claude/uploads/ waiting to be referenced.
+    function saveComposeAttachments() {
+      try {
+        if (pendingAttachments.length > 0) {
+          window.localStorage.setItem(COMPOSE_ATTACHMENTS_KEY, JSON.stringify(pendingAttachments));
+        } else {
+          window.localStorage.removeItem(COMPOSE_ATTACHMENTS_KEY);
+        }
+      } catch (e) {}
+    }
+
+    function clearComposeAttachments() {
+      pendingAttachments = [];
+
+      try {
+        window.localStorage.removeItem(COMPOSE_ATTACHMENTS_KEY);
+      } catch (e) {}
+    }
+
+    function renderComposeAttachments() {
+      if (!composeAttachmentsPreview) {
+        return;
+      }
+
+      if (pendingAttachments.length === 0) {
+        composeAttachmentsPreview.innerHTML = '';
+        composeAttachmentsPreview.classList.add('hidden');
+        return;
+      }
+
+      composeAttachmentsPreview.classList.remove('hidden');
+      composeAttachmentsPreview.innerHTML = pendingAttachments.map(function (a, i) {
+        return '<span class="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs text-slate-300 pl-2 pr-1 py-1">'
+          + '<span class="truncate max-w-[10rem]">' + escapeHtml(a.filename) + '</span>'
+          + '<span class="shrink-0 text-slate-500">' + escapeHtml(formatFileSize(a.size)) + '</span>'
+          + '<button type="button" class="remove-compose-attachment-btn select-none shrink-0 rounded-full w-5 h-5 flex items-center justify-center text-slate-400 active:text-red-300 active:bg-red-900/40" data-index="' + i + '" aria-label="Remove ' + escapeHtml(a.filename) + '">&times;</button>'
+          + '</span>';
+      }).join('');
+    }
+
     try {
       var savedDraft = window.localStorage.getItem(COMPOSE_DRAFT_KEY);
 
       if (savedDraft) {
         composeTextarea.value = savedDraft;
         autoGrowCompose();
+      }
+    } catch (e) {}
+
+    try {
+      var savedAttachments = window.localStorage.getItem(COMPOSE_ATTACHMENTS_KEY);
+
+      if (savedAttachments) {
+        pendingAttachments = JSON.parse(savedAttachments) || [];
+        renderComposeAttachments();
       }
     } catch (e) {}
 
@@ -1932,7 +1996,7 @@
     function sendComposedMessage() {
       var text = composeTextarea.value;
 
-      if (text.trim() === '') {
+      if (text.trim() === '' && pendingAttachments.length === 0) {
         return;
       }
 
@@ -1940,13 +2004,24 @@
       composeSendBtn.disabled = true;
       setComposeStatus('');
 
-      var pendingEl = appendPendingEntry('user', [{ kind: 'text', text: text }]);
+      // Mirrors SessionService::send_message()'s own "[Attached: path]"
+      // line-building (host-agent) so the optimistic bubble shown here
+      // already matches what the real transcript entry will read once it
+      // actually arrives, even though the user's own draft never showed
+      // this text at any point.
+      var attachmentLines = pendingAttachments.map(function (a) { return '[Attached: ' + a.path + ']'; });
+      var optimisticText = attachmentLines.length === 0 ? text : (text ? text.replace(/\s*$/, '') + '\n' : '') + attachmentLines.join('\n');
+
+      var body = new URLSearchParams({ session: sessionName, csrf_token: csrfToken, message: text });
+      pendingAttachments.forEach(function (a) { body.append('attachments[]', a.path); });
+
+      var pendingEl = appendPendingEntry('user', [{ kind: 'text', text: optimisticText }]);
 
       fetch('/session_send.php', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken, message: text }).toString()
+        body: body.toString()
       })
         .then(function (r) { return parseJsonResponse(r, 'compose-send'); })
         .then(function (data) {
@@ -1954,6 +2029,8 @@
             composeTextarea.value = '';
             autoGrowCompose();
             clearComposeDraft();
+            clearComposeAttachments();
+            renderComposeAttachments();
             pollOnce(); // pick up the new message (and whatever happens next) right away, not on the next 15s tick
           } else {
             removePendingEntry(pendingEl);
@@ -1992,10 +2069,11 @@
 
     // --- attach files: uploads via /upload_file.php (relayed to the
     // host-agent, which writes into the session's own project workdir -
-    // see save_uploaded_file() in Sessions.php), then appends each
-    // resulting path into the compose text so Claude can Read() it like
-    // any other file once the message is sent - no special terminal/
-    // paste support needed, a path mentioned in plain text is enough. ---
+    // see save_uploaded_file() in Sessions.php), then adds each to
+    // pendingAttachments as its own removable chip above the textarea
+    // (renderComposeAttachments() above) - the actual "[Attached: path]"
+    // text Claude needs is only ever added server-side at send time (see
+    // sendComposedMessage() and SessionService::send_message()). ---
     var composeAttachBtn = document.getElementById('compose-attach-btn');
     var composeFileInput = document.getElementById('compose-file-input');
     var composeUploadStatus = document.getElementById('compose-upload-status');
@@ -2011,13 +2089,10 @@
         }
       }
 
-      function appendAttachmentPath(path) {
-        var line = '[Attached: ' + path + ']';
-        composeTextarea.value = composeTextarea.value
-          ? composeTextarea.value.replace(/\s*$/, '') + '\n' + line
-          : line;
-        autoGrowCompose();
-        saveComposeDraft();
+      function addPendingAttachment(path, filename, size) {
+        pendingAttachments.push({ path: path, filename: filename, size: size });
+        saveComposeAttachments();
+        renderComposeAttachments();
         updateSendButtonState();
 
         // Immediate refresh (don't wait for the next poll tick) if the
@@ -2040,7 +2115,7 @@
           .then(function (r) { return parseJsonResponse(r, 'upload-file'); })
           .then(function (data) {
             if (data && data.ok) {
-              appendAttachmentPath(data.path);
+              addPendingAttachment(data.path, data.filename, data.size);
               return true;
             }
 
@@ -2052,6 +2127,40 @@
             return false;
           });
       }
+
+      // Removing a pending (not-yet-sent) attachment deletes the real
+      // uploaded file too, not just its chip - otherwise a changed-my-mind
+      // upload sits abandoned in .claude/uploads/ forever with no other way
+      // to clean it up. Delegated (not bound directly to each chip's own
+      // button) since chips are rebuilt wholesale on every render.
+      document.addEventListener('click', function (e) {
+        var removeBtn = e.target.closest('.remove-compose-attachment-btn');
+
+        if (!removeBtn) {
+          return;
+        }
+
+        var index = parseInt(removeBtn.dataset.index, 10);
+        var removed = pendingAttachments.splice(index, 1)[0];
+        saveComposeAttachments();
+        renderComposeAttachments();
+        updateSendButtonState();
+
+        if (!removed) {
+          return;
+        }
+
+        fetch('/delete_uploaded_file.php', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken, filename: removed.filename }).toString()
+        }).catch(function () {});
+
+        if (sidebar && !sidebar.classList.contains('translate-x-full')) {
+          loadUploadedFiles();
+        }
+      });
 
       composeAttachBtn.addEventListener('click', function () {
         composeFileInput.click();

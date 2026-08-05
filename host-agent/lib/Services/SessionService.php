@@ -570,10 +570,22 @@ class SessionService
      * terminal paste delivers the whole block as one unit (verified live)
      * and only the explicit trailing Enter submits it.
      *
+     * $attachmentPaths (compose-bar file uploads still pending when Send is
+     * pressed) each become their own "[Attached: <path>]" line appended
+     * after $text - added here, not client-side, so the user's own draft
+     * never shows that bookkeeping text while they're still typing (see
+     * session.js's compose-attachments preview, which shows the files as
+     * their own removable chips instead). $text may be empty as long as at
+     * least one attachment is present - an attachment-only send is valid.
+     *
+     * @param string[] $attachmentPaths
      * @return array{ok:bool, message:string}
      */
-    public static function send_message(string $name, string $text): array
+    public static function send_message(string $name, string $text, array $attachmentPaths = []): array
     {
+        $attachmentLines = array_map(static fn(string $path): string => '[Attached: ' . $path . ']', $attachmentPaths);
+        $text = $attachmentLines === [] ? $text : trim(rtrim($text) . "\n" . implode("\n", $attachmentLines));
+
         if (trim($text) === '') {
             return ['ok' => false, 'message' => 'Message cannot be empty'];
         }

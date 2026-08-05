@@ -175,7 +175,11 @@ $response = match ($action) {
     'kill_bare' => ($request['pid'] ?? null) === CANNED_BARE_PID
         ? ['ok' => true, 'message' => 'Killed tmux session csm-test-adhoc (pid ' . CANNED_BARE_PID . ')']
         : ['ok' => false, 'message' => 'Rejected: not a currently running claude process'],
-    'send_message' => ($request['session'] ?? null) === CANNED_SESSION_NAME && trim((string)($request['text'] ?? '')) !== ''
+    // An attachment with no typed text at all is a valid send (mirrors
+    // SessionService::send_message()'s own real semantics) - lets
+    // test_ui_smoke.php prove session_send.php's attachments[] field
+    // actually reaches the agent action as attachment_paths.
+    'send_message' => ($request['session'] ?? null) === CANNED_SESSION_NAME && (trim((string)($request['text'] ?? '')) !== '' || !empty($request['attachment_paths']))
         ? ['ok' => true, 'message' => 'Sent message to ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Message cannot be empty'],
     'set_mode' => ($request['session'] ?? null) === CANNED_SESSION_NAME && in_array($request['mode'] ?? null, ['manual', 'accept edits', 'plan', 'auto'], true)

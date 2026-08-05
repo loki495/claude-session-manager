@@ -68,7 +68,11 @@ function dispatch_action(array $request): array
             return SessionService::send_escape((string)($request['session'] ?? ''));
 
         case 'send_message':
-            return SessionService::send_message((string)($request['session'] ?? ''), (string)($request['text'] ?? ''));
+            return SessionService::send_message(
+                (string)($request['session'] ?? ''),
+                (string)($request['text'] ?? ''),
+                is_array($request['attachment_paths'] ?? null) ? array_map('strval', $request['attachment_paths']) : []
+            );
 
         case 'set_mode':
             return SessionService::set_mode((string)($request['session'] ?? ''), (string)($request['mode'] ?? ''));

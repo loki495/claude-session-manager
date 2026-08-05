@@ -623,6 +623,26 @@ try {
         'send_message: the full multi-line message landed in the pane (echoed back by cat), not split into separate premature submits'
     );
 
+    // --- send_message()'s $attachmentPaths param: compose-bar file uploads
+    // still pending when Send is pressed each become their own "[Attached:
+    // path]" line, added here (not client-side) so the user's own typed
+    // draft never shows that bookkeeping text - see session.js's compose-
+    // attachments preview. An attachment with no typed text at all is a
+    // valid send on its own. ---
+    $sentAttachmentOnly = SessionService::send_message($sendTestSession, '', ['.claude/uploads/report.pdf']);
+    assert_true($sentAttachmentOnly['ok'] ?? false, 'send_message: an attachment with no typed text at all is still a valid send');
+    usleep(300000);
+    assert_contains('[Attached: .claude/uploads/report.pdf]', TmuxService::tmux_capture_pane($sendTestSession), 'send_message: the attachment line lands in the pane even with no typed text');
+
+    $sentWithText = SessionService::send_message($sendTestSession, 'Check this out', ['.claude/uploads/photo.png']);
+    assert_true($sentWithText['ok'] ?? false, 'send_message: typed text plus an attachment together is a valid send');
+    usleep(300000);
+    $paneAfterBoth = TmuxService::tmux_capture_pane($sendTestSession);
+    assert_true(
+        str_contains($paneAfterBoth, 'Check this out') && str_contains($paneAfterBoth, '[Attached: .claude/uploads/photo.png]'),
+        'send_message: typed text and the attachment line both land in the pane, on separate lines'
+    );
+
     TmuxService::tmux_run(['kill-session', '-t', $sendTestSession]);
     $sendTestSession = null;
 

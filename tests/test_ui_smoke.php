@@ -511,6 +511,7 @@ try {
     assert_contains('id="compose-textarea"', $result['body'], 'GET /session.php: compose textarea present');
     assert_contains('id="compose-attach-btn"', $result['body'], 'GET /session.php: attach-file button present');
     assert_contains('id="compose-file-input"', $result['body'], 'GET /session.php: hidden file input present for the attach button');
+    assert_contains('id="compose-attachments-preview"', $result['body'], 'GET /session.php: compose-attachments preview container present, for pending uploads shown as removable chips above the textarea');
     assert_contains('id="uploaded-files-list"', $result['body'], 'GET /session.php: sidebar uploaded-files list present');
     assert_contains('id="delete-all-uploads-btn"', $result['body'], 'GET /session.php: sidebar delete-all-uploads button present');
     assert_true(
@@ -569,6 +570,16 @@ try {
     ], $cookieJar);
     $emptyBody = json_decode($result['body'], true);
     assert_equal(false, $emptyBody['ok'] ?? null, 'POST /session_send.php: canned agent rejects an empty message');
+
+    // --- session_send.php: an empty message with attachments[] present is
+    // still accepted - proves attachments[] actually reaches the agent
+    // action as attachment_paths (not just that a blank message alone is
+    // rejected, already covered above). ---
+    $result = curl_request('POST', "{$baseUrl}/session_send.php", [
+        '-d', 'session=' . urlencode('cc-20260101-1200') . '&csrf_token=' . urlencode((string)$csrfForSend) . '&message=&attachments%5B%5D=' . urlencode('.claude/uploads/report.pdf'),
+    ], $cookieJar);
+    $attachmentOnlySendBody = json_decode($result['body'], true);
+    assert_true(is_array($attachmentOnlySendBody) && ($attachmentOnlySendBody['ok'] ?? false), 'POST /session_send.php: an empty message with attachments[] present is still accepted, proving attachments[] reaches the agent action');
 
     // --- session_mode.php: GET not allowed ---
     $result = curl_request('GET', "{$baseUrl}/session_mode.php?session=cc-20260101-1200");

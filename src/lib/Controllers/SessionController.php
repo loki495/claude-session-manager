@@ -126,8 +126,9 @@ class SessionController extends Controller
 
         $sessionName = trim((string)($_POST['session'] ?? ''));
         $text = (string)($_POST['message'] ?? '');
+        $attachmentPaths = is_array($_POST['attachments'] ?? null) ? array_map('strval', $_POST['attachments']) : [];
 
-        echo json_encode(AgentClient::agent_call(['action' => 'send_message', 'session' => $sessionName, 'text' => $text]));
+        echo json_encode(AgentClient::agent_call(['action' => 'send_message', 'session' => $sessionName, 'text' => $text, 'attachment_paths' => $attachmentPaths]));
     }
 
     /**

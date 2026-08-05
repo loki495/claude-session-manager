@@ -9,6 +9,7 @@ if ($found): ?>
   <div id="compose-bar" class="select-none fixed bottom-0 inset-x-0 z-20 bg-slate-950/95 backdrop-blur border-t border-slate-800 px-4 py-3">
     <div class="max-w-2xl mx-auto">
       <div id="compose-input-row" class="<?= $composeBlocked ? 'hidden' : '' ?>">
+        <div id="compose-attachments-preview" class="hidden flex flex-wrap gap-2 mb-2"></div>
         <div class="flex items-stretch gap-2">
           <button type="button" id="compose-attach-btn" aria-label="Attach file"
             class="min-h-[2.75rem] w-11 shrink-0 rounded-lg bg-slate-800 border border-slate-700 active:bg-slate-700 disabled:opacity-50 text-slate-300 text-xl leading-none">
