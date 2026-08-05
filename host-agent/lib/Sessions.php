@@ -38,6 +38,13 @@ function dispatch_action(array $request): array
                 isset($request['limit']) ? (int)$request['limit'] : 30
             );
 
+        case 'session_attachment':
+            return SessionService::session_attachment(
+                (string)($request['session'] ?? ''),
+                (int)($request['line'] ?? 0),
+                (string)($request['file_uuid'] ?? '')
+            );
+
         case 'create':
             return SessionService::create_cc_session((string)($request['workdir'] ?? ''));
 

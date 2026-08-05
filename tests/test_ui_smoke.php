@@ -383,6 +383,40 @@ try {
         isset($imageEntryMatch[1]) && strpos($imageEntryMatch[1], 'entry-tool-use-only') === false,
         'GET /session.php: a tool_result entry carrying an image is NOT marked entry-tool-use-only either - it is not a tool_use entry at all'
     );
+    // The canned SendUserFile-style tool_result (line 8) carries two
+    // attachments - real file metadata threaded from the outer
+    // toolUseResult.attachments field (see TranscriptService::
+    // transcript_attachments_from_tool_use_result()), not embedded content:
+    // a plain download (notes.txt) and an image (screenshot.png), the same
+    // mixed shape a real SendUserFile call sending a screenshot alongside a
+    // report can produce (verified live 2026-08-04 against this app's own
+    // transcript).
+    $attachmentUrl = '/session_attachment.php?session=cc-20260101-1200&line=8&file_uuid=canned-file-uuid-1';
+    $imageAttachmentUrl = '/session_attachment.php?session=cc-20260101-1200&line=8&file_uuid=canned-file-uuid-2';
+    assert_contains(htmlspecialchars($attachmentUrl), $result['body'], 'GET /session.php: the canned download attachment renders a link pointing at session_attachment.php with session/line/file_uuid, never a raw host path');
+    assert_contains('notes.txt', $result['body'], 'GET /session.php: the download attachment\'s real filename is shown');
+    assert_true(
+        preg_match('/<img src="' . preg_quote(htmlspecialchars($imageAttachmentUrl), '/') . '"[^>]*class="transcript-image/', $result['body']) === 1,
+        'GET /session.php: the canned image attachment renders as a real <img> (reusing the .transcript-image tap-to-expand class), pointing at session_attachment.php too - never embedded as data: base64 like an inline screenshot'
+    );
+    assert_contains('screenshot.png', $result['body'], 'GET /session.php: the image attachment\'s real filename is shown too, as its own link below the thumbnail');
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Sent 2 file\(s\) to the user\./s', $result['body'], $attachmentEntryMatch) === 1
+            && strpos($attachmentEntryMatch[1], 'entry-tool-result-only') === false,
+        'GET /session.php: a tool_result entry carrying file attachments is NOT marked entry-tool-result-only either - same "always visible" exemption as an inline image, generalized to any shared file'
+    );
+    $attachmentResult = curl_request('GET', "{$baseUrl}{$attachmentUrl}", [], $cookieJar);
+    assert_equal(200, $attachmentResult['status'], 'GET /session_attachment.php: 200 for a real, matching session/line/file_uuid');
+    assert_equal('canned attachment bytes', $attachmentResult['body'], 'GET /session_attachment.php: streams the real (canned) file bytes, not the base64 wrapper');
+    assert_true(str_starts_with($attachmentResult['headers']['content-type'] ?? '', 'text/plain'), 'GET /session_attachment.php: Content-Type reflects the attachment\'s real media_type');
+    assert_contains('attachment', $attachmentResult['headers']['content-disposition'] ?? '', 'GET /session_attachment.php: a non-image attachment is served as a download (Content-Disposition: attachment), not inline');
+    assert_contains('notes.txt', $attachmentResult['headers']['content-disposition'] ?? '', 'GET /session_attachment.php: Content-Disposition carries the real filename');
+    $imageAttachmentResult = curl_request('GET', "{$baseUrl}{$imageAttachmentUrl}", [], $cookieJar);
+    assert_equal(200, $imageAttachmentResult['status'], 'GET /session_attachment.php: 200 for the image attachment too');
+    assert_true(str_starts_with($imageAttachmentResult['headers']['content-type'] ?? '', 'image/png'), 'GET /session_attachment.php: Content-Type is image/png for the image attachment');
+    assert_contains('inline', $imageAttachmentResult['headers']['content-disposition'] ?? '', 'GET /session_attachment.php: an image attachment is served inline (viewable in the <img> tag), not forced to download');
+    $wrongAttachmentResult = curl_request('GET', "{$baseUrl}/session_attachment.php?session=cc-20260101-1200&line=8&file_uuid=not-the-real-uuid", [], $cookieJar);
+    assert_equal(404, $wrongAttachmentResult['status'], 'GET /session_attachment.php: an unrecognized file_uuid -> 404, not a silent empty body');
     assert_contains('id="sidebar-list"', $result['body'], 'GET /session.php: sidebar (other sessions) drawer present');
     assert_true(
         preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="kill">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="session" value="cc-20260101-1200">\s*<button type="submit"[^>]*>\s*Close session#', $result['body']) === 1,
@@ -448,7 +482,7 @@ try {
     assert_equal(200, $result['status'], 'GET /session_history.php: 200');
     $historyBody = json_decode($result['body'], true);
     assert_true(is_array($historyBody) && ($historyBody['ok'] ?? false), 'GET /session_history.php: response decodes as ok=true JSON');
-    assert_equal(6, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
+    assert_equal(7, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
 
     // --- session.php: compose bar present for a real session ---
     $result = curl_request('GET', "{$baseUrl}/session.php?session=cc-20260101-1200");

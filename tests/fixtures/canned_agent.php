@@ -19,6 +19,9 @@ const CANNED_CLAUDE_SESSION_ID = '11111111-2222-4333-8444-555555555555';
 // an <img> tag exists in the markup.
 const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuTym7Lxyboe7HSFwi79IJN7-wqbUbZmYR1CkLvXZSc';
+const CANNED_ATTACHMENT_FILE_UUID = 'canned-file-uuid-1';
+const CANNED_ATTACHMENT_BYTES = 'canned attachment bytes';
+const CANNED_IMAGE_ATTACHMENT_FILE_UUID = 'canned-file-uuid-2';
 
 const CANNED_LAST_MESSAGE = [
     'role' => 'assistant',
@@ -111,11 +114,29 @@ $response = match ($action) {
                 // parse_transcript_line()/summarize_content_block().
                 ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:20Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'tool: Agent - general-purpose: Investigate the login bug', 'agent_type' => 'general-purpose']], 'line' => 6],
                 ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:25Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Found it: the redirect URL was hardcoded.', 'agent_type' => 'general-purpose']], 'line' => 7],
+                // A SendUserFile-style tool_result: real file metadata
+                // threaded from the outer toolUseResult.attachments field
+                // (see TranscriptService::transcript_attachments_from_tool_use_result())
+                // rather than embedded in the content blocks themselves.
+                // Two attachments on one line - the real shape a SendUserFile
+                // call sending both a download and a screenshot produces
+                // (verified live 2026-08-04 against this app's own transcript).
+                ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:30Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Sent 2 file(s) to the user.', 'attachments' => [
+                    ['file_uuid' => CANNED_ATTACHMENT_FILE_UUID, 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES), 'isImage' => false, 'media_type' => 'text/plain'],
+                    ['file_uuid' => CANNED_IMAGE_ATTACHMENT_FILE_UUID, 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true)), 'isImage' => true, 'media_type' => 'image/png'],
+                ]]], 'line' => 8],
             ],
             'next_before' => 1,
             'has_more' => true,
         ]
         : ['ok' => false, 'message' => 'No transcript recorded for this session'],
+    'session_attachment' => (string)($request['session'] ?? null) === CANNED_SESSION_NAME
+        ? match ($request['file_uuid'] ?? null) {
+            CANNED_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES)],
+            CANNED_IMAGE_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => CANNED_TEST_IMAGE_BASE64, 'media_type' => 'image/png', 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true))],
+            default => ['ok' => false, 'message' => 'Attachment not found'],
+        }
+        : ['ok' => false, 'message' => 'Attachment not found'],
     'browse_dir' => [
         'ok' => true,
         'path' => '/home/andres/www',

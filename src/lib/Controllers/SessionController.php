@@ -177,6 +177,67 @@ class SessionController extends Controller
     }
 
     /**
+     * GET-only binary endpoint backing an attachment's <img src> (for an
+     * image) or download link (for anything else) in the transcript - see
+     * App\Views\TranscriptView's attachment rendering. Reads `line` (the
+     * raw JSONL line number returned with every transcript entry) and
+     * `file_uuid`, never a real host path - the host-agent re-derives the
+     * path itself from the transcript file (see TranscriptService::
+     * read_attachment()) rather than trusting one from the client.
+     */
+    public function attachment(): void
+    {
+        AuthService::start_app_session();
+
+        $result = AgentClient::agent_call([
+            'action' => 'session_attachment',
+            'session' => (string)($_GET['session'] ?? ''),
+            'line' => (int)($_GET['line'] ?? 0),
+            'file_uuid' => (string)($_GET['file_uuid'] ?? ''),
+        ]);
+
+        if (!($result['ok'] ?? false)) {
+            http_response_code(404);
+            header('Content-Type: text/plain');
+            echo (string)($result['message'] ?? 'Attachment not found');
+
+            return;
+        }
+
+        $data = base64_decode((string)($result['data'] ?? ''), true);
+
+        if ($data === false) {
+            http_response_code(502);
+            header('Content-Type: text/plain');
+            echo 'Malformed attachment data';
+
+            return;
+        }
+
+        $mediaType = (string)($result['media_type'] ?? 'application/octet-stream');
+        $isImage = str_starts_with($mediaType, 'image/');
+
+        header('Content-Type: ' . $mediaType);
+        // file_uuid never gets reused for different content, so this is safe to cache hard rather than re-fetching on every render.
+        header('Cache-Control: private, max-age=86400, immutable');
+        header('Content-Disposition: ' . ($isImage ? 'inline' : 'attachment') . '; filename="' . self::content_disposition_safe_filename((string)($result['filename'] ?? 'attachment')) . '"');
+        echo $data;
+    }
+
+    /**
+     * Strips characters that could break out of the quoted filename in a
+     * Content-Disposition header (control chars, the closing quote itself)
+     * - the filename ultimately comes from basename() of a real file on
+     * disk, but that disk could in principle hold anything.
+     */
+    private static function content_disposition_safe_filename(string $filename): string
+    {
+        $safe = preg_replace('/[\x00-\x1f"]/', '', $filename) ?? '';
+
+        return $safe !== '' ? $safe : 'attachment';
+    }
+
+    /**
      * POST-only JSON endpoint, shared by index.php's dashboard rows and
      * session.php's blocked-prompt card - same AJAX pattern as send()/
      * setMode() (replacing the old classic POST+redirect+flash: answering

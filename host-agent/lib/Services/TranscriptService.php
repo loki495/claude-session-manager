@@ -37,6 +37,12 @@ class TranscriptService
     // data), just a guard against something pathological blowing up the page.
     public const TRANSCRIPT_IMAGE_MAX_BASE64_LENGTH = 8_000_000;
 
+    // Matches UploadService::max_upload_bytes()'s default - both relay a
+    // whole file as base64 JSON over the same one-shot agent socket
+    // protocol, so the same rough ceiling applies to reading an attachment
+    // back out as applied to writing one in.
+    public const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
     public static function claude_projects_dir(): string
     {
         return Config::home_root() . '/.claude/projects';
@@ -406,6 +412,46 @@ class TranscriptService
     }
 
     /**
+     * A tool_result's real richer file metadata (SendUserFile, verified
+     * live 2026-08-04) lives on the outer JSONL line's toolUseResult field,
+     * not in the content blocks themselves - content only ever carries a
+     * plain-text summary string ("Sent 2 file(s)..."), never a filename,
+     * size, or a way to fetch the bytes back. Unlike an inline image block
+     * (transcript_tool_result_image() above), these files were never
+     * embedded as base64 in the transcript at all - only a host filesystem
+     * path, deliberately dropped here (never sent to the browser) in favor
+     * of a file_uuid the browser can hand back to read_attachment() to
+     * fetch the real bytes through the host-agent, the same trust boundary
+     * every other file-touching action in this app already goes through.
+     *
+     * @return array<int, array{file_uuid:string, filename:string, size:int, isImage:bool, media_type:string}>
+     */
+    public static function transcript_attachments_from_tool_use_result(mixed $toolUseResult): array
+    {
+        if (!is_array($toolUseResult) || !is_array($toolUseResult['attachments'] ?? null)) {
+            return [];
+        }
+
+        $out = [];
+
+        foreach ($toolUseResult['attachments'] as $attachment) {
+            if (!is_array($attachment) || !is_string($attachment['file_uuid'] ?? null) || !is_string($attachment['path'] ?? null) || $attachment['path'] === '') {
+                continue;
+            }
+
+            $out[] = [
+                'file_uuid' => $attachment['file_uuid'],
+                'filename' => basename($attachment['path']),
+                'size' => (int)($attachment['size'] ?? 0),
+                'isImage' => (bool)($attachment['isImage'] ?? false),
+                'media_type' => is_string($attachment['media_type'] ?? null) && $attachment['media_type'] !== '' ? $attachment['media_type'] : 'application/octet-stream',
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * A tool_result's content can include an inline image alongside its text
      * (e.g. a browser-automation screenshot tool, verified against a real
      * capture) - the first one found, if any.
@@ -435,7 +481,7 @@ class TranscriptService
      * Parses one JSONL line into a renderable transcript entry, or null for a
      * meta-only, malformed, or content-less line.
      *
-     * @return array{type:string, role:?string, timestamp:?string, blocks:array<int, array{kind:string, text:string}>}|null
+     * @return array{type:string, role:?string, timestamp:?string, blocks:array<int, array{kind:string, text:string, attachments?:array<int, array{file_uuid:string, filename:string, size:int, isImage:bool, media_type:string}>}>}|null
      */
     public static function parse_transcript_line(string $line): ?array
     {
@@ -490,6 +536,7 @@ class TranscriptService
         // in isolation.
         $toolUseResult = $decoded['toolUseResult'] ?? null;
         $agentType = is_array($toolUseResult) && is_string($toolUseResult['agentType'] ?? null) ? $toolUseResult['agentType'] : null;
+        $attachments = self::transcript_attachments_from_tool_use_result($toolUseResult);
 
         foreach ($blocks as &$block) {
             if (strlen($block['text']) > self::TRANSCRIPT_BLOCK_HARD_CAP_LENGTH) {
@@ -498,6 +545,10 @@ class TranscriptService
 
             if ($agentType !== null && $block['kind'] === 'tool_result') {
                 $block['agent_type'] = $agentType;
+            }
+
+            if ($attachments !== [] && $block['kind'] === 'tool_result') {
+                $block['attachments'] = $attachments;
             }
         }
         unset($block);
@@ -553,6 +604,72 @@ class TranscriptService
             'entries' => $entries,
             'next_before' => $index > 0 ? $index + 1 : null,
             'has_more' => $index > 0,
+        ];
+    }
+
+    /**
+     * Re-reads a single transcript line by number and returns the real file
+     * bytes for one of its attachments (see
+     * transcript_attachments_from_tool_use_result() above) as base64 - the
+     * browser only ever knows a file_uuid, never the real host path, so the
+     * path is re-derived here from the transcript itself (a file only
+     * Claude Code writes to) rather than trusted from the caller.
+     *
+     * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string, size?:int}
+     */
+    public static function read_attachment(string $path, int $line, string $fileUuid): array
+    {
+        $lines = @file($path, FILE_IGNORE_NEW_LINES);
+
+        if ($lines === false || $line < 1 || $line > count($lines)) {
+            return ['ok' => false, 'message' => 'Transcript line not found'];
+        }
+
+        $decoded = json_decode($lines[$line - 1], true);
+        $toolUseResult = is_array($decoded) ? ($decoded['toolUseResult'] ?? null) : null;
+        $attachments = is_array($toolUseResult) ? ($toolUseResult['attachments'] ?? null) : null;
+
+        if (!is_array($attachments)) {
+            return ['ok' => false, 'message' => 'No attachments on this line'];
+        }
+
+        $match = null;
+
+        foreach ($attachments as $attachment) {
+            if (is_array($attachment) && ($attachment['file_uuid'] ?? null) === $fileUuid) {
+                $match = $attachment;
+                break;
+            }
+        }
+
+        if (!is_array($match) || !is_string($match['path'] ?? null) || $match['path'] === '') {
+            return ['ok' => false, 'message' => 'Attachment not found'];
+        }
+
+        $filePath = $match['path'];
+
+        if (!is_file($filePath)) {
+            return ['ok' => false, 'message' => 'File no longer exists on disk'];
+        }
+
+        $size = filesize($filePath);
+
+        if ($size === false || $size > self::ATTACHMENT_MAX_BYTES) {
+            return ['ok' => false, 'message' => 'File too large to display'];
+        }
+
+        $content = @file_get_contents($filePath);
+
+        if ($content === false) {
+            return ['ok' => false, 'message' => 'Could not read file'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => base64_encode($content),
+            'media_type' => is_string($match['media_type'] ?? null) && $match['media_type'] !== '' ? $match['media_type'] : 'application/octet-stream',
+            'filename' => basename($filePath),
+            'size' => strlen($content),
         ];
     }
 }

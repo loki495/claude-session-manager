@@ -37,18 +37,79 @@ class TranscriptView extends View
         ]);
     }
 
+    /** Mirrors formatFileSize() in session.js (JS-side counterpart). */
+    public static function format_attachment_size(int $bytes): string
+    {
+        if ($bytes < 1024) {
+            return $bytes . ' B';
+        }
+
+        if ($bytes < 1024 * 1024) {
+            return number_format($bytes / 1024, 1) . ' KB';
+        }
+
+        return number_format($bytes / (1024 * 1024), 1) . ' MB';
+    }
+
     /**
-     * @param array{kind:string, text:string, image?:array{media_type:string, data:string}} $block
+     * $line is the raw JSONL line number a transcript entry was parsed
+     * from (see TranscriptService::read_transcript_page()'s 'line' field) -
+     * along with $fileUuid, that's enough for the host-agent to re-derive
+     * the real file path itself (see TranscriptService::read_attachment()),
+     * without the browser ever seeing it.
      */
-    public static function render_transcript_block(array $block): string
+    public static function attachment_url(string $sessionName, int $line, string $fileUuid): string
+    {
+        return '/session_attachment.php?session=' . rawurlencode($sessionName) . '&line=' . $line . '&file_uuid=' . rawurlencode($fileUuid);
+    }
+
+    /**
+     * A file Claude sent via SendUserFile (or, in principle, any future
+     * source of the same toolUseResult.attachments shape - see
+     * TranscriptService::transcript_attachments_from_tool_use_result() on
+     * the host-agent side) - an actual thumbnail (reusing the same
+     * .transcript-image tap-to-expand class/behavior as an inline base64
+     * image) for an image, a download link showing filename + size for
+     * anything else. The filename is always its own separate real link
+     * (not just a caption) - deliberately not wrapped around the image
+     * itself, since a click there needs to toggle the thumbnail (see the
+     * delegated .transcript-image handler in session.js), not navigate.
+     *
+     * @param array<int, array{file_uuid:string, filename:string, size:int, isImage:bool, media_type:string}> $attachments
+     */
+    public static function render_transcript_attachments_html(array $attachments, string $sessionName, int $line): string
+    {
+        if ($attachments === []) {
+            return '';
+        }
+
+        $itemsHtml = '';
+
+        foreach ($attachments as $attachment) {
+            $itemsHtml .= self::render('transcript/attachment', [
+                'url' => self::attachment_url($sessionName, $line, $attachment['file_uuid']),
+                'filename' => $attachment['filename'],
+                'sizeLabel' => self::format_attachment_size($attachment['size']),
+                'isImage' => $attachment['isImage'],
+            ]);
+        }
+
+        return self::render('transcript/attachments', ['itemsHtml' => $itemsHtml]);
+    }
+
+    /**
+     * @param array{kind:string, text:string, image?:array{media_type:string, data:string}, attachments?:array<int, array{file_uuid:string, filename:string, size:int, isImage:bool, media_type:string}>} $block
+     */
+    public static function render_transcript_block(array $block, string $sessionName, int $line): string
     {
         $imageHtml = isset($block['image']) ? self::render_transcript_image_html($block['image']) : '';
+        $attachmentsHtml = !empty($block['attachments']) ? self::render_transcript_attachments_html($block['attachments'], $sessionName, $line) : '';
 
-        // The image (a browser-automation screenshot, most likely) is a
-        // SIBLING of .tool-detail, not nested inside it - unlike the raw
-        // text output, Andres wants a screenshot visible regardless of
-        // the show/hide-tool-details toggle, since it's often the whole
-        // point of having run the tool in the first place.
+        // The image/attachments are SIBLINGS of .tool-detail, not nested
+        // inside it - unlike the raw text output, Andres wants a
+        // screenshot or a shared file visible regardless of the
+        // show/hide-tool-details toggle, since it's often the whole point
+        // of having run the tool in the first place.
         $collapsibleHtml = match ($block['kind']) {
             'tool_use' => BlockedPromptView::render_collapsible_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; '),
             'tool_result' => BlockedPromptView::render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', ''),
@@ -60,6 +121,7 @@ class TranscriptView extends View
             'text' => $block['text'],
             'collapsibleHtml' => $collapsibleHtml,
             'imageHtml' => $imageHtml,
+            'attachmentsHtml' => $attachmentsHtml,
         ]);
     }
 
@@ -213,9 +275,9 @@ class TranscriptView extends View
     }
 
     /**
-     * @param array{role:?string, timestamp:?string, blocks:array<int, array{kind:string, text:string}>} $entry
+     * @param array{role:?string, timestamp:?string, line?:int, blocks:array<int, array{kind:string, text:string}>} $entry
      */
-    public static function render_transcript_entry(array $entry): string
+    public static function render_transcript_entry(array $entry, string $sessionName): string
     {
         $role = $entry['role'] ?? 'system';
         $colorKind = self::entry_color_kind($entry);
@@ -237,22 +299,23 @@ class TranscriptView extends View
         // block) once the matching "Show tool outputs"/"Show tool calls"
         // toggle turns off, since there'd be nothing left to show otherwise (a
         // bare role-label-only bubble). Neither marker applies to an entry
-        // carrying an image, regardless of its kind (found live: this was
-        // missing on the first pass for entry-tool-result-only, so an entry
-        // with a screenshot still vanished entirely instead of just its text) -
-        // an image is always worth keeping visible on its own.
-        $hasImage = false;
+        // carrying an image or a file attachment, regardless of its kind or
+        // who it came from (found live: this was missing on the first pass
+        // for entry-tool-result-only, so an entry with a screenshot still
+        // vanished entirely instead of just its text) - a shared file is
+        // always worth keeping visible on its own.
+        $hasAttachment = false;
 
         foreach ($entry['blocks'] as $block) {
-            if (isset($block['image'])) {
-                $hasImage = true;
+            if (isset($block['image']) || !empty($block['attachments'])) {
+                $hasAttachment = true;
                 break;
             }
         }
 
         $extraClass = '';
 
-        if (!$hasImage) {
+        if (!$hasAttachment) {
             if ($colorKind === 'tool_result' || $colorKind === 'subagent_result') {
                 $extraClass = ' entry-tool-result-only';
             } elseif ($colorKind === 'tool_use' || $colorKind === 'subagent_call') {
@@ -260,7 +323,11 @@ class TranscriptView extends View
             }
         }
 
-        $blocksHtml = implode('', array_map([self::class, 'render_transcript_block'], $entry['blocks']));
+        $line = (int)($entry['line'] ?? 0);
+        $blocksHtml = implode('', array_map(
+            static fn(array $block): string => self::render_transcript_block($block, $sessionName, $line),
+            $entry['blocks']
+        ));
 
         return self::render('transcript/entry', [
             'borderClass' => $colors['border'],

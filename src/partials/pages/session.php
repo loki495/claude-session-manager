@@ -91,7 +91,7 @@ $this->layout('layout', [
       </button>
       <div id="history-list" class="flex flex-col gap-2">
         <?php foreach ($entries as $entry): ?>
-          <?= \App\Views\TranscriptView::render_transcript_entry($entry) ?>
+          <?= \App\Views\TranscriptView::render_transcript_entry($entry, $sessionName) ?>
         <?php endforeach; ?>
       </div>
     <?php endif; ?>

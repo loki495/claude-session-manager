@@ -7,7 +7,7 @@
 ?>
 <?php if ($kind === 'text'): ?><p class="whitespace-pre-wrap break-words text-sm text-slate-100"><?= $this->e($text) ?></p>
 <?php elseif ($kind === 'tool_use'): ?><div class="tool-use-block"><?= $collapsibleHtml ?></div>
-<?php elseif ($kind === 'tool_result'): ?><div class="tool-detail"><?= $collapsibleHtml ?></div><?= $imageHtml ?>
+<?php elseif ($kind === 'tool_result'): ?><div class="tool-detail"><?= $collapsibleHtml ?></div><?= $imageHtml ?><?= $attachmentsHtml ?>
 <?php elseif ($kind === 'image' && $imageHtml !== ''): ?><?= $imageHtml ?>
 <?php elseif ($text !== ''): ?><p class="break-words text-xs text-slate-600"><?= $this->e($text) ?></p>
 <?php endif ?>

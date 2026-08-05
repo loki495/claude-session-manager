@@ -215,6 +215,32 @@ class SessionService
     }
 
     /**
+     * Same claude_session_id -> transcript path resolution as
+     * session_history() above, then delegates to
+     * TranscriptService::read_attachment() to fetch one attachment's real
+     * bytes for session_attachment.php.
+     *
+     * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string, size?:int}
+     */
+    public static function session_attachment(string $name, int $line, string $fileUuid): array
+    {
+        $sidecar = SidecarStore::read_sidecar($name);
+        $claudeSessionId = $sidecar['claude_session_id'] ?? null;
+
+        if (!is_string($claudeSessionId)) {
+            return ['ok' => false, 'message' => 'No transcript recorded for this session'];
+        }
+
+        $path = TranscriptService::find_transcript_path($claudeSessionId);
+
+        if ($path === null) {
+            return ['ok' => false, 'message' => 'Transcript file not found'];
+        }
+
+        return TranscriptService::read_attachment($path, $line, $fileUuid);
+    }
+
+    /**
      * A random (v4) UUID, RFC 4122 §4.4 - used as the --session-id passed to
      * `claude` at launch, so this app controls the id up front instead of
      * having to discover whatever Claude Code would have picked on its own.

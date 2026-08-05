@@ -153,3 +153,7 @@ Exploratory / speculative / lower priority:
   and more like a native app.
 - Future end-user/contributor separation concerns: remove hardcoded paths,
   README is out of date/too long (split into files if necessary).
+- session.php: don't show the "new content" divider bar (markNewContent()
+  in session.js) when there are no entries after it - presumably possible
+  in some poll-timing edge case (e.g. the only "new" thing was a blocked-
+  prompt/thinking-indicator update, not a real transcript entry).

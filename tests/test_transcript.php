@@ -315,4 +315,83 @@ assert_equal(false, $page3['has_more'] ?? null, 'read_transcript_page: page3 has
 $missing = TranscriptService::read_transcript_page('/does/not/exist.jsonl', null, 10);
 assert_equal(false, $missing['ok'] ?? null, 'read_transcript_page: missing file -> ok=false');
 
+// --- TranscriptService::transcript_attachments_from_tool_use_result()/
+// parse_transcript_line(): a SendUserFile tool_result's real file
+// metadata (path, size, isImage, media_type, file_uuid) lives on the
+// outer JSONL line's toolUseResult.attachments field, not in the content
+// blocks themselves (verified live 2026-08-04 against a real captured
+// SendUserFile call) - same "outer field, threaded onto the tool_result
+// block" pattern as agent_type above, just a different field. The real
+// host path is deliberately dropped from the rendered shape (never sent
+// to the browser) in favor of just a filename derived from it. ---
+assert_equal([], TranscriptService::transcript_attachments_from_tool_use_result(null), 'transcript_attachments_from_tool_use_result: not an array -> []');
+assert_equal([], TranscriptService::transcript_attachments_from_tool_use_result(['status' => 'completed']), 'transcript_attachments_from_tool_use_result: no attachments field -> []');
+assert_equal(
+    [['file_uuid' => 'abc-123', 'filename' => 'footer-before.png', 'size' => 63182, 'isImage' => true, 'media_type' => 'image/png']],
+    TranscriptService::transcript_attachments_from_tool_use_result([
+        'attachments' => [['path' => '/tmp/claude-1000/scratchpad/footer-before.png', 'size' => 63182, 'isImage' => true, 'media_type' => 'image/png', 'pathValidated' => true, 'file_uuid' => 'abc-123']],
+    ]),
+    'transcript_attachments_from_tool_use_result: real path collapsed to its basename, other fields passed through'
+);
+assert_equal(
+    [],
+    TranscriptService::transcript_attachments_from_tool_use_result(['attachments' => [['size' => 10, 'isImage' => false]]]),
+    'transcript_attachments_from_tool_use_result: an entry missing path/file_uuid is skipped, not half-rendered'
+);
+
+$sendUserFileLine = TranscriptService::parse_transcript_line(json_encode([
+    'type' => 'user',
+    'message' => ['role' => 'user', 'content' => [[
+        'type' => 'tool_result',
+        'content' => 'Sent 1 file(s) to the user.',
+    ]]],
+    'toolUseResult' => [
+        'attachments' => [['path' => '/tmp/x/report.pdf', 'size' => 4096, 'isImage' => false, 'media_type' => 'application/pdf', 'pathValidated' => true, 'file_uuid' => 'file-uuid-1']],
+    ],
+]));
+assert_equal(
+    [['file_uuid' => 'file-uuid-1', 'filename' => 'report.pdf', 'size' => 4096, 'isImage' => false, 'media_type' => 'application/pdf']],
+    $sendUserFileLine['blocks'][0]['attachments'] ?? null,
+    'parse_transcript_line: SendUserFile tool_result block carries attachments from the outer toolUseResult field'
+);
+
+$nonAttachmentToolResultLine = TranscriptService::parse_transcript_line('{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}');
+assert_true(!array_key_exists('attachments', $nonAttachmentToolResultLine['blocks'][0]), 'parse_transcript_line: a plain tool_result never gets an attachments field');
+
+// --- TranscriptService::read_attachment(): re-reads a real transcript
+// line by number and returns a specific attachment's real file bytes as
+// base64 - the browser only ever supplies (session, line, file_uuid),
+// never a real path, so this re-derives the path itself from the
+// transcript rather than trusting one from the caller. ---
+$attachmentFixtureDir = sys_get_temp_dir() . '/csm-test-attachment-' . getmypid();
+@mkdir($attachmentFixtureDir, 0700, true);
+$attachmentFile = $attachmentFixtureDir . '/hello.txt';
+file_put_contents($attachmentFile, 'hello attachment bytes');
+$attachmentTranscript = $attachmentFixtureDir . '/transcript.jsonl';
+file_put_contents($attachmentTranscript, json_encode([
+    'type' => 'user',
+    'message' => ['role' => 'user', 'content' => [['type' => 'tool_result', 'content' => 'Sent 1 file(s) to the user.']]],
+    'toolUseResult' => ['attachments' => [['path' => $attachmentFile, 'size' => 22, 'isImage' => false, 'media_type' => 'text/plain', 'pathValidated' => true, 'file_uuid' => 'the-uuid']]],
+]) . "\n");
+
+$readOk = TranscriptService::read_attachment($attachmentTranscript, 1, 'the-uuid');
+assert_true($readOk['ok'] ?? false, 'read_attachment: real line + matching file_uuid -> ok=true');
+assert_equal(base64_encode('hello attachment bytes'), $readOk['data'] ?? null, 'read_attachment: returns the real file bytes as base64');
+assert_equal('text/plain', $readOk['media_type'] ?? null, 'read_attachment: returns the media_type from the transcript');
+assert_equal('hello.txt', $readOk['filename'] ?? null, 'read_attachment: filename derived from the real path\'s basename');
+assert_equal(22, $readOk['size'] ?? null, 'read_attachment: size reflects the actual bytes read');
+
+$wrongLine = TranscriptService::read_attachment($attachmentTranscript, 99, 'the-uuid');
+assert_equal(false, $wrongLine['ok'] ?? null, 'read_attachment: out-of-range line -> ok=false');
+
+$wrongUuid = TranscriptService::read_attachment($attachmentTranscript, 1, 'not-the-uuid');
+assert_equal(false, $wrongUuid['ok'] ?? null, 'read_attachment: file_uuid not found on that line -> ok=false');
+
+@unlink($attachmentFile);
+$missingFile = TranscriptService::read_attachment($attachmentTranscript, 1, 'the-uuid');
+assert_equal(false, $missingFile['ok'] ?? null, 'read_attachment: attachment path found in transcript but no longer exists on disk -> ok=false');
+
+@unlink($attachmentTranscript);
+@rmdir($attachmentFixtureDir);
+
 test_exit();

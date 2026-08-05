@@ -697,9 +697,45 @@
     return '<img src="data:' + mediaType + ';base64,' + data + '" loading="lazy" alt="Image" class="transcript-image mt-1.5 rounded border border-slate-800 cursor-pointer w-24 h-24 object-cover">';
   }
 
-  function renderBlock(block) {
+  // Mirrors TranscriptView::attachment_url() (PHP).
+  function attachmentUrl(line, fileUuid) {
+    return '/session_attachment.php?session=' + encodeURIComponent(sessionName) + '&line=' + line + '&file_uuid=' + encodeURIComponent(fileUuid);
+  }
+
+  // Mirrors TranscriptView::render_transcript_attachments_html()/attachment.php
+  // (PHP) - a real thumbnail (reusing the same .transcript-image
+  // tap-to-expand class as an inline base64 image) for an image, a
+  // download link with filename + size for anything else. The filename
+  // is always its own separate real link, not wrapped around the image
+  // itself - a click there needs to toggle the thumbnail (see the
+  // delegated .transcript-image handler below), not navigate.
+  function renderAttachmentsHtml(attachments, line) {
+    if (!attachments || attachments.length === 0) {
+      return '';
+    }
+
+    var itemsHtml = attachments.map(function (a) {
+      var url = attachmentUrl(line, a.file_uuid);
+      var filename = escapeHtml(a.filename);
+
+      if (a.isImage) {
+        return '<div><img src="' + url + '" loading="lazy" alt="' + filename + '" class="transcript-image rounded border border-slate-800 cursor-pointer w-24 h-24 object-cover">'
+          + '<a href="' + url + '" target="_blank" rel="noopener" class="block mt-0.5 max-w-24 truncate text-[11px] text-slate-500 active:text-slate-300">' + filename + '</a></div>';
+      }
+
+      return '<a href="' + url + '" class="flex items-center gap-1.5 rounded border border-slate-800 bg-slate-950/60 px-2 py-1.5 text-xs text-sky-300 active:text-sky-200">'
+        + '<span aria-hidden="true">&#8681;</span>'
+        + '<span class="truncate max-w-[12rem]">' + filename + '</span>'
+        + '<span class="shrink-0 text-slate-500">' + escapeHtml(formatFileSize(a.size)) + '</span></a>';
+    }).join('');
+
+    return '<div class="mt-1.5 flex flex-wrap items-start gap-2">' + itemsHtml + '</div>';
+  }
+
+  function renderBlock(block, line) {
     var text = escapeHtml(block.text);
     var imageHtml = block.image ? renderImageHtml(block.image) : '';
+    var attachmentsHtml = renderAttachmentsHtml(block.attachments, line);
 
     // break-words - see render_transcript_block() in session.php (the
     // PHP-side counterpart) for why: a long unbroken token (a constant
@@ -715,11 +751,11 @@
         // but that's backwards from what's wanted: collapsed either way.
         return '<div class="tool-use-block">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
       case 'tool_result':
-        // The image (a browser-automation screenshot, most likely) is a
-        // SIBLING of .tool-detail, not nested inside it - shown regardless
-        // of the show/hide-tool-details toggle, since it's often the
-        // whole point of having run the tool in the first place.
-        return '<div class="tool-detail">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml;
+        // The image/attachments are SIBLINGS of .tool-detail, not nested
+        // inside it - shown regardless of the show/hide-tool-details
+        // toggle, since a shared file is often the whole point of having
+        // run the tool in the first place.
+        return '<div class="tool-detail">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml + attachmentsHtml;
       case 'image':
         return imageHtml || (text ? '<p class="break-words text-xs text-slate-600">' + text + '</p>' : '');
       default:
@@ -798,16 +834,17 @@
       : (ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System'));
     var parsedMs = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
     var timestamp = !isNaN(parsedMs) ? escapeHtml(relativeTimeLabel(Math.floor(parsedMs / 1000))) : '';
-    var blocksHtml = (entry.blocks || []).map(renderBlock).join('');
+    var blocksHtml = (entry.blocks || []).map(function (b) { return renderBlock(b, entry.line); }).join('');
     var colors = entryColorClasses(colorKind);
     // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
     // block) once the matching toggle turns off - see the PHP comment in
     // render_transcript_entry() for why, including why an entry carrying
-    // an image is excluded either way.
-    var hasImage = (entry.blocks || []).some(function (b) { return !!b.image; });
+    // an image or a file attachment is excluded either way, regardless of
+    // who it came from.
+    var hasAttachment = (entry.blocks || []).some(function (b) { return !!b.image || (b.attachments && b.attachments.length > 0); });
     var extraClass = '';
 
-    if (!hasImage) {
+    if (!hasAttachment) {
       if (colorKind === 'tool_result' || colorKind === 'subagent_result') {
         extraClass = ' entry-tool-result-only';
       } else if (colorKind === 'tool_use' || colorKind === 'subagent_call') {
