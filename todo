@@ -3,17 +3,6 @@ says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
 Bigger features needing research first (moderate-high surface area):
 
-- Research: how would file uploads work (Andres wants to send an image/file
-  from his phone to a session, not just receive them from the transcript).
-  Needs a real look at the mechanism - tmux send-keys/paste-buffer only moves
-  text, so this isn't just "extend the existing compose box"; worth checking
-  whether Claude Code's CLI has any file-drop/paste-image support at the
-  terminal level to hook into, or whether this needs an entirely different
-  delivery path (e.g. writing the file somewhere on disk and referencing its
-  path in a message).
-- Preview uploaded images/files above the compose box (before sending),
-  not just after they've been sent. (Depends on the file-uploads research
-  item above.)
 - Add notifications for quota getting close to over, quota being over,
   and quota resetting - probably triggered from the systemd timer app
   (the same one likely already polling for other periodic app logic;
