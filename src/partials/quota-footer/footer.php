@@ -6,7 +6,7 @@
     </button>
     <?= $extraHtml ?>
   </div>
-  <div id="quota-info" class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 text-sm font-medium" aria-live="polite">
+  <div id="quota-info" class="flex flex-col gap-0.5 min-w-0 text-sm font-medium" aria-live="polite">
     <span class="text-slate-500">Loading quota&hellip;</span>
   </div>
 </div>

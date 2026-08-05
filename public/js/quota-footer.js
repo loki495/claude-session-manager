@@ -126,13 +126,15 @@
       if (!bar || typeof bar.pct !== 'number') return;
 
       var text = label(key) + ' ' + bar.pct + '%';
+      var absolute = null;
 
       if (typeof bar.resets_at === 'number') {
         var kind = key === 'session' ? 'session' : 'week';
-        text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind) + ' (' + formatAbsolute(bar.resets_at) + ')';
+        text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind);
+        absolute = formatAbsolute(bar.resets_at);
       }
 
-      lines.push({ text: text, pct: bar.pct });
+      lines.push({ text: text, absolute: absolute, pct: bar.pct });
     });
 
     if (lines.length === 0) {
@@ -147,14 +149,24 @@
     el.title = q.captured_at ? 'Captured ' + relativeTimeAgo(q.captured_at) : '';
     el.innerHTML = '';
 
-    // A left border marks every item after the first when there's room for
-    // them to sit on one row (sm: and up). On mobile, where each bucket
-    // stacks onto its own line, that border/padding is dropped so the text
-    // lines up flush left instead of looking indented.
-    lines.forEach(function (line, i) {
-      var item = document.createElement('span');
-      item.className = pctColorClass(line.pct) + (i > 0 ? ' sm:pl-2 sm:border-l sm:border-slate-700' : '');
+    // Each bucket always gets its own full-width line (#quota-info is a
+    // column flex, not a wrapping row) - crammed onto shared lines at
+    // mobile widths was the whole problem before this. The absolute reset
+    // time is a visually secondary detail, not the main scannable fact (the
+    // percentage + relative duration is), so it's a separate, smaller/muted
+    // span rather than folded into the same colored text.
+    lines.forEach(function (line) {
+      var item = document.createElement('div');
+      item.className = pctColorClass(line.pct);
       item.textContent = line.text;
+
+      if (line.absolute) {
+        var abs = document.createElement('span');
+        abs.className = 'text-xs font-normal text-slate-500 ml-1';
+        abs.textContent = '(' + line.absolute + ')';
+        item.appendChild(abs);
+      }
+
       el.appendChild(item);
     });
 
