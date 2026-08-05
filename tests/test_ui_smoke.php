@@ -396,6 +396,10 @@ try {
     assert_contains(htmlspecialchars($attachmentUrl), $result['body'], 'GET /session.php: the canned download attachment renders a link pointing at session_attachment.php with session/line/file_uuid, never a raw host path');
     assert_contains('notes.txt', $result['body'], 'GET /session.php: the download attachment\'s real filename is shown');
     assert_true(
+        preg_match('/<a href="' . preg_quote(htmlspecialchars($attachmentUrl), '/') . '" target="_blank" rel="noopener"/', $result['body']) === 1,
+        'GET /session.php: a non-image attachment link opens in a new tab - clicking it in the same tab would navigate the app away with no way back'
+    );
+    assert_true(
         preg_match('/<img src="' . preg_quote(htmlspecialchars($imageAttachmentUrl), '/') . '"[^>]*class="transcript-image/', $result['body']) === 1,
         'GET /session.php: the canned image attachment renders as a real <img> (reusing the .transcript-image tap-to-expand class), pointing at session_attachment.php too - never embedded as data: base64 like an inline screenshot'
     );
