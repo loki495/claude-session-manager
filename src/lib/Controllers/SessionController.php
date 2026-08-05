@@ -59,4 +59,94 @@ class SessionController extends Controller
             'limit' => isset($_GET['limit']) ? (int)$_GET['limit'] : 30,
         ]));
     }
+
+    /**
+     * POST-only JSON endpoint for session.php's message compose box.
+     * Unlike a classic form POST + redirect + flash (fine for rare,
+     * occasional actions), sending a message is the primary, repeated
+     * interaction the compose box exists for, so a full page reload per
+     * send would be poor UX. Called via fetch() instead.
+     */
+    public function send(): void
+    {
+        $this->require_post_json(); // plain-text 403 body on failure, same as every other POST handler - the JS caller treats a non-JSON response as a generic send failure
+
+        $sessionName = trim((string)($_POST['session'] ?? ''));
+        $text = (string)($_POST['message'] ?? '');
+
+        echo json_encode(AgentClient::agent_call(['action' => 'send_message', 'session' => $sessionName, 'text' => $text]));
+    }
+
+    /**
+     * POST-only JSON endpoint for session.php's mode toggle. Same AJAX
+     * pattern as send() above - clicked often enough that a full page
+     * reload per click would be poor UX.
+     */
+    public function setMode(): void
+    {
+        $this->require_post_json();
+
+        $sessionName = trim((string)($_POST['session'] ?? ''));
+        $mode = trim((string)($_POST['mode'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call(['action' => 'set_mode', 'session' => $sessionName, 'mode' => $mode]));
+    }
+
+    /**
+     * POST-only JSON endpoint for session.php's "stop" button - sends
+     * Escape to interrupt whatever Claude is currently doing. Same AJAX
+     * pattern as setMode()/send().
+     */
+    public function escape(): void
+    {
+        $this->require_post_json();
+
+        $sessionName = trim((string)($_POST['session'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call(['action' => 'send_escape', 'session' => $sessionName]));
+    }
+
+    /**
+     * POST-only JSON endpoint for a multi-question AskUserQuestion
+     * prompt's Prev/Next buttons (see
+     * App\Views\BlockedPromptView::blocked_prompt_options_html(), shown
+     * when prompt_multi_question is true) - sends the Left/Right arrow
+     * key Claude Code's own tab bar navigates with. Same AJAX pattern as
+     * escape()/setMode().
+     */
+    public function navigate(): void
+    {
+        $this->require_post_json();
+
+        $sessionName = trim((string)($_POST['session'] ?? ''));
+        $direction = trim((string)($_POST['direction'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call(['action' => 'navigate_prompt', 'session' => $sessionName, 'direction' => $direction]));
+    }
+
+    /**
+     * POST-only JSON endpoint, shared by index.php's dashboard rows and
+     * session.php's blocked-prompt card - same AJAX pattern as send()/
+     * setMode() (replacing the old classic POST+redirect+flash: answering
+     * a prompt is common enough that a full page reload per answer was
+     * poor UX, same reasoning as compose send).
+     */
+    public function answerPrompt(): void
+    {
+        $this->require_post_json();
+
+        $sessionName = trim((string)($_POST['session'] ?? ''));
+        $option = (int)($_POST['option'] ?? 0);
+        $text = trim((string)($_POST['text'] ?? ''));
+
+        // A free-text reply (the "Type something." option) needs the typed
+        // text staged and submitted alongside the option - see
+        // SessionService::answer_prompt_with_text() in host-agent/lib/.
+        // Every other option just sends the bare numbered choice.
+        if ($text !== '') {
+            echo json_encode(AgentClient::agent_call(['action' => 'answer_prompt_with_text', 'session' => $sessionName, 'option' => $option, 'text' => $text]));
+        } else {
+            echo json_encode(AgentClient::agent_call(['action' => 'answer_prompt', 'session' => $sessionName, 'option' => $option]));
+        }
+    }
 }

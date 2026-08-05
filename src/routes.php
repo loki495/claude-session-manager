@@ -45,4 +45,15 @@ $router->post('/push_subscribe.php', [PushController::class, 'subscribe']);
 $router->get('/push_unsubscribe.php', [PushController::class, 'unsubscribe']);
 $router->post('/push_unsubscribe.php', [PushController::class, 'unsubscribe']);
 
+$router->get('/session_send.php', [SessionController::class, 'send']);
+$router->post('/session_send.php', [SessionController::class, 'send']);
+$router->get('/session_mode.php', [SessionController::class, 'setMode']);
+$router->post('/session_mode.php', [SessionController::class, 'setMode']);
+$router->get('/session_escape.php', [SessionController::class, 'escape']);
+$router->post('/session_escape.php', [SessionController::class, 'escape']);
+$router->get('/session_navigate.php', [SessionController::class, 'navigate']);
+$router->post('/session_navigate.php', [SessionController::class, 'navigate']);
+$router->get('/answer_prompt.php', [SessionController::class, 'answerPrompt']);
+$router->post('/answer_prompt.php', [SessionController::class, 'answerPrompt']);
+
 return $router;
