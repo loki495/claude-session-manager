@@ -191,6 +191,68 @@ assert_equal('general-purpose', $agentToolResultLine['blocks'][0]['agent_type'] 
 $nonAgentToolResultLine = TranscriptService::parse_transcript_line('{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}]}}');
 assert_true(!array_key_exists('agent_type', $nonAgentToolResultLine['blocks'][0]), 'parse_transcript_line: a plain (non-subagent) tool_result never gets an agent_type field');
 
+// --- TranscriptService::summarize_content_block()/parse_transcript_line(): ExitPlanMode
+// gets its own 'plan' block kind entirely, not the generic "tool: X -
+// key: value" summary - the real plan content shown in full, like a real
+// message, since Claude explicitly stops and asks for review on it. ---
+$planBlock = TranscriptService::summarize_content_block(['type' => 'tool_use', 'name' => 'ExitPlanMode', 'input' => ['plan' => "# Do the thing\n\nSome details."]]);
+assert_equal(['kind' => 'plan', 'text' => "# Do the thing\n\nSome details."], $planBlock, 'summarize_content_block: ExitPlanMode tool_use becomes a plan block, full text, not a param-dump summary');
+
+$emptyPlanBlock = TranscriptService::summarize_content_block(['type' => 'tool_use', 'name' => 'ExitPlanMode', 'input' => ['plan' => '   ']]);
+assert_equal('tool_use', $emptyPlanBlock['kind'], 'summarize_content_block: ExitPlanMode with a blank/whitespace-only plan falls back to the generic tool_use summary instead of an empty plan block');
+
+$planLine = TranscriptService::parse_transcript_line(json_encode([
+    'type' => 'assistant',
+    'message' => ['role' => 'assistant', 'content' => [['type' => 'tool_use', 'id' => 'toolu_plan1', 'name' => 'ExitPlanMode', 'input' => ['plan' => "# Refactor the thing\n\nDetails here."]]]],
+]));
+assert_equal([['kind' => 'plan', 'text' => "# Refactor the thing\n\nDetails here."]], $planLine['blocks'] ?? null, 'parse_transcript_line: a real ExitPlanMode tool_use line parses to a single plan block');
+
+// --- TranscriptService::parse_transcript_line(): an APPROVED plan is
+// self-identifying via its own outer toolUseResult ({"plan": "..."} - a
+// distinctive shape, verified live 2026-08-07 against real captured
+// transcripts) - no id cross-reference needed. The verbose "## Approved
+// Plan:\n<plan again>" boilerplate is replaced with a short, clean line -
+// the real plan text is already fully visible just above as its own
+// 'plan'-kind block, showing it a second time in full would be pure
+// noise. ---
+$approvedPlanLine = TranscriptService::parse_transcript_line(json_encode([
+    'type' => 'user',
+    'message' => ['role' => 'user', 'content' => [['type' => 'tool_result', 'tool_use_id' => 'toolu_plan1', 'content' => "User has approved your plan...\n\n## Approved Plan:\n# Refactor the thing"]]],
+    'toolUseResult' => ['plan' => "# Refactor the thing\n\nDetails here."],
+]));
+assert_equal('approved', $approvedPlanLine['blocks'][0]['plan_status'] ?? null, 'parse_transcript_line: an approved plan tool_result gets plan_status=approved');
+assert_equal('Plan approved - starting work', $approvedPlanLine['blocks'][0]['text'] ?? null, 'parse_transcript_line: an approved plan tool_result gets a short, clean text instead of the verbose re-dumped-plan boilerplate');
+
+// --- TranscriptService::find_exit_plan_mode_tool_use_ids()/parse_transcript_line(): a
+// REJECTED plan is NOT self-identifying - "User rejected tool use" is the
+// exact same generic outer toolUseResult for ANY rejected tool (verified
+// live 2026-08-07: identical string for rejected Bash/Write/Edit calls
+// too), so recognizing "this rejection was specifically a plan" requires
+// cross-referencing tool_use_id against a real ExitPlanMode tool_use seen
+// elsewhere in the transcript - see find_exit_plan_mode_tool_use_ids(). ---
+$rejectedPlanIds = TranscriptService::find_exit_plan_mode_tool_use_ids([
+    json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'tool_use', 'id' => 'toolu_plan2', 'name' => 'ExitPlanMode', 'input' => ['plan' => '# A plan']]]]]),
+    json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'tool_use', 'id' => 'toolu_bash1', 'name' => 'Bash', 'input' => ['command' => 'ls']]]]]),
+]);
+assert_equal(['toolu_plan2' => true], $rejectedPlanIds, 'find_exit_plan_mode_tool_use_ids: finds only the real ExitPlanMode tool_use id, not the unrelated Bash one');
+
+$rejectedPlanLine = TranscriptService::parse_transcript_line(
+    json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'tool_result', 'tool_use_id' => 'toolu_plan2', 'is_error' => true, 'content' => "The user doesn't want to proceed with this tool use..."]]], 'toolUseResult' => 'User rejected tool use']),
+    $rejectedPlanIds
+);
+assert_equal('rejected', $rejectedPlanLine['blocks'][0]['plan_status'] ?? null, 'parse_transcript_line: a rejected plan tool_result (id found in the pre-scanned map) gets plan_status=rejected');
+assert_equal('Plan not approved', $rejectedPlanLine['blocks'][0]['text'] ?? null, 'parse_transcript_line: a rejected plan tool_result gets a short, clean text instead of the internal "STOP what you are doing" boilerplate aimed at Claude');
+
+// A rejected Bash call has the EXACT SAME generic outer toolUseResult
+// string as a rejected plan - only the id map (built from find_exit_plan_
+// mode_tool_use_ids()) tells them apart. Without a matching id, this must
+// NOT be mistaken for a plan rejection.
+$rejectedBashLine = TranscriptService::parse_transcript_line(
+    json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'tool_result', 'tool_use_id' => 'toolu_bash1', 'is_error' => true, 'content' => "The user doesn't want to proceed with this tool use..."]]], 'toolUseResult' => 'User rejected tool use']),
+    $rejectedPlanIds
+);
+assert_true(!array_key_exists('plan_status', $rejectedBashLine['blocks'][0]), 'parse_transcript_line: a rejected Bash call (same generic toolUseResult string, but its id is NOT in the plan id map) never gets a plan_status');
+
 $toolUseWithCommand = TranscriptService::parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}');
 assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls -la, description: List files']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it, not just "Bash"');
 

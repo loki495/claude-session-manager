@@ -214,18 +214,40 @@ class TranscriptView extends View
         $hasToolUse = false;
         $hasToolResult = false;
         $isSubagent = false;
+        $hasPlan = false;
+        $planStatus = null;
 
         foreach ($blocks as $block) {
             match ($block['kind'] ?? null) {
                 'text' => $hasText = true,
                 'tool_use' => $hasToolUse = true,
                 'tool_result' => $hasToolResult = true,
+                'plan' => $hasPlan = true,
                 default => null,
             };
 
             if (($block['agent_type'] ?? null) !== null) {
                 $isSubagent = true;
             }
+
+            if (($block['plan_status'] ?? null) !== null) {
+                $planStatus = $block['plan_status'];
+            }
+        }
+
+        // A presented/approved/rejected plan (ExitPlanMode - see 'plan'
+        // kind and 'plan_status' in TranscriptService's
+        // summarize_content_block()/parse_transcript_line()) gets its own
+        // kind, ahead of the generic tool_use/tool_result check below, for
+        // the same reason a subagent launch/report does: it's functionally
+        // "waiting on you" in a way a routine tool call isn't, and deserves
+        // to read as a distinct thing rather than just another tool call.
+        if (!$hasText && $planStatus !== null) {
+            return $planStatus === 'approved' ? 'plan_approved' : 'plan_rejected';
+        }
+
+        if (!$hasText && $hasPlan) {
+            return 'plan_presented';
         }
 
         // A subagent launch/report (Claude Code's "Agent" tool - see
@@ -270,6 +292,10 @@ class TranscriptView extends View
             // color for both, told apart by role label alone, same as every
             // other kind here.
             'subagent_call', 'subagent_result' => ['border' => 'border-fuchsia-800/60', 'bg' => 'bg-fuchsia-950/40', 'label' => 'text-fuchsia-300'],
+            // Same shared-color convention as subagent_call/subagent_result
+            // above, extended to all three plan states (presented/approved/
+            // rejected) - told apart by role label alone.
+            'plan_presented', 'plan_approved', 'plan_rejected' => ['border' => 'border-amber-800/60', 'bg' => 'bg-amber-950/40', 'label' => 'text-amber-300'],
             default => ['border' => 'border-slate-800', 'bg' => 'bg-slate-900/50', 'label' => 'text-slate-400'],
         };
     }
@@ -290,6 +316,9 @@ class TranscriptView extends View
             'tool_result' => 'Tool output',
             'subagent_call' => 'Subagent call',
             'subagent_result' => 'Subagent report',
+            'plan_presented' => 'Plan',
+            'plan_approved' => 'Plan approved',
+            'plan_rejected' => 'Plan rejected',
             default => ucfirst((string)$role),
         };
         $parsedTimestamp = is_string($entry['timestamp'] ?? null) ? strtotime($entry['timestamp']) : false;

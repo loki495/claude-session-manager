@@ -769,6 +769,8 @@
     switch (block.kind) {
       case 'text':
         return '<p class="whitespace-pre-wrap break-words text-sm text-slate-100">' + text + '</p>';
+      case 'plan':
+        return '<div class="rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2"><p class="whitespace-pre-wrap break-words text-sm text-amber-100">' + text + '</p></div>';
       case 'tool_use':
         // Collapsed by default regardless of the show/hide-tool-details
         // toggle - it used to force-open when details were hidden (on the
@@ -803,6 +805,21 @@
     var hasToolUse = blocks.some(function (b) { return b.kind === 'tool_use'; });
     var hasToolResult = blocks.some(function (b) { return b.kind === 'tool_result'; });
     var isSubagent = blocks.some(function (b) { return b.agent_type != null; });
+    var hasPlan = blocks.some(function (b) { return b.kind === 'plan'; });
+    var planStatus = null;
+    blocks.forEach(function (b) { if (b.plan_status != null) { planStatus = b.plan_status; } });
+
+    // See TranscriptView::entry_color_kind() (PHP) for why this check comes
+    // before the generic tool_use/tool_result one below - a presented/
+    // approved/rejected plan should read as its own distinct thing, not
+    // just another tool call.
+    if (!hasText && planStatus != null) {
+      return planStatus === 'approved' ? 'plan_approved' : 'plan_rejected';
+    }
+
+    if (!hasText && hasPlan) {
+      return 'plan_presented';
+    }
 
     // See TranscriptView::entry_color_kind() (PHP) for why this check comes
     // before the generic tool_use/tool_result one below - a subagent
@@ -842,6 +859,10 @@
       case 'subagent_call':
       case 'subagent_result':
         return { border: 'border-fuchsia-800/60', bg: 'bg-fuchsia-950/40', label: 'text-fuchsia-300' };
+      case 'plan_presented':
+      case 'plan_approved':
+      case 'plan_rejected':
+        return { border: 'border-amber-800/60', bg: 'bg-amber-950/40', label: 'text-amber-300' };
       default:
         return { border: 'border-slate-800', bg: 'bg-slate-900/50', label: 'text-slate-400' };
     }
@@ -856,6 +877,9 @@
       : colorKind === 'tool_result' ? 'Tool output'
       : colorKind === 'subagent_call' ? 'Subagent call'
       : colorKind === 'subagent_result' ? 'Subagent report'
+      : colorKind === 'plan_presented' ? 'Plan'
+      : colorKind === 'plan_approved' ? 'Plan approved'
+      : colorKind === 'plan_rejected' ? 'Plan rejected'
       : (ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System'));
     var parsedMs = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
     var timestamp = !isNaN(parsedMs) ? escapeHtml(relativeTimeLabel(Math.floor(parsedMs / 1000))) : '';

@@ -427,6 +427,35 @@ try {
     assert_contains('inline', $imageAttachmentResult['headers']['content-disposition'] ?? '', 'GET /session_attachment.php: an image attachment is served inline (viewable in the <img> tag), not forced to download');
     $wrongAttachmentResult = curl_request('GET', "{$baseUrl}/session_attachment.php?session=cc-20260101-1200&line=8&file_uuid=not-the-real-uuid", [], $cookieJar);
     assert_equal(404, $wrongAttachmentResult['status'], 'GET /session_attachment.php: an unrecognized file_uuid -> 404, not a silent empty body');
+
+    // --- ExitPlanMode (lines 9-10): its own 'plan' block kind, shown in
+    // full (not collapsed like a routine tool call), plus the approved
+    // outcome's short, clean text - not the real verbose "## Approved
+    // Plan: ..." boilerplate that would otherwise duplicate the whole plan
+    // a second time. ---
+    assert_contains('Refactor the login flow', $result['body'], 'GET /session.php: the canned plan\'s real content is shown in full, not collapsed behind a one-line tool-call summary');
+    assert_contains('>Plan<', $result['body'], 'GET /session.php: the plan-presented entry is labeled "Plan"');
+    assert_contains('>Plan approved<', $result['body'], 'GET /session.php: the plan-approved entry is labeled "Plan approved"');
+    assert_contains('Plan approved - starting work', $result['body'], 'GET /session.php: the approved-plan tool_result shows the short, clean text, not the real verbose re-dumped-plan boilerplate');
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Refactor the login flow/s', $result['body'], $planPresentedMatch) === 1
+            && str_contains($planPresentedMatch[1], 'border-amber-800/60'),
+        'GET /session.php: the plan-presented entry uses the amber color, distinct from a plain tool call'
+    );
+    assert_true(
+        isset($planPresentedMatch[1]) && strpos($planPresentedMatch[1], 'entry-tool-use-only') === false,
+        'GET /session.php: the plan-presented entry is NOT marked entry-tool-use-only - a plan must always stay visible regardless of the "Show tool calls" toggle'
+    );
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Plan approved - starting work/s', $result['body'], $planApprovedMatch) === 1
+            && str_contains($planApprovedMatch[1], 'border-amber-800/60'),
+        'GET /session.php: the plan-approved entry uses the same amber color as the plan-presented one, told apart by label alone'
+    );
+    assert_true(
+        isset($planApprovedMatch[1]) && strpos($planApprovedMatch[1], 'entry-tool-result-only') === false,
+        'GET /session.php: the plan-approved entry is NOT marked entry-tool-result-only - always visible regardless of the "Show tool outputs" toggle'
+    );
+
     assert_contains('id="sidebar-list"', $result['body'], 'GET /session.php: sidebar (other sessions) drawer present');
     assert_true(
         preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="kill">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="session" value="cc-20260101-1200">\s*<button type="submit"[^>]*>\s*Close session#', $result['body']) === 1,
@@ -492,7 +521,7 @@ try {
     assert_equal(200, $result['status'], 'GET /session_history.php: 200');
     $historyBody = json_decode($result['body'], true);
     assert_true(is_array($historyBody) && ($historyBody['ok'] ?? false), 'GET /session_history.php: response decodes as ok=true JSON');
-    assert_equal(7, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
+    assert_equal(9, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
 
     // --- session_history.php: &after= (the regular-poll path) reaches the
     // agent action - proves the plumbing (controller -> agent_call ->
@@ -503,7 +532,7 @@ try {
     assert_equal(200, $afterResult['status'], 'GET /session_history.php?after=5: 200');
     $afterBody = json_decode($afterResult['body'], true);
     assert_true(is_array($afterBody) && ($afterBody['ok'] ?? false), 'GET /session_history.php?after=5: response decodes as ok=true JSON');
-    assert_equal([6, 7, 8], array_column($afterBody['entries'] ?? [], 'line'), 'GET /session_history.php?after=5: only entries past line 5 come back, proving &after= reached the agent action');
+    assert_equal([6, 7, 8, 9, 10], array_column($afterBody['entries'] ?? [], 'line'), 'GET /session_history.php?after=5: only entries past line 5 come back, proving &after= reached the agent action');
 
     // --- session.php: compose bar present for a real session ---
     $result = curl_request('GET', "{$baseUrl}/session.php?session=cc-20260101-1200");

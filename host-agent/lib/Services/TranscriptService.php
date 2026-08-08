@@ -325,9 +325,20 @@ class TranscriptService
     {
         $type = (string)($block['type'] ?? '');
 
-        return match ($type) {
-            'text' => ['kind' => 'text', 'text' => (string)($block['text'] ?? '')],
-            'tool_use' => array_filter(
+        $planText = $type === 'tool_use' && (string)($block['name'] ?? '') === 'ExitPlanMode' && is_array($block['input'] ?? null) && is_string($block['input']['plan'] ?? null)
+            ? trim($block['input']['plan'])
+            : null;
+
+        return match (true) {
+            // ExitPlanMode gets its own block kind entirely, not the generic
+            // "tool: X - key: value" summary (see summarize_tool_use()) -
+            // Claude explicitly stops and asks the user to review this, so
+            // the real plan content is the whole point, shown in full like
+            // a real message rather than collapsed behind a one-line
+            // summary the way a routine tool call's params are.
+            $planText !== null && $planText !== '' => ['kind' => 'plan', 'text' => $planText],
+            $type === 'text' => ['kind' => 'text', 'text' => (string)($block['text'] ?? '')],
+            $type === 'tool_use' => array_filter(
                 [
                     'kind' => 'tool_use',
                     'text' => self::summarize_tool_use($block),
@@ -343,7 +354,7 @@ class TranscriptService
                 ],
                 static fn(mixed $v): bool => $v !== null
             ),
-            'tool_result' => array_filter(
+            $type === 'tool_result' => array_filter(
                 [
                     'kind' => 'tool_result',
                     'text' => self::transcript_tool_result_text($block['content'] ?? null),
@@ -351,7 +362,7 @@ class TranscriptService
                 ],
                 static fn(mixed $v): bool => $v !== null
             ),
-            'image' => self::transcript_image_from_block($block) !== null
+            $type === 'image' => self::transcript_image_from_block($block) !== null
                 ? ['kind' => 'image', 'text' => '', 'image' => self::transcript_image_from_block($block)]
                 : ['kind' => 'image', 'text' => '(image could not be displayed)'],
             default => ['kind' => $type !== '' ? $type : 'unknown', 'text' => ''],
@@ -478,12 +489,62 @@ class TranscriptService
     }
 
     /**
-     * Parses one JSONL line into a renderable transcript entry, or null for a
-     * meta-only, malformed, or content-less line.
+     * A cheap up-front scan across every raw line for ExitPlanMode tool_use
+     * ids, so a later tool_result (which may come BEFORE its matching
+     * tool_use when a caller walks backward for pagination - see
+     * read_transcript_page()) can still be recognized as "this was a plan"
+     * regardless of which direction it's read in. Needed because a
+     * rejected tool's outer toolUseResult is just the generic string "User
+     * rejected tool use" for ANY tool (verified live 2026-08-07 across
+     * several real transcripts) - nothing in the tool_result line itself
+     * says WHICH tool was rejected, only tool_use_id, which has to be
+     * cross-referenced against the matching tool_use block's own name.
+     * An APPROVED plan doesn't need this (its own toolUseResult is a
+     * distinctive {"plan": "..."} shape, unambiguous on its own).
      *
+     * @param string[] $lines
+     * @return array<string, true> tool_use_id => true, one entry per ExitPlanMode call found
+     */
+    public static function find_exit_plan_mode_tool_use_ids(array $lines): array
+    {
+        $ids = [];
+
+        foreach ($lines as $line) {
+            // Cheap short-circuit before paying for a full json_decode - the
+            // vast majority of lines aren't even a candidate.
+            if (!str_contains($line, 'ExitPlanMode')) {
+                continue;
+            }
+
+            $decoded = json_decode($line, true);
+            $content = is_array($decoded) ? ($decoded['message']['content'] ?? null) : null;
+
+            if (!is_array($content)) {
+                continue;
+            }
+
+            foreach ($content as $block) {
+                if (is_array($block) && ($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'ExitPlanMode' && is_string($block['id'] ?? null)) {
+                    $ids[$block['id']] = true;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Parses one JSONL line into a renderable transcript entry, or null for a
+     * meta-only, malformed, or content-less line. $exitPlanModeToolUseIds
+     * (see find_exit_plan_mode_tool_use_ids()) is how a plan's tool_result
+     * gets recognized as approved/rejected rather than rendering as a
+     * generic tool_result - optional (defaults to none found), so existing
+     * callers/tests that don't care about plans keep working unchanged.
+     *
+     * @param array<string, true> $exitPlanModeToolUseIds
      * @return array{type:string, role:?string, timestamp:?string, blocks:array<int, array{kind:string, text:string, attachments?:array<int, array{file_uuid:string, filename:string, size:int, isImage:bool, media_type:string}>}>}|null
      */
-    public static function parse_transcript_line(string $line): ?array
+    public static function parse_transcript_line(string $line, array $exitPlanModeToolUseIds = []): ?array
     {
         $decoded = json_decode($line, true);
 
@@ -505,13 +566,24 @@ class TranscriptService
 
         $content = $message['content'] ?? null;
         $blocks = [];
+        // index within $blocks => the raw tool_use_id, tool_result blocks
+        // only - kept OUTSIDE the public block shape (never merged into
+        // $blocks itself) since some callers assert exact block array
+        // equality; consumed below to recognize a plan's tool_result via
+        // find_exit_plan_mode_tool_use_ids(), then discarded.
+        $toolResultToolUseIds = [];
 
         if (is_string($content) && $content !== '') {
             $blocks[] = ['kind' => 'text', 'text' => $content];
         } elseif (is_array($content)) {
             foreach ($content as $block) {
                 if (is_array($block) && ($block['type'] ?? null) !== 'thinking') {
-                    $blocks[] = self::summarize_content_block($block);
+                    $summarized = self::summarize_content_block($block);
+                    $blocks[] = $summarized;
+
+                    if ($summarized['kind'] === 'tool_result' && is_string($block['tool_use_id'] ?? null)) {
+                        $toolResultToolUseIds[count($blocks) - 1] = $block['tool_use_id'];
+                    }
                 }
             }
         }
@@ -537,8 +609,15 @@ class TranscriptService
         $toolUseResult = $decoded['toolUseResult'] ?? null;
         $agentType = is_array($toolUseResult) && is_string($toolUseResult['agentType'] ?? null) ? $toolUseResult['agentType'] : null;
         $attachments = self::transcript_attachments_from_tool_use_result($toolUseResult);
+        // An approved plan's own toolUseResult is a distinctive {"plan":
+        // "..."} shape - unambiguous on its own, no id cross-reference
+        // needed (same trust-the-outer-field simplification agent_type
+        // above already makes). A rejection is NOT self-identifying (see
+        // find_exit_plan_mode_tool_use_ids()'s own doc comment), so that
+        // direction is only ever resolved via the id map below.
+        $planApproved = is_array($toolUseResult) && is_string($toolUseResult['plan'] ?? null);
 
-        foreach ($blocks as &$block) {
+        foreach ($blocks as $i => &$block) {
             if (strlen($block['text']) > self::TRANSCRIPT_BLOCK_HARD_CAP_LENGTH) {
                 $block['text'] = substr($block['text'], 0, self::TRANSCRIPT_BLOCK_HARD_CAP_LENGTH) . "\n… (truncated)";
             }
@@ -549,6 +628,23 @@ class TranscriptService
 
             if ($attachments !== [] && $block['kind'] === 'tool_result') {
                 $block['attachments'] = $attachments;
+            }
+
+            if ($block['kind'] === 'tool_result') {
+                $toolUseId = $toolResultToolUseIds[$i] ?? null;
+                $isPlanResult = $planApproved || ($toolUseId !== null && isset($exitPlanModeToolUseIds[$toolUseId]));
+
+                if ($isPlanResult) {
+                    $block['plan_status'] = $planApproved ? 'approved' : 'rejected';
+                    // Both real shapes are internal-instruction boilerplate,
+                    // not useful shown verbatim - the approved one re-dumps
+                    // the ENTIRE plan text a second time ("## Approved
+                    // Plan:\n<plan again>"), already fully visible just
+                    // above as its own 'plan'-kind block; the rejected one
+                    // is pure "STOP what you are doing" internal wording
+                    // aimed at Claude, not Andres.
+                    $block['text'] = $planApproved ? 'Plan approved - starting work' : 'Plan not approved';
+                }
             }
         }
         unset($block);
@@ -584,13 +680,14 @@ class TranscriptService
 
         $totalLines = count($lines);
         $upperBound = $before !== null ? max(0, min($before - 1, $totalLines)) : $totalLines; // exclusive, 0-indexed
+        $exitPlanModeToolUseIds = self::find_exit_plan_mode_tool_use_ids($lines);
 
         $entries = [];
         $index = $upperBound;
 
         while ($index > 0 && count($entries) < $limit) {
             $index--;
-            $parsed = self::parse_transcript_line($lines[$index]);
+            $parsed = self::parse_transcript_line($lines[$index], $exitPlanModeToolUseIds);
 
             if ($parsed !== null) {
                 $entries[] = $parsed + ['line' => $index + 1];
@@ -629,11 +726,12 @@ class TranscriptService
         }
 
         $totalLines = count($lines);
+        $exitPlanModeToolUseIds = self::find_exit_plan_mode_tool_use_ids($lines);
         $entries = [];
         $index = max(0, $afterLine); // $afterLine is 1-indexed, so this 0-indexed start is already the next unseen line
 
         while ($index < $totalLines && count($entries) < $limit) {
-            $parsed = self::parse_transcript_line($lines[$index]);
+            $parsed = self::parse_transcript_line($lines[$index], $exitPlanModeToolUseIds);
 
             if ($parsed !== null) {
                 $entries[] = $parsed + ['line' => $index + 1];

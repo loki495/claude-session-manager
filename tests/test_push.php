@@ -183,6 +183,17 @@ try {
     assert_equal('Write /tmp/foo.txt', NotificationContentBuilder::push_permission_body('Write', ['file_path' => '/tmp/foo.txt', 'content' => 'irrelevant for the push body']), 'push_permission_body: Write shows the path, not the full file content');
     assert_equal('Edit /tmp/foo.txt', NotificationContentBuilder::push_permission_body('Edit', ['file_path' => '/tmp/foo.txt', 'old_string' => 'a', 'new_string' => 'b']), 'push_permission_body: Edit shows the path');
     assert_equal('Run WebFetch', NotificationContentBuilder::push_permission_body('WebFetch', ['url' => 'https://example.com']), 'push_permission_body: an unrecognized tool falls back to "Run <tool>"');
+
+    // Found live 2026-08-07: before this case existed, ExitPlanMode fell
+    // through to the generic "Run <tool>" default - "Run ExitPlanMode",
+    // meaningless to Andres. The plan's first line is usually its own
+    // "# Title" markdown heading - stripped of the leading #, that alone
+    // is a real one-line preview without rendering markdown.
+    assert_equal('Refactor the login flow', NotificationContentBuilder::push_permission_body('ExitPlanMode', ['plan' => "# Refactor the login flow\n\nLots of detail here."]), 'push_permission_body: ExitPlanMode shows the plan\'s own heading, not "Run ExitPlanMode"');
+    assert_equal('Just some plain text, no heading', NotificationContentBuilder::push_permission_body('ExitPlanMode', ['plan' => 'Just some plain text, no heading']), 'push_permission_body: ExitPlanMode with no markdown heading still shows the first line');
+    assert_equal('Review the plan', NotificationContentBuilder::push_permission_body('ExitPlanMode', ['plan' => '']), 'push_permission_body: ExitPlanMode with an empty plan -> generic fallback, not a blank body');
+    assert_equal('Review the plan', NotificationContentBuilder::push_permission_body('ExitPlanMode', []), 'push_permission_body: ExitPlanMode with no plan key at all -> generic fallback');
+
     $longCommand = str_repeat('a', 200);
     assert_equal(141, mb_strlen(NotificationContentBuilder::push_permission_body('Bash', ['command' => $longCommand])), 'push_permission_body: a long command is truncated the same as push_finished_body');
 
@@ -240,6 +251,11 @@ try {
         'Has a question: Fix the login bug',
         NotificationContentBuilder::push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'AskUserQuestion']),
         'push_blocked_title: leads with "Has a question" for AskUserQuestion specifically'
+    );
+    assert_equal(
+        'Plan ready for review: Fix the login bug',
+        NotificationContentBuilder::push_blocked_title(['name' => 'cc-1', 'title' => 'Fix the login bug', 'prompt_tool_name' => 'ExitPlanMode']),
+        'push_blocked_title: leads with "Plan ready for review" for ExitPlanMode specifically, not the generic "Needs permission"'
     );
     assert_equal(
         'Needs folder trust: Fix the login bug',

@@ -155,6 +155,25 @@ class NotificationContentBuilder
 
                 return $path !== null ? "Edit {$path}" : 'Edit a file';
 
+            // Without this, ExitPlanMode fell through to the generic
+            // default below - "Run ExitPlanMode", a literal tool name
+            // that's meaningless to Andres, found live 2026-08-07. The
+            // plan's first line is usually its own "# Title" markdown
+            // heading (see real plans saved under ~/.claude/plans/) -
+            // stripped of the leading #/whitespace, that alone reads as a
+            // real one-line preview without needing to render markdown.
+            case 'ExitPlanMode':
+                $plan = is_string($toolInput['plan'] ?? null) ? trim($toolInput['plan']) : '';
+
+                if ($plan === '') {
+                    return 'Review the plan';
+                }
+
+                $firstLine = trim(explode("\n", $plan, 2)[0]);
+                $firstLine = ltrim($firstLine, "# \t");
+
+                return self::push_truncate($firstLine !== '' ? $firstLine : $plan);
+
             default:
                 return "Run {$toolName}";
         }
@@ -212,6 +231,10 @@ class NotificationContentBuilder
 
         if ($toolName === 'AskUserQuestion') {
             return "Has a question: {$sessionTitle}";
+        }
+
+        if ($toolName === 'ExitPlanMode') {
+            return "Plan ready for review: {$sessionTitle}";
         }
 
         if ($toolName !== null) {

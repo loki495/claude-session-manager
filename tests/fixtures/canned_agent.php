@@ -53,6 +53,13 @@ function canned_session_history_entries(): array
             ['file_uuid' => CANNED_ATTACHMENT_FILE_UUID, 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES), 'isImage' => false, 'media_type' => 'text/plain'],
             ['file_uuid' => CANNED_IMAGE_ATTACHMENT_FILE_UUID, 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true)), 'isImage' => true, 'media_type' => 'image/png'],
         ]]], 'line' => 8],
+        // ExitPlanMode - real shape verified live 2026-08-07: its own
+        // 'plan' block kind (not a generic tool_use param dump), and the
+        // matching tool_result carries plan_status (see TranscriptService::
+        // parse_transcript_line()) rather than the verbose real "## Approved
+        // Plan: ..." boilerplate.
+        ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:35Z', 'blocks' => [['kind' => 'plan', 'text' => "# Refactor the login flow\n\nSome real detail here."]], 'line' => 9],
+        ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:40Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Plan approved - starting work', 'plan_status' => 'approved']], 'line' => 10],
     ];
 }
 
