@@ -3,10 +3,6 @@ says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
 Bigger features needing research first (moderate-high surface area):
 
-- Add notifications for quota getting close to over, quota being over,
-  and quota resetting - probably triggered from the systemd timer app
-  (the same one likely already polling for other periodic app logic;
-  needs a look at what it currently does before adding hooks into it).
 - Recognize plan-mode entries and mode switches for better display on
   session.php, and better push notifications for them. Two related but
   distinct things: (1) when Claude presents a plan (ExitPlanMode), it
@@ -119,3 +115,21 @@ Exploratory / speculative / lower priority:
   in session.js) when there are no entries after it - presumably possible
   in some poll-timing edge case (e.g. the only "new" thing was a blocked-
   prompt/thinking-indicator update, not a real transcript entry).
+- Show quota reset times in Andres's local timezone, and show them on the
+  dashboard too (currently: session.php's compose-bar quota footer shows
+  an absolute reset time via formatAbsolute() in quota-footer.js, added
+  2026-08-04 - worth checking whether that's already rendering in the
+  browser's local timezone via toLocaleTimeString()'s default behavior,
+  or whether it's showing whatever timezone the account/plan's own
+  "resets" text reports (e.g. "8pm (America/Los_Angeles)"), which may not
+  match Andres's actual timezone. Also check whether index.php's
+  dashboard-wide footer - same shared quota-footer.js/#quota-info markup,
+  no session context - already shows this same absolute-time detail or
+  needs its own look).
+- Tweak session.php's transcript layout for desktop (leave mobile
+  exactly as-is - likely a sm:/md: breakpoint split, not a separate
+  template) to better use the page width: wider content, bigger font,
+  and maybe split bubbles left/right by role (user on the right,
+  everything else on the left) like a typical desktop chat UI, instead
+  of the current single-column max-w-2xl layout that reads fine on
+  phones but leaves a lot of unused width on a desktop browser.
