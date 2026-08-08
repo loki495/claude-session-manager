@@ -2,14 +2,23 @@
 # Runs every tests/test_*.php file against isolated fixtures (see
 # tests/.env.testing) and guarantees cleanup of anything they start -
 # tmux sessions, the fake claude process, sidecar files - even if a test
-# fails or the run is interrupted. Usage: bash tests/run.sh [--bail]
-#   --bail  stop at the first failing test file instead of running the rest
+# fails or the run is interrupted. Usage: bash tests/run.sh [--bail] [--cleanup]
+#   --bail     stop at the first failing test file instead of running the rest
+#   --cleanup  don't run tests at all - just sweep any stray test-infra
+#              processes left over from a past run that never got torn down
+#              (e.g. one that was SIGKILLed, skipping every trap below) and
+#              exit. Safe to run any time - it's the same sweep a normal run
+#              already does defensively before starting (see
+#              sweep_stray_processes() below), just without running the
+#              suite afterward.
 set -uo pipefail
 
 bail=0
+cleanup_only=0
 for arg in "$@"; do
     case "$arg" in
         --bail) bail=1 ;;
+        --cleanup) cleanup_only=1 ;;
         *)
             echo "Unknown argument: $arg" >&2
             exit 1
@@ -18,6 +27,24 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Keyed by SCRIPT_DIR (not a single global path) so this only ever blocks a
+# second run of THIS SAME checkout - a different worktree/clone (e.g.
+# claude-session-manager-refactor) has its own tests/.env.testing pointing
+# at its own isolated fixture paths, so running its suite concurrently with
+# this one is genuinely safe, not something to block. Two runs of the SAME
+# checkout are not safe: they'd share the exact same TMUX_SOCKET/
+# SIDECAR_DIR/QUOTA_CACHE_FILE from one tests/.env.testing, and whichever
+# finishes first would tear that state down via its own EXIT trap out from
+# under the one still running. -n (non-blocking) fails fast with a clear
+# message instead of silently hanging behind a run that might itself be
+# stuck.
+LOCK_FILE="/tmp/csm-test-run-$(echo -n "$SCRIPT_DIR" | cksum | cut -d' ' -f1).lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo "REFUSING TO RUN: another tests/run.sh for this same checkout ($SCRIPT_DIR) is already in progress (lock: $LOCK_FILE). Wait for it to finish - running two at once would corrupt each other's isolated tmux/sidecar/quota-cache state." >&2
+    exit 1
+fi
 
 set -a
 # shellcheck source=/dev/null
@@ -46,6 +73,43 @@ if [ "${QUOTA_CACHE_FILE:-}" = "$REAL_QUOTA_CACHE_FILE" ] || [ -z "${QUOTA_CACHE
     echo "REFUSING TO RUN: QUOTA_CACHE_FILE in tests/.env.testing resolves to the real quota cache (or is empty). Aborting before deleting anything." >&2
     exit 1
 fi
+
+# Best-effort sweep of stray processes from a PAST run of this same
+# checkout that never made it to its own EXIT trap (a SIGKILL, a killed
+# terminal, an OOM) - safe to run unconditionally before a normal test run
+# starts (the lock above already guarantees no OTHER legitimate run of this
+# checkout is active right now to accidentally sweep), and also exposed
+# standalone via --cleanup for tidying up without running the suite.
+# Scoped to this checkout's own absolute paths throughout, never a bare
+# process-name pattern, so it can never reach into an unrelated project.
+sweep_stray_processes() {
+    pkill -f "$SCRIPT_DIR/lib/socket_harness.php" >/dev/null 2>&1 || true
+    pkill -f "$SCRIPT_DIR/fixtures/fake_claude" >/dev/null 2>&1 || true
+    pkill -f "$SCRIPT_DIR/../host-agent/quota_refresh.php" >/dev/null 2>&1 || true
+
+    if [ -n "${TMUX_SOCKET:-}" ] && [ "$TMUX_SOCKET" != "$REAL_TMUX_SOCKET" ]; then
+        tmux -S "$TMUX_SOCKET" kill-server >/dev/null 2>&1 || true
+    fi
+}
+
+if [ "$cleanup_only" -eq 1 ]; then
+    echo "Sweeping stray test-infrastructure processes for this checkout ($SCRIPT_DIR)..."
+    sweep_stray_processes
+
+    if [ -n "${SIDECAR_DIR:-}" ] && [ "$SIDECAR_DIR" != "$REAL_SIDECAR_DIR" ]; then
+        rm -rf "$SIDECAR_DIR"
+    fi
+
+    if [ -n "${QUOTA_CACHE_FILE:-}" ] && [ "$QUOTA_CACHE_FILE" != "$REAL_QUOTA_CACHE_FILE" ]; then
+        rm -rf "$(dirname "$QUOTA_CACHE_FILE")"
+    fi
+
+    rm -rf "$(dirname "$TMUX_SOCKET")"
+    echo "Done."
+    exit 0
+fi
+
+sweep_stray_processes
 
 cleanup() {
     # Guard repeated here (not just above) so cleanup() is safe to call
