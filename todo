@@ -1,8 +1,21 @@
 Work queue (in this order, per Andres - new items get appended at the end unless he
-says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
+says otherwise). Reordered 2026-08-08 by gain/effort/surface-area/code-practice -
+see the note above each moved/merged item for what changed and why.
 
-Bigger features needing research first (moderate-high surface area):
+Bugs / correctness issues (real user-facing breakage, investigate before fixing):
 
+- Investigate: Andres reports messages he typed sometimes disappear from
+  session.php after navigating to another page and back to the session.
+  Repro detail from Andres (2026-08-08): a message sent while Claude is
+  mid-turn renders dimmed client-side, presumably meaning session.js knows
+  it hasn't been confirmed/accepted yet. If he navigates to the dashboard
+  or another session and comes back before it's actually delivered, the
+  message is gone - lost, not just visually stale. Need to: keep the
+  pending/dimmed message client-side (or re-derive it) across a navigation
+  away and back, and make sure it's actually retried/delivered rather than
+  silently dropped, and that it eventually shows up in the real
+  transcript once accepted. (Promoted to the top 2026-08-08 - real data
+  loss, not just a display glitch, moderate effort.)
 - Quota-reset push notification (shipped 2026-08-06) fired hours late in
   practice - not near the real reset time, only right after Andres sent
   a message to a session hours later. Needs research before deciding
@@ -25,7 +38,17 @@ Bigger features needing research first (moderate-high surface area):
   need its own independent, more eager refresh path rather than sharing
   quota.php's on-demand-refresh-when-a-browser-asks model built for a
   human staring at a page, not a background timer that wants to catch a
-  reset within seconds of it actually happening.
+  reset within seconds of it actually happening. (Merged 2026-08-08 with
+  a separate item Andres logged the same day - "quota seems to still be
+  using the old script instead of pulling from the tmux pane" - same
+  root cause: quota_from_live_pane() genuinely does come first in
+  get_quota(), but it only has data right after real API activity, so
+  any quiet stretch falls straight to the cache/scrape path Andres was
+  seeing. Confirmed by reading QuotaService::get_quota()/
+  quota_from_live_pane() directly, not just re-asserted.)
+
+Bigger features needing research first (moderate-high surface area):
+
 - Mode CHANGES (accept edits / plan / manual / auto) aren't currently
   visible as discrete events in the transcript at all -
   render_mode_toggle_html() only shows the CURRENT mode, there's no
@@ -46,17 +69,17 @@ Bigger features needing research first (moderate-high surface area):
   Worth deciding: full bidirectional support, or a smaller scope (e.g.
   only ever detected going forward from whenever a session was first
   opened, never backfilled into older history)?
-- Investigate: Andres reports messages he typed sometimes disappear from
-  session.php after navigating to another page and back to the session.
-  Repro detail from Andres (2026-08-08): a message sent while Claude is
-  mid-turn renders dimmed client-side, presumably meaning session.js knows
-  it hasn't been confirmed/accepted yet. If he navigates to the dashboard
-  or another session and comes back before it's actually delivered, the
-  message is gone - lost, not just visually stale. Need to: keep the
-  pending/dimmed message client-side (or re-derive it) across a navigation
-  away and back, and make sure it's actually retried/delivered rather than
-  silently dropped, and that it eventually shows up in the real
-  transcript once accepted.
+
+- Investigate: Andres reports a regression where pressing Enter while
+  composing a message (at least on mobile) sends it immediately instead
+  of inserting a newline - the opposite of this app's own deliberate
+  convention (plain Enter = newline, Shift+Enter = submit, see
+  session.js's composeTextarea keydown handler - chosen because
+  multi-line pastes/logs are common enough that submit-on-Enter kept
+  firing mid-paste). Check every textarea (compose bar, any others) for
+  where this might be happening and whether it's scoped to certain
+  conditions (mobile keyboard "Go"/"Send" IME action triggering a
+  different code path than a real Enter keydown, maybe).
 
 Larger architecture / consolidation work (bigger surface area):
 
@@ -95,8 +118,59 @@ Larger architecture / consolidation work (bigger surface area):
   hook firing order/latency against a real session before building on an
   assumption about it, same as this finding).
 
+session.php transcript-rendering pass (three related items, same
+templates/rendering code - Andres's own framing 2026-08-08, worth
+scoping as one cohesive pass rather than three separate ones touching
+BlockedPromptView/TranscriptView repeatedly):
+
+- Tweak transcript entries to look more like the Claude app: user
+  messages in bubbles; Claude's own messages free-flowing with no
+  border/background; prompts and permissions stay boxed with their
+  options, as today; subagents, plans, and tools can probably stay as
+  they are now - boxed summary plus the existing expand/collapse
+  toggles.
+- A blocked prompt's context longer than a short "Do you want to
+  proceed?"-style question (e.g. a real Bash command, a multi-line
+  diff/explanation) should render as its own separate entry in the
+  history, not inline inside the blocked-prompt card where it's harder to
+  read. Today prompt_context always renders inline via the same
+  render_collapsible_block() used for tool_use/tool_result blocks (see
+  BlockedPromptView::blocked_prompt_rich_html(), ~line 169) - a collapsed
+  one-liner inside the amber blocked-prompt card itself, never a
+  standalone card in the transcript flow the way a real tool_use entry
+  does. Needs a decision before implementing: the exact length/complexity
+  threshold for "longer than a short question" (compare to
+  collapsible_summary()'s existing TOOL_USE_SUMMARY_LINE_MAX=80 precedent
+  - could reuse that same cutoff, or need its own), and what "its own
+  entry" should actually look like (a real history-list entry styled like
+  a tool_use block, vs. just a bigger/less-cramped card still inside the
+  blocked-prompt section).
+- A middle ground for tool calls/outputs between fully shown (spammy) and
+  fully hidden (Andres loses enough context to trust generic narration
+  like "as expected" / "the mistake was..." without seeing what was
+  actually checked). Andres's own framing: "consider adding tool usage
+  summaries when hidden, or a skill to enable better responses to tool
+  outputs." Specific to this app's session pages (the existing "Show tool
+  outputs" toggle - BlockedPromptView::render_collapsible_block()), not a
+  general Claude Code behavior change.
+
+Smaller polish (low effort, low risk):
+
+- session.php: don't show the "new content" divider bar (markNewContent()
+  in session.js) when there are no entries after it - presumably possible
+  in some poll-timing edge case (e.g. the only "new" thing was a blocked-
+  prompt/thinking-indicator update, not a real transcript entry).
+- Add copy-to-clipboard icons to transcript entries and inner
+  code/scrollable sections (e.g. the collapsible tool_use/tool_result
+  blocks - BlockedPromptView::render_collapsible_block()/its session.js
+  mirror) - copying currently means selecting text by hand.
+
 Exploratory / speculative / lower priority:
 
+- A search function to search within the contents of all sessions (from
+  the dashboard), and within a single session (from the session sidebar) -
+  broader than the plain name/title filter field the archived list
+  already has.
 - Research: investigate whether subagent calls (Agent/Task tool invocations) are
   retrievable from a session's own JSONL transcript, or only exist in a separate
   sub-transcript file - and more generally, survey what other info sits in these
@@ -138,57 +212,9 @@ Exploratory / speculative / lower priority:
     echo "Success! Process $PID moved to tmux session: $SESSION_NAME"
     sleep 1
     exec tmux attach-session -t "$SESSION_NAME"
+- session.php sidebar: show the handoff/plan files (e.g. plan docs, handoff
+  prompts) sitting in the session's own cwd - not session-specific data,
+  just a directory listing/glance, but useful for spotting stale ones
+  worth cleaning up (still a manual delete, not automated).
 - Future end-user/contributor separation concerns: remove hardcoded paths,
   README is out of date/too long (split into files if necessary).
-- session.php: don't show the "new content" divider bar (markNewContent()
-  in session.js) when there are no entries after it - presumably possible
-  in some poll-timing edge case (e.g. the only "new" thing was a blocked-
-  prompt/thinking-indicator update, not a real transcript entry).
-- Add copy-to-clipboard icons to transcript entries and inner
-  code/scrollable sections (e.g. the collapsible tool_use/tool_result
-  blocks - BlockedPromptView::render_collapsible_block()/its session.js
-  mirror) - copying currently means selecting text by hand.
-- When listing the "old / archived" sessions (unify-claude-sessions plan,
-  phase 4), sort by how long ago it was killed / the last message in
-  either direction was sent, most recent at the top.
-- A search function to search within the contents of all sessions (from
-  the dashboard), and within a single session (from the session sidebar) -
-  broader than the plain name/title filter field phase 4 already plans for
-  the archived list.
-- session.php: a middle ground for tool calls/outputs between fully shown
-  (spammy) and fully hidden (Andres loses enough context to trust generic
-  narration like "as expected" / "the mistake was..." without seeing what
-  was actually checked). Andres's own framing (2026-08-08): "consider
-  adding tool usage summaries when hidden, or a skill to enable better
-  responses to tool outputs." Specific to this app's session pages (the
-  existing "Show tool outputs" toggle - BlockedPromptView::
-  render_collapsible_block()), not a general Claude Code behavior change.
-- session.php: a blocked prompt's context longer than a short "Do you want
-  to proceed?"-style question (e.g. a real Bash command, a multi-line
-  diff/explanation) should render as its own separate entry in the
-  history, not inline inside the blocked-prompt card where it's harder to
-  read (Andres's framing, 2026-08-08). Today prompt_context always renders
-  inline via the same render_collapsible_block() used for tool_use/
-  tool_result blocks (see BlockedPromptView::blocked_prompt_rich_html(),
-  ~line 169) - a collapsed one-liner inside the amber blocked-prompt card
-  itself, never a standalone card in the transcript flow the way a real
-  tool_use entry does. Needs a decision before implementing: the exact
-  length/complexity threshold for "longer than a short question" (compare
-  to collapsible_summary()'s existing TOOL_USE_SUMMARY_LINE_MAX=80
-  precedent - could reuse that same cutoff, or need its own), and what
-  "its own entry" should actually look like (a real history-list entry
-  styled like a tool_use block, vs. just a bigger/less-cramped card still
-  inside the blocked-prompt section).
-- Quota-refreshing may still be using the old scrape/cache script instead
-  of just pulling from the live tmux pane's own status line
-  (QuotaService::quota_from_live_pane() - see the item above about the
-  quota-reset push notification for the related fallback/caching path).
-  Andres noticed this live 2026-08-08 - needs investigation into why the
-  live-pane path isn't winning when it should be.
-- session.php: tweak transcript entries to look more like the Claude app
-  (Andres, 2026-08-08): user messages in bubbles; Claude's own messages
-  free-flowing with no border/background; prompts and permissions stay
-  boxed with their options, as today (see the item above about a blocked
-  prompt's own context becoming its own entry - related); subagents,
-  plans, and tools can probably stay as they are now - boxed summary plus
-  the existing expand/collapse toggles.
