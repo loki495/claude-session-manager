@@ -281,6 +281,37 @@ try {
     );
     assert_contains('demo-project', $result['body'], 'GET /session.php: canned workdir shown');
     assert_contains('Looking into it now.', $result['body'], 'GET /session.php: canned history entry rendered');
+
+    // --- desktop-only (lg:) layout: wider content column, bigger text,
+    // and user messages aligned right vs everything else left (typical
+    // desktop chat UI) - mobile is untouched (no breakpoint prefix means
+    // no change at the default/mobile size at all). ---
+    assert_true(
+        preg_match('/id="page-content" class="[^"]*\bmax-w-2xl lg:max-w-4xl\b/', $result['body']) === 1,
+        'GET /session.php: the main content column widens on desktop (lg:max-w-4xl) but keeps the mobile max-w-2xl as the base'
+    );
+    assert_true(
+        preg_match('/<header[^>]*>\s*<div class="[^"]*\bmax-w-2xl lg:max-w-4xl\b/', $result['body']) === 1,
+        'GET /session.php: the sticky header widens to match the content column on desktop'
+    );
+    assert_true(
+        preg_match('/id="compose-bar"[^>]*>\s*<div class="[^"]*\bmax-w-2xl lg:max-w-4xl\b/', $result['body']) === 1,
+        'GET /session.php: the compose bar widens to match the content column on desktop too, so it stays visually aligned with the transcript above it'
+    );
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Fix the login redirect bug/s', $result['body'], $userEntryMatch) === 1
+            && str_contains($userEntryMatch[1], 'lg:self-end') && str_contains($userEntryMatch[1], 'lg:max-w-[75%]'),
+        'GET /session.php: a real user-typed entry aligns right on desktop (lg:self-end), capped to 75% width so alignment reads as a real chat bubble, not a full-width block'
+    );
+    assert_true(
+        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Looking into it now\./s', $result['body'], $assistantEntryMatch) === 1
+            && str_contains($assistantEntryMatch[1], 'lg:self-start'),
+        'GET /session.php: a non-user (assistant) entry aligns left on desktop (lg:self-start), opposite of a user message'
+    );
+    assert_true(
+        preg_match('/<p class="[^"]*\btext-sm lg:text-base\b[^"]*">Looking into it now\./', $result['body']) === 1,
+        'GET /session.php: conversational text bumps to a bigger font on desktop (lg:text-base), not just the mobile text-sm'
+    );
     assert_true(
         preg_match('/<p class="whitespace-pre-wrap break-words[^"]*">\s*Looking into it now\./', $result['body']) === 1,
         'GET /session.php: text blocks get break-words, not just whitespace-pre-wrap - otherwise a long unbroken token (found live: a 51-char FILTER_FLAG_... constant name) widens the whole page horizontally instead of wrapping'

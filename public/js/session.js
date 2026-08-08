@@ -768,9 +768,9 @@
     // page horizontally instead of wrapping.
     switch (block.kind) {
       case 'text':
-        return '<p class="whitespace-pre-wrap break-words text-sm text-slate-100">' + text + '</p>';
+        return '<p class="whitespace-pre-wrap break-words text-sm lg:text-base text-slate-100">' + text + '</p>';
       case 'plan':
-        return '<div class="rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2"><p class="whitespace-pre-wrap break-words text-sm text-amber-100">' + text + '</p></div>';
+        return '<div class="rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2"><p class="whitespace-pre-wrap break-words text-sm lg:text-base text-amber-100">' + text + '</p></div>';
       case 'tool_use':
         // Collapsed by default regardless of the show/hide-tool-details
         // toggle - it used to force-open when details were hidden (on the
@@ -901,8 +901,15 @@
       }
     }
 
+    // Desktop-only (lg:) - a real user-typed message aligns right,
+    // everything else aligns left, typical desktop chat UI convention.
+    // Mobile is untouched (single column, unchanged) - see
+    // TranscriptView::render_transcript_entry() (PHP) for the SSR
+    // counterpart of this same rule.
+    var alignClass = colorKind === 'user' ? 'lg:self-end' : 'lg:self-start';
+
     var div = document.createElement('div');
-    div.className = 'rounded-lg border ' + colors.border + ' ' + colors.bg + ' px-3 py-2' + extraClass;
+    div.className = 'rounded-lg border ' + colors.border + ' ' + colors.bg + ' px-3 py-2' + extraClass + ' lg:max-w-[75%] ' + alignClass;
     div.innerHTML = '<div class="select-none mb-1 flex items-center gap-2 text-xs text-slate-500">'
       + '<span class="font-medium ' + colors.label + '">' + roleLabel + '</span>'
       + (timestamp ? '<span>' + timestamp + '</span>' : '')

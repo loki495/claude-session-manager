@@ -7,7 +7,7 @@ use App\Views\TranscriptView;
 if ($found): ?>
   <?php $composeBlocked = !empty($detail['blocked_reason']); ?>
   <div id="compose-bar" class="select-none fixed bottom-0 inset-x-0 z-20 bg-slate-950/95 backdrop-blur border-t border-slate-800 px-4 py-3">
-    <div class="max-w-2xl mx-auto">
+    <div class="max-w-2xl lg:max-w-4xl mx-auto">
       <div id="compose-input-row" class="<?= $composeBlocked ? 'hidden' : '' ?>">
         <div id="compose-attachments-preview" class="hidden flex flex-wrap gap-2 mb-2"></div>
         <div class="flex items-stretch gap-2">

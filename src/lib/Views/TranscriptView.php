@@ -366,6 +366,12 @@ class TranscriptView extends View
             'roleLabel' => $roleLabel,
             'timestamp' => $timestamp,
             'blocksHtml' => $blocksHtml,
+            // Desktop-only (see transcript/entry.php's own lg: classes) -
+            // a real user-typed message aligns right, everything else
+            // (assistant, tool calls/output, subagent, plan) aligns left,
+            // typical desktop chat UI convention. Mobile is untouched
+            // (single column, unchanged) - this only ever adds lg: classes.
+            'isUserEntry' => $colorKind === 'user',
         ]);
     }
 }
