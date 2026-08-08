@@ -77,6 +77,10 @@ try {
     assert_equal(200, $result['status'], 'GET /: 200');
     assert_contains('Claude Session Manager', $result['body'], 'GET /: page title present');
     assert_contains('2 active', $result['body'], 'GET /: session count from canned agent');
+    assert_true(
+        preg_match('/<body class="[^"]*\boverscroll-none\b/', $result['body']) === 1,
+        'GET /: body has overscroll-none, so the whole page never rubber-bands/bounces past its own top/bottom (found live: this app had no overscroll-behavior anywhere, reading as a plain webpage rather than a tight, native-app-like one)'
+    );
     assert_contains('Fix the login redirect bug', $result['body'], 'GET /: canned pane title shown as the primary label');
     assert_contains('cc-20260101-1200', $result['body'], 'GET /: raw session name still shown (secondary, since a title is present)');
     assert_contains('demo-project', $result['body'], 'GET /: canned workdir rendered');
@@ -457,6 +461,10 @@ try {
     );
 
     assert_contains('id="sidebar-list"', $result['body'], 'GET /session.php: sidebar (other sessions) drawer present');
+    assert_true(
+        preg_match('/id="sidebar"[^>]*class="[^"]*\boverscroll-contain\b/s', $result['body']) === 1,
+        'GET /session.php: the sidebar drawer has overscroll-contain, so scrolling to its end does not scroll-chain into the page behind it'
+    );
     assert_true(
         preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="kill">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="session" value="cc-20260101-1200">\s*<button type="submit"[^>]*>\s*Close session#', $result['body']) === 1,
         'GET /session.php: sidebar has a "Close session" action that kills THIS session'

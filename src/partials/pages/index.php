@@ -71,7 +71,7 @@ $this->layout('layout', [
       <div class="text-sm text-slate-300">Working directory</div>
       <div class="rounded-lg border border-slate-700 bg-slate-800 overflow-hidden">
         <div id="browser_path" class="px-3 py-2 text-xs font-mono text-slate-400 truncate border-b border-slate-700">Loading&hellip;</div>
-        <ul id="browser_list" class="max-h-56 overflow-y-auto divide-y divide-slate-700/60 text-sm"></ul>
+        <ul id="browser_list" class="max-h-56 overflow-y-auto overscroll-contain divide-y divide-slate-700/60 text-sm"></ul>
       </div>
       <button type="submit" id="new-session-submit" disabled
         class="min-h-[3rem] rounded-lg bg-indigo-600 active:bg-indigo-700 disabled:opacity-50 disabled:active:bg-indigo-600 font-medium text-base px-4 py-3">

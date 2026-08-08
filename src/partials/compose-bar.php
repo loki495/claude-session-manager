@@ -17,7 +17,7 @@ if ($found): ?>
           </button>
           <input type="file" id="compose-file-input" class="hidden" multiple>
           <textarea id="compose-textarea" rows="1" placeholder="Message&hellip;"
-            class="flex-1 resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 px-3 py-2 max-h-32 overflow-y-auto focus:outline-none focus:border-slate-500"></textarea>
+            class="flex-1 resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 px-3 py-2 max-h-32 overflow-y-auto overscroll-contain focus:outline-none focus:border-slate-500"></textarea>
           <button type="button" id="compose-send-btn" disabled
             class="min-h-[2.75rem] shrink-0 rounded-lg bg-indigo-600 active:bg-indigo-700 disabled:opacity-50 disabled:active:bg-indigo-600 font-medium text-sm px-4 py-2">
             Send

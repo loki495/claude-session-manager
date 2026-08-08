@@ -20,7 +20,7 @@
     <div class="select-none text-xs text-slate-400 mt-1 flex items-center gap-2"><span><?= $this->e($relativeTime) ?></span><span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span><?= $attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>' ?></div>
     <div class="relative mt-1">
       <button type="button" class="select-none show-recent-btn rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5" data-session="<?= $this->e($name) ?>" data-loaded="0">Show last 3 messages</button>
-      <div class="recent-messages hidden mt-1 flex flex-col gap-1 max-h-64 overflow-y-auto"></div>
+      <div class="recent-messages hidden mt-1 flex flex-col gap-1 max-h-64 overflow-y-auto overscroll-contain"></div>
     </div>
     <div class="relative"><?= $blockedHtml ?></div>
   </div>

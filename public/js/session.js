@@ -706,7 +706,7 @@
 
     return '<details' + (forceOpen ? ' open' : '') + ' class="rounded border ' + borderClass + ' bg-slate-950/60">'
       + '<summary class="block w-full text-left cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' + textClass + '">' + prefix + summaryHtml + '</summary>'
-      + '<pre class="whitespace-pre overflow-auto max-h-64 px-2 pb-1.5 text-xs ' + textClass + '">' + full + '</pre>'
+      + '<pre class="whitespace-pre overflow-auto overscroll-contain max-h-64 px-2 pb-1.5 text-xs ' + textClass + '">' + full + '</pre>'
       + '<button type="button" class="expand-fullscreen-btn select-none block w-full text-center text-[11px] text-slate-500 active:text-slate-300 border-t border-slate-800 py-1">View full screen</button>'
       + '</details>';
   }
