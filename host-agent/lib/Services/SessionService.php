@@ -126,7 +126,15 @@ class SessionService
         $claudeProcs = ProcessInspector::find_claude_processes();
         $ppidMap = ProcessInspector::build_ppid_map();
 
-        SidecarStore::prune_orphaned_sidecars(array_column($tmuxSessions, 'name'));
+        // Must include every real tmux session on the box, not just cc-*
+        // ones - an adopted (non-cc-*) sidecar would otherwise get pruned as
+        // an "orphan" on the very next dashboard load, undoing session_start
+        // hook's work within moments. all_tmux_panes() already enumerates
+        // every session/pane regardless of name, so reuse the one call below
+        // rather than issuing a second tmux query.
+        $allPanes = TmuxService::all_tmux_panes();
+        $liveSessionNames = array_values(array_unique(array_column($allPanes, 'session')));
+        SidecarStore::prune_orphaned_sidecars($liveSessionNames);
 
         $trackedPids = [];
         $sessions = [];
@@ -143,7 +151,6 @@ class SessionService
 
         usort($sessions, fn(array $a, array $b) => $b['activity'] <=> $a['activity']);
 
-        $allPanes = TmuxService::all_tmux_panes();
         $bare = [];
 
         foreach ($claudeProcs as $proc) {

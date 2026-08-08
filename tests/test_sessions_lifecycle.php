@@ -19,6 +19,7 @@ use HostAgent\Services\PromptParser;
 use HostAgent\Services\QuotaService;
 use HostAgent\Services\SessionService;
 use HostAgent\Services\TmuxService;
+use HostAgent\Stores\SidecarStore;
 
 const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
 
@@ -468,6 +469,16 @@ try {
     assert_true($adhocEntry !== null, "list: ad-hoc tmux session's claude process appears in bare[]");
     assert_equal($adhocName, $adhocEntry['tmux_session'] ?? null, 'list: bare process inside a non-cc-* tmux session reports that session name');
     assert_equal('Adhoc bare title', $adhocEntry['title'] ?? null, 'list: bare process picks up its tmux pane title');
+
+    // --- regression: an adopted sidecar keyed off a real, non-cc-*-named
+    // tmux session must survive list_all_sessions()'s own orphan-pruning
+    // pass. prune_orphaned_sidecars() used to only be told about cc-*
+    // names, so an adopted session's sidecar was deleted as a false
+    // "orphan" on the very next dashboard load (see host-agent/hooks/
+    // session_start.php's adoption path in commit 9462e25) ---
+    SidecarStore::write_sidecar($adhocName, ['workdir' => $adhocCwd, 'spawned_at' => time()]);
+    SessionService::list_all_sessions();
+    assert_true(SidecarStore::read_sidecar($adhocName) !== null, 'list_all_sessions: an adopted sidecar for a live non-cc-* tmux session is not pruned as an orphan');
 
     $adhocPid = $adhocEntry['pid'] ?? null;
     $killResult = $adhocPid !== null ? SessionService::kill_bare_process($adhocPid) : ['ok' => false];
