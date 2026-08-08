@@ -28,12 +28,26 @@ function dispatch_action(array $request): array
         case 'list':
             return ['ok' => true] + SessionService::list_all_sessions();
 
+        case 'list_archived':
+            return ['ok' => true] + SessionService::list_archived_dashboard();
+
         case 'session_detail':
             return SessionService::session_detail((string)($request['session'] ?? ''));
+
+        case 'archived_session_detail':
+            return SessionService::archived_session_detail((string)($request['claude_session_id'] ?? ''));
 
         case 'session_history':
             return SessionService::session_history(
                 (string)($request['session'] ?? ''),
+                isset($request['before']) ? (int)$request['before'] : null,
+                isset($request['limit']) ? (int)$request['limit'] : 30,
+                isset($request['after']) ? (int)$request['after'] : null
+            );
+
+        case 'archived_session_history':
+            return SessionService::archived_session_history(
+                (string)($request['claude_session_id'] ?? ''),
                 isset($request['before']) ? (int)$request['before'] : null,
                 isset($request['limit']) ? (int)$request['limit'] : 30,
                 isset($request['after']) ? (int)$request['after'] : null

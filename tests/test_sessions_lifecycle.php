@@ -346,6 +346,41 @@ try {
     $noSidecarHistory = SessionService::session_history('cc-not-a-real-session', null, 10);
     assert_equal(false, $noSidecarHistory['ok'] ?? null, 'session_history: ok=false for a session with no sidecar at all');
 
+    // --- SessionService::list_archived_dashboard(): excludes whatever's
+    // currently tracked (this live session's own claude_session_id),
+    // leaving only genuinely dormant transcripts. Real transcript files
+    // are needed for this (fake_claude never writes one), so HOME_ROOT is
+    // pointed at an isolated fixture dir just for this block - same
+    // pattern as test_transcript.php's fakeHome, restored right after. ---
+    $archivedFakeHome = sys_get_temp_dir() . '/csm-test-archived-dashboard-home-' . getmypid();
+    $liveClaudeSessionId = $session['claude_session_id'] ?? null;
+    $archivedUuid = '33333333-3333-4333-8333-333333333333';
+    @mkdir($archivedFakeHome . '/.claude/projects/-tracked-project', 0700, true);
+    @mkdir($archivedFakeHome . '/.claude/projects/-archived-project', 0700, true);
+    file_put_contents(
+        $archivedFakeHome . '/.claude/projects/-tracked-project/' . $liveClaudeSessionId . '.jsonl',
+        '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"cwd":"/some/tracked/path"}' . "\n"
+    );
+    file_put_contents(
+        $archivedFakeHome . '/.claude/projects/-archived-project/' . $archivedUuid . '.jsonl',
+        '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"cwd":"/some/archived/path"}' . "\n"
+    );
+    putenv("HOME_ROOT={$archivedFakeHome}");
+
+    $dashboardArchived = SessionService::list_archived_dashboard()['archived'] ?? [];
+    $archivedIds = array_column($dashboardArchived, 'claude_session_id');
+    assert_true(!in_array($liveClaudeSessionId, $archivedIds, true), 'list_archived_dashboard: the currently-tracked (live) session is excluded');
+    assert_true(in_array($archivedUuid, $archivedIds, true), 'list_archived_dashboard: a genuinely dormant transcript is included');
+
+    @unlink($archivedFakeHome . '/.claude/projects/-tracked-project/' . $liveClaudeSessionId . '.jsonl');
+    @unlink($archivedFakeHome . '/.claude/projects/-archived-project/' . $archivedUuid . '.jsonl');
+    @rmdir($archivedFakeHome . '/.claude/projects/-tracked-project');
+    @rmdir($archivedFakeHome . '/.claude/projects/-archived-project');
+    @rmdir($archivedFakeHome . '/.claude/projects');
+    @rmdir($archivedFakeHome . '/.claude');
+    @rmdir($archivedFakeHome);
+    putenv('HOME_ROOT');
+
     // --- reject kill of a name that isn't currently active ---
     $result = SessionService::kill_cc_session('cc-not-a-real-session');
     assert_equal(false, $result['ok'] ?? null, 'kill: rejects a name not in the live whitelist');

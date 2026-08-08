@@ -30,26 +30,22 @@ class SessionService
     public const TMUX_KEY_STEP_DELAY_USEC = 300000;
 
     /**
-     * The fallback cascade behind build_session_entry()'s title field: the
-     * transcript's own ai-title first (see TranscriptService::
-     * find_latest_ai_title()), since it needs no live pane at all and works
-     * the same for a dormant session as a live one - the unify-claude-
-     * sessions plan's "minimize tmux reliance" goal made concrete. Falls
-     * back, in order, to today's live-pane-title scrape, the working
-     * directory's basename, and finally the raw session name - the one
-     * source that's always available. Mirrors NotificationContentBuilder::
-     * push_notification_title()'s own cascade for the same reason: a title
-     * should never come back blank.
+     * The shared fallback cascade behind every session title this app
+     * shows, live or dormant: the transcript's own ai-title first (see
+     * TranscriptService::find_latest_ai_title()), since it needs no live
+     * pane at all and works the same for a dormant session as a live one -
+     * the unify-claude-sessions plan's "minimize tmux reliance" goal made
+     * concrete. Falls back, in order, to a live-pane-title scrape (only
+     * ever non-null for a currently-live session - see session_title()
+     * below), the working directory's basename, and finally the raw
+     * session name/id - the one source that's always available. Mirrors
+     * NotificationContentBuilder::push_notification_title()'s own cascade
+     * for the same reason: a title should never come back blank.
      */
-    public static function session_title(?string $claudeSessionId, ?string $livePaneTitle, ?string $workdir, string $name): string
+    public static function title_cascade(?string $aiTitle, ?string $livePaneTitle, ?string $workdir, string $fallbackName): string
     {
-        if ($claudeSessionId !== null) {
-            $transcriptPath = TranscriptService::find_transcript_path($claudeSessionId);
-            $aiTitle = $transcriptPath !== null ? TranscriptService::find_latest_ai_title($transcriptPath) : null;
-
-            if ($aiTitle !== null) {
-                return $aiTitle;
-            }
+        if ($aiTitle !== null && $aiTitle !== '') {
+            return $aiTitle;
         }
 
         if ($livePaneTitle !== null && $livePaneTitle !== '') {
@@ -60,7 +56,82 @@ class SessionService
             return basename($workdir);
         }
 
-        return $name;
+        return $fallbackName;
+    }
+
+    /**
+     * build_session_entry()'s title field: resolves $claudeSessionId to its
+     * transcript's ai-title (if any), then applies title_cascade() with
+     * today's live-pane-title scrape as the next fallback - the one part of
+     * the cascade that's only ever available for a currently-live session.
+     */
+    public static function session_title(?string $claudeSessionId, ?string $livePaneTitle, ?string $workdir, string $name): string
+    {
+        $transcriptPath = $claudeSessionId !== null ? TranscriptService::find_transcript_path($claudeSessionId) : null;
+        $aiTitle = $transcriptPath !== null ? TranscriptService::find_latest_ai_title($transcriptPath) : null;
+
+        return self::title_cascade($aiTitle, $livePaneTitle, $workdir, $name);
+    }
+
+    /**
+     * Every known transcript NOT in $excludeClaudeSessionIds (the
+     * currently-tracked sessions already shown in the main list) - the
+     * dormant/archived half of the unify-claude-sessions plan's dashboard
+     * segmentation. Sorted most-recently-active first (the file's own
+     * mtime - the simplest available proxy for "last touched" without
+     * re-parsing a potentially huge transcript).
+     *
+     * @param string[] $excludeClaudeSessionIds
+     * @return array<int, array{claude_session_id:string, cwd:?string, title:string, last_activity:int}>
+     */
+    public static function list_archived_sessions(array $excludeClaudeSessionIds): array
+    {
+        $exclude = array_flip($excludeClaudeSessionIds);
+        $archived = [];
+
+        foreach (TranscriptService::list_all_transcripts() as $t) {
+            if (isset($exclude[$t['claude_session_id']])) {
+                continue;
+            }
+
+            $archived[] = [
+                'claude_session_id' => $t['claude_session_id'],
+                'cwd' => $t['cwd'],
+                'title' => self::title_cascade($t['ai_title'], null, $t['cwd'], $t['claude_session_id']),
+                'last_activity' => $t['last_activity'],
+            ];
+        }
+
+        usort($archived, fn(array $a, array $b) => $b['last_activity'] <=> $a['last_activity']);
+
+        return $archived;
+    }
+
+    /**
+     * The dispatcher-facing wrapper around list_archived_sessions() - an
+     * on-demand action (only ever called when Andres actually opens the
+     * dashboard's archived-sessions toggle, never part of the regular
+     * poll - see this project's own workflow reminders about being extra
+     * careful with anything periodic vs explicitly user-triggered) that
+     * computes the exclude set itself by re-running list_all_sessions().
+     * That's a second full tracked-session scan on top of whatever poll
+     * already did one moments ago, but it's cheap and only happens once
+     * per toggle-open, not worth threading the caller's already-known
+     * list through an extra request parameter for.
+     *
+     * @return array{archived: array<int, array>}
+     */
+    public static function list_archived_dashboard(): array
+    {
+        $trackedIds = [];
+
+        foreach (self::list_all_sessions()['sessions'] as $s) {
+            if (is_string($s['claude_session_id'] ?? null)) {
+                $trackedIds[] = $s['claude_session_id'];
+            }
+        }
+
+        return ['archived' => self::list_archived_sessions($trackedIds)];
     }
 
     /**
@@ -256,6 +327,34 @@ class SessionService
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];
         }
 
+        return self::transcript_page_for_claude_session($claudeSessionId, $before, $limit, $after);
+    }
+
+    /**
+     * The archived-session-view counterpart to session_history() - same
+     * paging behavior, but reads straight from $claudeSessionId with no
+     * sidecar/tmux-name lookup at all, since a dormant session has neither.
+     * A tracked (live) session's own $claudeSessionId is never accepted
+     * here for this reason on its own - see the note on
+     * archived_session_detail() below, which is what session.php actually
+     * calls first and is where that distinction is enforced.
+     *
+     * @return array{ok:bool, entries?:array<int, array>, next_before?:?int, has_more?:bool, message?:string}
+     */
+    public static function archived_session_history(string $claudeSessionId, ?int $before, int $limit, ?int $after = null): array
+    {
+        return self::transcript_page_for_claude_session($claudeSessionId, $before, $limit, $after);
+    }
+
+    /**
+     * Shared by session_history() (resolves $claudeSessionId via a live
+     * session's sidecar first) and archived_session_history() (already has
+     * it) - both just want a page of a transcript once they know which one.
+     *
+     * @return array{ok:bool, entries?:array<int, array>, next_before?:?int, has_more?:bool, message?:string}
+     */
+    private static function transcript_page_for_claude_session(string $claudeSessionId, ?int $before, int $limit, ?int $after): array
+    {
         $path = TranscriptService::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
@@ -267,6 +366,41 @@ class SessionService
         }
 
         return TranscriptService::read_transcript_page($path, $before, max(1, min($limit, 200)));
+    }
+
+    /**
+     * The archived-session-view counterpart to session_detail() - the
+     * header data (title/cwd/last_activity) for a dormant session's
+     * read-only view, keyed by $claudeSessionId (a dormant session has no
+     * tmux name to look up by). Deliberately does NOT check whether this
+     * id also belongs to a currently-tracked (live) session - the
+     * read-only archived view rendering something for a live session's id
+     * is harmless (it'd just show slightly stale data next to the real,
+     * live view reachable from the main list), and re-deriving "is this
+     * one tracked" here would mean re-running list_all_sessions() on every
+     * single archived-view page load for no real benefit.
+     *
+     * @return array{ok:bool, message?:string, claude_session_id?:string, cwd?:?string, title?:string, last_activity?:?int}
+     */
+    public static function archived_session_detail(string $claudeSessionId): array
+    {
+        $path = TranscriptService::find_transcript_path($claudeSessionId);
+
+        if ($path === null) {
+            return ['ok' => false, 'message' => 'Session not found'];
+        }
+
+        $cwd = TranscriptService::find_first_cwd($path);
+        $aiTitle = TranscriptService::find_latest_ai_title($path);
+        $mtime = @filemtime($path);
+
+        return [
+            'ok' => true,
+            'claude_session_id' => $claudeSessionId,
+            'cwd' => $cwd,
+            'title' => self::title_cascade($aiTitle, null, $cwd, $claudeSessionId),
+            'last_activity' => $mtime !== false ? $mtime : null,
+        ];
     }
 
     /**

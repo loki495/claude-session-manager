@@ -6,9 +6,10 @@ declare(strict_types=1);
  * hand-crafted fixture JSONL (tests/fixtures/transcript_sample.jsonl) - no
  * tmux, no socket, no real ~/.claude/projects involved. See
  * test_sessions_lifecycle.php and test_agent_client_protocol.php for the
- * tmux/socket-backed suites. Also covers SessionService::session_title()
- * at the bottom - its only real dependency is TranscriptService's own
- * transcript-path/ai-title lookups, so it needs no tmux either.
+ * tmux/socket-backed suites. Also covers SessionService::title_cascade()/
+ * session_title()/list_archived_sessions() at the bottom - their only real
+ * dependency is TranscriptService's own transcript-path/ai-title/cwd
+ * lookups, so they need no tmux either.
  */
 
 require __DIR__ . '/lib/assert.php';
@@ -335,6 +336,94 @@ assert_equal(
 assert_equal(null, TranscriptService::find_transcript_path('not-a-uuid'), 'find_transcript_path: rejects a non-UUID-shaped id before touching the filesystem');
 assert_equal(null, TranscriptService::find_transcript_path('00000000-0000-4000-8000-000000000000'), 'find_transcript_path: well-formed but nonexistent UUID -> null');
 
+// --- TranscriptService::find_first_cwd(): reads cwd from the first real
+// message line, NOT the (lossy) encoded project directory name - a
+// leading meta line (no cwd) is skipped for free. ---
+file_put_contents($fakeHome . '/.claude/projects/-some-project/' . $uuid . '.jsonl', implode("\n", [
+    '{"type":"mode","mode":"default"}',
+    '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"cwd":"/home/andres/www/some-project"}',
+]) . "\n");
+assert_equal('/home/andres/www/some-project', TranscriptService::find_first_cwd($fakeHome . '/.claude/projects/-some-project/' . $uuid . '.jsonl'), 'find_first_cwd: skips a leading meta line, finds cwd on the first real message line');
+assert_equal(null, TranscriptService::find_first_cwd('/does/not/exist.jsonl'), 'find_first_cwd: missing file -> null');
+
+$noCwdFile = $fakeHome . '/.claude/projects/-some-project/no-cwd.jsonl';
+file_put_contents($noCwdFile, str_repeat("{\"type\":\"mode\",\"mode\":\"default\"}\n", 30));
+assert_equal(null, TranscriptService::find_first_cwd($noCwdFile), 'find_first_cwd: gives up after FIRST_CWD_SCAN_LINES rather than reading the whole file');
+@unlink($noCwdFile);
+
+// --- TranscriptService::list_all_transcripts(): one entry per known
+// transcript, live or dormant, across every project dir - raw ai_title
+// (nullable), not a cascaded display title (that's SessionService's job). ---
+$uuid2 = '22222222-2222-4222-8222-222222222222';
+@mkdir($fakeHome . '/.claude/projects/-another-project', 0700, true);
+file_put_contents($fakeHome . '/.claude/projects/-another-project/' . $uuid2 . '.jsonl', implode("\n", [
+    '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"cwd":"/home/andres/www/another-project"}',
+    '{"type":"ai-title","aiTitle":"Fix the widget","sessionId":"' . $uuid2 . '"}',
+]) . "\n");
+
+$allTranscripts = TranscriptService::list_all_transcripts();
+assert_equal(2, count($allTranscripts), 'list_all_transcripts: finds one entry per transcript file across every project dir');
+
+$byId = [];
+foreach ($allTranscripts as $t) {
+    $byId[$t['claude_session_id']] = $t;
+}
+
+assert_equal('/home/andres/www/some-project', $byId[$uuid]['cwd'] ?? null, 'list_all_transcripts: cwd read via find_first_cwd()');
+assert_equal(null, $byId[$uuid]['ai_title'], 'list_all_transcripts: no ai-title line -> null, not a placeholder string');
+assert_equal('/home/andres/www/another-project', $byId[$uuid2]['cwd'] ?? null, 'list_all_transcripts: finds the second project dir too');
+assert_equal('Fix the widget', $byId[$uuid2]['ai_title'] ?? null, 'list_all_transcripts: ai_title is the raw value, not yet cascaded');
+assert_true(($byId[$uuid2]['last_activity'] ?? 0) > 0, 'list_all_transcripts: last_activity is the file\'s own mtime');
+
+// --- SessionService::list_archived_sessions(): excludes whatever's
+// currently tracked (already shown in the main list), applies the same
+// title cascade as a live session, sorted most-recently-active first ---
+$archived = SessionService::list_archived_sessions([$uuid2]);
+assert_equal(1, count($archived), 'list_archived_sessions: excludes the given claude_session_id, leaving just the other one');
+assert_equal($uuid, $archived[0]['claude_session_id'] ?? null, 'list_archived_sessions: the non-excluded transcript is the one returned');
+assert_equal('/home/andres/www/some-project', $archived[0]['cwd'] ?? null, 'list_archived_sessions: cwd carried through');
+assert_equal('some-project', $archived[0]['title'] ?? null, 'list_archived_sessions: no ai-title -> falls back to the workdir basename, via the same title_cascade() a live session uses');
+
+$archivedNoExclusions = SessionService::list_archived_sessions([]);
+assert_equal(2, count($archivedNoExclusions), 'list_archived_sessions: an empty exclude list returns every known transcript');
+$withAiTitle = null;
+foreach ($archivedNoExclusions as $a) {
+    if ($a['claude_session_id'] === $uuid2) {
+        $withAiTitle = $a;
+    }
+}
+assert_equal('Fix the widget', $withAiTitle['title'] ?? null, 'list_archived_sessions: a real ai-title is used as the title when present');
+
+touch($fakeHome . '/.claude/projects/-some-project/' . $uuid . '.jsonl', time() - 1000);
+touch($fakeHome . '/.claude/projects/-another-project/' . $uuid2 . '.jsonl', time());
+$sortedArchived = SessionService::list_archived_sessions([]);
+assert_equal([$uuid2, $uuid], array_column($sortedArchived, 'claude_session_id'), 'list_archived_sessions: sorted most-recently-active (mtime) first');
+
+// --- SessionService::archived_session_detail()/archived_session_history():
+// the read-only archived-session view's own data sources - keyed straight
+// by claude_session_id, no sidecar/tmux-name lookup at all (a dormant
+// session has neither). ---
+$archivedDetail = SessionService::archived_session_detail($uuid2);
+assert_true($archivedDetail['ok'] ?? false, 'archived_session_detail: ok=true for a known transcript');
+assert_equal($uuid2, $archivedDetail['claude_session_id'] ?? null, 'archived_session_detail: echoes the claude_session_id back');
+assert_equal('/home/andres/www/another-project', $archivedDetail['cwd'] ?? null, 'archived_session_detail: cwd via find_first_cwd()');
+assert_equal('Fix the widget', $archivedDetail['title'] ?? null, 'archived_session_detail: title via the ai-title, same cascade as a live session');
+assert_true(($archivedDetail['last_activity'] ?? null) !== null, 'archived_session_detail: last_activity is the file\'s own mtime');
+
+$missingArchivedDetail = SessionService::archived_session_detail('00000000-0000-4000-8000-000000000000');
+assert_equal(false, $missingArchivedDetail['ok'] ?? null, 'archived_session_detail: ok=false for a well-formed but unknown id');
+
+$archivedHistory = SessionService::archived_session_history($uuid2, null, 10);
+assert_true($archivedHistory['ok'] ?? false, 'archived_session_history: ok=true for a known transcript');
+assert_equal(1, count($archivedHistory['entries'] ?? []), 'archived_session_history: the one real (non-meta) line comes back');
+assert_equal('hi', $archivedHistory['entries'][0]['blocks'][0]['text'] ?? null, 'archived_session_history: it\'s the real user message');
+
+$missingArchivedHistory = SessionService::archived_session_history('00000000-0000-4000-8000-000000000000', null, 10);
+assert_equal(false, $missingArchivedHistory['ok'] ?? null, 'archived_session_history: ok=false for a well-formed but unknown id');
+
+@unlink($fakeHome . '/.claude/projects/-another-project/' . $uuid2 . '.jsonl');
+@rmdir($fakeHome . '/.claude/projects/-another-project');
+
 @unlink($fakeHome . '/.claude/projects/-some-project/' . $uuid . '.jsonl');
 @rmdir($fakeHome . '/.claude/projects/-some-project');
 @rmdir($fakeHome . '/.claude/projects');
@@ -519,6 +608,15 @@ file_put_contents($aiTitleFixture, '{"type":"ai-title","aiTitle":"Title inside t
 assert_equal('Title inside the window', TranscriptService::find_latest_ai_title($aiTitleFixture), 'find_latest_ai_title: an ai-title within the tail scan window is still found in a file larger than the window');
 
 @unlink($aiTitleFixture);
+
+// --- SessionService::title_cascade(): the pure fallback logic shared by
+// both session_title() (live, below) and list_archived_sessions() (no
+// filesystem access, just the four already-resolved inputs) ---
+assert_equal('ai title', SessionService::title_cascade('ai title', 'pane title', '/some/workdir', 'fallback'), 'title_cascade: ai-title wins over everything else');
+assert_equal('pane title', SessionService::title_cascade(null, 'pane title', '/some/workdir', 'fallback'), 'title_cascade: falls back to the live pane title when there\'s no ai-title');
+assert_equal('workdir', SessionService::title_cascade(null, null, '/some/path/workdir', 'fallback'), 'title_cascade: falls back to the workdir basename next');
+assert_equal('fallback', SessionService::title_cascade(null, null, null, 'fallback'), 'title_cascade: falls back to the raw name as the last resort');
+assert_equal('fallback', SessionService::title_cascade('', '', '', 'fallback'), 'title_cascade: empty strings are treated the same as null, not shown as blank');
 
 // --- SessionService::session_title(): the fallback cascade behind
 // build_session_entry()'s title field - ai-title first, then the live

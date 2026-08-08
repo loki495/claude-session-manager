@@ -52,6 +52,13 @@ class TranscriptService
     // this way without loading a multi-MB file just to read a title.
     public const AI_TITLE_TAIL_SCAN_BYTES = 262144;
 
+    // How many leading lines find_first_cwd() reads before giving up.
+    // Verified live: a real transcript's first "user" message (the first
+    // real, non-meta line) carries `cwd` and shows up by line 3 (mode,
+    // file-history-snapshot, then the real message) - this leaves a wide
+    // margin without risking a read anywhere near the size of a whole file.
+    public const FIRST_CWD_SCAN_LINES = 20;
+
     public static function claude_projects_dir(): string
     {
         return Config::home_root() . '/.claude/projects';
@@ -92,6 +99,79 @@ class TranscriptService
         $matches = glob(self::claude_projects_dir() . '/*/' . $claudeSessionId . '.jsonl') ?: [];
 
         return $matches[0] ?? null;
+    }
+
+    /**
+     * The working directory a transcript's session ran in - read from the
+     * `cwd` field Claude Code stamps on every real message-type JSONL line,
+     * NOT decoded from the encoded project directory name. That decoding is
+     * lossy (verified live: a real directory name like
+     * "-home-andres--claude" is ambiguous - a literal "-" inside a real
+     * path segment and the "/" separator both become "-"), so this is the
+     * only reliable source. Streams the file line-by-line (fgets, not a
+     * full file() read) and stops at the first hit, capped at
+     * FIRST_CWD_SCAN_LINES - cwd shows up within the first few real lines
+     * in practice (verified live: line 3 of a real transcript, after a
+     * leading `mode` and `file-history-snapshot` meta line), so this is a
+     * tiny read regardless of how large the rest of the file grows.
+     */
+    public static function find_first_cwd(string $path): ?string
+    {
+        $handle = @fopen($path, 'rb');
+
+        if ($handle === false) {
+            return null;
+        }
+
+        $cwd = null;
+
+        for ($i = 0; $i < self::FIRST_CWD_SCAN_LINES; $i++) {
+            $line = fgets($handle);
+
+            if ($line === false) {
+                break;
+            }
+
+            $decoded = json_decode($line, true);
+
+            if (is_array($decoded) && is_string($decoded['cwd'] ?? null) && $decoded['cwd'] !== '') {
+                $cwd = $decoded['cwd'];
+                break;
+            }
+        }
+
+        fclose($handle);
+
+        return $cwd;
+    }
+
+    /**
+     * One entry per known transcript under claude_projects_dir(), live or
+     * dormant - the raw data behind the unify-claude-sessions plan's
+     * archived-session list. Deliberately returns the raw ai_title (not a
+     * cascaded display title - that's a display decision, not a transcript-
+     * reading one) so SessionService can apply the exact same title
+     * cascade it already uses for live sessions.
+     *
+     * @return array<int, array{claude_session_id:string, cwd:?string, ai_title:?string, last_activity:int}>
+     */
+    public static function list_all_transcripts(): array
+    {
+        $paths = glob(self::claude_projects_dir() . '/*/*.jsonl') ?: [];
+        $result = [];
+
+        foreach ($paths as $path) {
+            $mtime = @filemtime($path);
+
+            $result[] = [
+                'claude_session_id' => basename($path, '.jsonl'),
+                'cwd' => self::find_first_cwd($path),
+                'ai_title' => self::find_latest_ai_title($path),
+                'last_activity' => $mtime !== false ? $mtime : 0,
+            ];
+        }
+
+        return $result;
     }
 
     /**
