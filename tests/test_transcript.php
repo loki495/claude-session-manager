@@ -499,6 +499,25 @@ assert_equal(null, TranscriptService::find_latest_ai_title('/does/not/exist.json
 file_put_contents($aiTitleFixture, "{\"type\":\"ai-title\",\"aiTitle\":\"\",\"sessionId\":\"abc\"}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n");
 assert_equal(null, TranscriptService::find_latest_ai_title($aiTitleFixture), 'find_latest_ai_title: a blank aiTitle is not treated as a real title');
 
+// --- find_latest_ai_title() only reads the file's TAIL
+// (AI_TITLE_TAIL_SCAN_BYTES), not the whole thing - real transcripts can
+// be tens of MB, and this runs on every dashboard poll. Padding a title
+// beyond that window with filler proves it's genuinely ignored, not just
+// coincidentally not the "latest" by scan order. ---
+$padding = str_repeat('{"type":"user","message":{"role":"user","content":[{"type":"text","text":"filler"}]}}' . "\n", 5000);
+file_put_contents($aiTitleFixture, $padding);
+$outOfWindowTitle = '{"type":"ai-title","aiTitle":"Title before the padding","sessionId":"abc"}' . "\n";
+file_put_contents($aiTitleFixture, $outOfWindowTitle, FILE_APPEND);
+file_put_contents($aiTitleFixture, $padding, FILE_APPEND);
+assert_true(
+    filesize($aiTitleFixture) > TranscriptService::AI_TITLE_TAIL_SCAN_BYTES,
+    'find_latest_ai_title tail-window test setup: fixture is actually larger than the tail scan window'
+);
+assert_equal(null, TranscriptService::find_latest_ai_title($aiTitleFixture), 'find_latest_ai_title: an ai-title outside the tail scan window is not found');
+
+file_put_contents($aiTitleFixture, '{"type":"ai-title","aiTitle":"Title inside the window","sessionId":"abc"}' . "\n", FILE_APPEND);
+assert_equal('Title inside the window', TranscriptService::find_latest_ai_title($aiTitleFixture), 'find_latest_ai_title: an ai-title within the tail scan window is still found in a file larger than the window');
+
 @unlink($aiTitleFixture);
 
 // --- SessionService::session_title(): the fallback cascade behind

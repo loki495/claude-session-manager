@@ -43,6 +43,15 @@ class TranscriptService
     // back out as applied to writing one in.
     public const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 
+    // How much of a transcript's TAIL find_latest_ai_title() reads, rather
+    // than the whole file. Verified live against real transcripts (one
+    // 50MB/~10k-line session): Claude Code re-writes the ai-title line
+    // repeatedly as a conversation goes on (605 occurrences in that one
+    // file, not a one-time thing), always with the current value clustered
+    // within the final ~100 lines - so the true latest is reliably found
+    // this way without loading a multi-MB file just to read a title.
+    public const AI_TITLE_TAIL_SCAN_BYTES = 262144;
+
     public static function claude_projects_dir(): string
     {
         return Config::home_root() . '/.claude/projects';
@@ -542,23 +551,48 @@ class TranscriptService
      * transcript_meta_only_types(). This is the primary session-title
      * source for the unify-claude-sessions plan's "minimize tmux reliance"
      * goal - it works for a dormant session exactly as well as a live one,
-     * unlike today's live-pane-title scrape. Scans the whole file rather
-     * than stopping at the first hit since Claude Code can write more than
-     * one over a long conversation (the title can change) - the LATEST one
-     * wins. Returns null (never a blank string) when none is found, so
-     * callers can fall through their own fallback chain.
+     * unlike today's live-pane-title scrape.
+     *
+     * Only reads the file's last AI_TITLE_TAIL_SCAN_BYTES, not the whole
+     * thing - Claude Code re-writes this line repeatedly over a long
+     * conversation rather than once (the title can change), so the LATEST
+     * one wins, but a full-file scan would mean loading a multi-MB+
+     * transcript into memory on every dashboard poll just to read a title.
+     * See that constant's own comment for the real-transcript evidence this
+     * is based on. A session with no ai-title at all in that window (rare -
+     * would mean nothing was written in a long stretch) just falls through
+     * to null, same as a session with no ai-title anywhere.
      */
     public static function find_latest_ai_title(string $path): ?string
     {
-        $lines = @file($path, FILE_IGNORE_NEW_LINES);
+        $size = @filesize($path);
 
-        if ($lines === false) {
+        if ($size === false || $size === 0) {
+            return null;
+        }
+
+        $handle = @fopen($path, 'rb');
+
+        if ($handle === false) {
+            return null;
+        }
+
+        $tailBytes = min($size, self::AI_TITLE_TAIL_SCAN_BYTES);
+        fseek($handle, -$tailBytes, SEEK_END);
+        $chunk = fread($handle, $tailBytes);
+        fclose($handle);
+
+        if ($chunk === false) {
             return null;
         }
 
         $latest = null;
 
-        foreach ($lines as $line) {
+        // The read may start mid-line when $tailBytes < $size - a truncated
+        // leading fragment simply fails json_decode below and is skipped,
+        // same tolerance the rest of this class already has for malformed
+        // lines (see parse_transcript_line()).
+        foreach (explode("\n", $chunk) as $line) {
             // Cheap short-circuit before paying for a full json_decode, same
             // reasoning as find_exit_plan_mode_tool_use_ids() above.
             if (!str_contains($line, '"ai-title"')) {
