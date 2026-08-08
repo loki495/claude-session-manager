@@ -237,6 +237,46 @@ class QuotaService
         @file_put_contents(Config::quota_cache_file(), json_encode(['quota' => $quota, 'fetched_at' => $fetchedAt]));
     }
 
+    /**
+     * Same heartbeat idea as PushDeliveryService::push_check_status_file()
+     * (its own separate file, same reasoning - a shared file would let
+     * unrelated writers clobber each other) - but for the background
+     * scrape itself rather than a push send. Before this existed, a
+     * failing run_claude_quota() had NO trace anywhere: quota_refresh.php's
+     * own stdio is bound to /dev/null (see trigger_background_quota_refresh()),
+     * so even error_log() there goes nowhere - the cache just sat stale
+     * indefinitely with zero visibility into why, until either it
+     * eventually succeeded or a live session's own pane bypassed the
+     * whole cache path via quota_from_live_pane(). Found live 2026-08-08
+     * chasing a "quota push fired hours late" report - this is what makes
+     * that failure mode visible (see PushHealthService::quota_refresh_check(),
+     * the dashboard's own health box) instead of silent.
+     */
+    public static function quota_refresh_status_file(): string
+    {
+        return Config::csm_config('QUOTA_REFRESH_STATUS_FILE', Config::csm_repo_root() . '/host-agent/state/quota-refresh-status.json');
+    }
+
+    /**
+     * Called by quota_refresh.php after every attempt, success or failure -
+     * see quota_refresh_status_file()'s own doc comment for why this needs
+     * to exist at all.
+     */
+    public static function record_quota_refresh_result(bool $ok, ?string $message = null): void
+    {
+        $dir = dirname(self::quota_refresh_status_file());
+
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0700, true);
+        }
+
+        @file_put_contents(self::quota_refresh_status_file(), json_encode([
+            'checked_at' => time(),
+            'ok' => $ok,
+            'message' => $message,
+        ]));
+    }
+
     public static function quota_refresh_marker_file(): string
     {
         return Config::quota_cache_file() . '.refreshing';

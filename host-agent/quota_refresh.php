@@ -22,4 +22,6 @@ if ($result['ok']) {
     QuotaService::write_quota_cache($result['quota'], time());
 }
 
+QuotaService::record_quota_refresh_result($result['ok'], $result['message'] ?? null);
+
 @unlink(QuotaService::quota_refresh_marker_file());

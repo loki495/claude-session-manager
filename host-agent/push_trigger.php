@@ -35,10 +35,26 @@ if (!PushDeliveryService::push_configured()) {
     exit(0);
 }
 
-$sessions = SessionService::list_all_sessions()['sessions'] ?? [];
-
-PushDeliveryService::check_and_send_pushes($sessions);
+// Each pass wrapped independently - found live 2026-08-08 that an
+// uncaught error partway through list_all_sessions()/check_and_send_pushes()
+// (a real incident: methods referenced mid-edit during unrelated live
+// development elsewhere in this same unsandboxed codebase - see this
+// project's own CLAUDE.md on that risk) took the ENTIRE script down
+// before it ever reached the quota pass below, silently disabling BOTH
+// for as long as the crash persisted. \Throwable, not \Exception - the
+// actual incident was a \Error ("Call to undefined method ..."), which
+// \Exception alone would not have caught.
+try {
+    $sessions = SessionService::list_all_sessions()['sessions'] ?? [];
+    PushDeliveryService::check_and_send_pushes($sessions);
+} catch (\Throwable $e) {
+    error_log('csm-push-check: session-transition pass crashed - ' . $e->getMessage());
+}
 
 if (Config::csm_config('PUSH_QUOTA_NOTIFICATIONS_ENABLED', '1') === '1') {
-    PushDeliveryService::check_and_send_quota_pushes(QuotaService::get_quota()['quota'] ?? null);
+    try {
+        PushDeliveryService::check_and_send_quota_pushes(QuotaService::get_quota()['quota'] ?? null);
+    } catch (\Throwable $e) {
+        error_log('csm-push-check: quota pass crashed - ' . $e->getMessage());
+    }
 }

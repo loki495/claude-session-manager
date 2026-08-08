@@ -83,6 +83,39 @@ class PushHealthService
     }
 
     /**
+     * Whether the background quota scrape (QuotaService::run_claude_quota(),
+     * launched whenever the cache goes stale - see
+     * trigger_background_quota_refresh()) is actually succeeding - a
+     * distinct concern from push_quota_delivery_check() above, which only
+     * covers whether a push notification SEND succeeded for whatever
+     * quota data it was handed, not whether that data itself is fresh.
+     * Previously invisible entirely - see QuotaService::
+     * quota_refresh_status_file()'s own doc comment for the incident that
+     * prompted this (2026-08-08).
+     *
+     * @return array{key:string, label:string, ok:bool, detail:?string}
+     */
+    public static function quota_refresh_check(): array
+    {
+        $raw = @file_get_contents(QuotaService::quota_refresh_status_file());
+        $status = $raw !== false ? json_decode($raw, true) : null;
+
+        if (!is_array($status) || !is_int($status['checked_at'] ?? null)) {
+            return ['key' => 'quota_refresh', 'label' => 'Quota refresh', 'ok' => true, 'detail' => 'No background refresh has run yet - a live session\'s own pane covers quota until one does'];
+        }
+
+        $ageSeconds = time() - $status['checked_at'];
+
+        if (!($status['ok'] ?? false)) {
+            $message = is_string($status['message'] ?? null) ? $status['message'] : 'unknown reason';
+
+            return ['key' => 'quota_refresh', 'label' => 'Quota refresh', 'ok' => false, 'detail' => "Last attempt {$ageSeconds}s ago failed: {$message}"];
+        }
+
+        return ['key' => 'quota_refresh', 'label' => 'Quota refresh', 'ok' => true, 'detail' => "Last succeeded {$ageSeconds}s ago"];
+    }
+
+    /**
      * "Is everything this app needs actually installed/configured" - one
      * combined check for the dashboard's health box, instead of leaving
      * Andres to discover each missing piece separately (a stale/never-set
@@ -148,6 +181,7 @@ class PushHealthService
 
         $checks[] = self::push_delivery_check();
         $checks[] = self::push_quota_delivery_check();
+        $checks[] = self::quota_refresh_check();
 
         $vendorAutoload = Config::csm_repo_root() . '/vendor/autoload.php';
         $checks[] = [

@@ -18,6 +18,7 @@ use HostAgent\Services\NotificationContentBuilder;
 use HostAgent\Services\PushDeliveryService;
 use HostAgent\Services\PushHealthService;
 use HostAgent\Services\PushTimerService;
+use HostAgent\Services\QuotaService;
 use HostAgent\Stores\PushQuotaStateStore;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
@@ -27,6 +28,7 @@ const REAL_PUSH_STATE_FILE = '/home/andres/www/claude-session-manager/host-agent
 const REAL_PUSH_CHECK_STATUS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-check-status.json';
 const REAL_PUSH_QUOTA_STATE_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-quota-state.json';
 const REAL_PUSH_QUOTA_CHECK_STATUS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/push-quota-check-status.json';
+const REAL_QUOTA_REFRESH_STATUS_FILE = '/home/andres/www/claude-session-manager/host-agent/state/quota-refresh-status.json';
 const REAL_PUSH_TIMER_UNIT_NAME = 'csm-push-check.timer';
 
 $fixtureDir = sys_get_temp_dir() . '/csm-test-push-' . bin2hex(random_bytes(4));
@@ -37,6 +39,7 @@ putenv('PUSH_STATE_FILE=' . $fixtureDir . '/push-session-state.json');
 putenv('PUSH_CHECK_STATUS_FILE=' . $fixtureDir . '/push-check-status.json');
 putenv('PUSH_QUOTA_STATE_FILE=' . $fixtureDir . '/push-quota-state.json');
 putenv('PUSH_QUOTA_CHECK_STATUS_FILE=' . $fixtureDir . '/push-quota-check-status.json');
+putenv('QUOTA_REFRESH_STATUS_FILE=' . $fixtureDir . '/quota-refresh-status.json');
 putenv('PUSH_TIMER_UNIT_PATH=' . $fixtureDir . '/csm-push-check.timer');
 // PushTimerService::set_push_timer_interval() runs real `systemctl --user is-active`/
 // `restart` commands against this unit NAME - a fake one systemd has
@@ -50,6 +53,7 @@ if (
     || PushDeliveryService::push_check_status_file() === REAL_PUSH_CHECK_STATUS_FILE
     || PushQuotaStateStore::push_quota_state_file() === REAL_PUSH_QUOTA_STATE_FILE
     || PushDeliveryService::push_quota_check_status_file() === REAL_PUSH_QUOTA_CHECK_STATUS_FILE
+    || QuotaService::quota_refresh_status_file() === REAL_QUOTA_REFRESH_STATUS_FILE
     || PushTimerService::push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
 ) {
     fwrite(STDERR, "REFUSING TO RUN: push subscription/state/timer files or unit name still resolve to the real ones.\n");
@@ -488,6 +492,27 @@ try {
     @unlink(PushDeliveryService::push_quota_check_status_file());
     assert_equal(false, PushHealthService::push_quota_delivery_check()['ok'], 'push_quota_delivery_check: ok=false when the timer has never run at all (no status file yet)');
 
+    // --- QuotaService::record_quota_refresh_result()/PushHealthService::quota_refresh_check():
+    // the background SCRAPE's own health, distinct from push_quota_delivery_check()
+    // above (which only covers whether a push SEND succeeded for whatever
+    // quota data it was handed) - added 2026-08-08 after finding a failed
+    // scrape previously had no trace anywhere at all (quota_refresh.php's
+    // own stdio is bound to /dev/null, so even error_log() there goes
+    // nowhere - see quota_refresh_status_file()'s own doc comment). ---
+
+    @unlink(QuotaService::quota_refresh_status_file());
+    assert_equal(true, PushHealthService::quota_refresh_check()['ok'], 'quota_refresh_check: ok=true (nothing to report yet) when the background scrape has never run - a live session\'s own pane covers quota until it does');
+
+    QuotaService::record_quota_refresh_result(false, 'claude-quota: claude did not reach prompt; last capture: ...');
+    $refreshCheckAfterFailure = PushHealthService::quota_refresh_check();
+    assert_equal(false, $refreshCheckAfterFailure['ok'], 'quota_refresh_check: ok=false right after a failed scrape attempt');
+    assert_equal(true, str_contains($refreshCheckAfterFailure['detail'], 'claude did not reach prompt'), 'quota_refresh_check: detail carries the real failure message, not a generic one');
+
+    QuotaService::record_quota_refresh_result(true);
+    assert_equal(true, PushHealthService::quota_refresh_check()['ok'], 'quota_refresh_check: ok=true again once a later attempt succeeds');
+
+    @unlink(QuotaService::quota_refresh_status_file());
+
     // --- PushTimerService get/set_push_timer_interval(): reads/writes the INSTALLED unit
     // file (isolated to a fixture path above, never the real one), and
     // PushTimerService::set_push_timer_interval()'s systemctl calls target a fake unit name
@@ -568,6 +593,7 @@ try {
     putenv('PUSH_CHECK_STATUS_FILE');
     putenv('PUSH_QUOTA_STATE_FILE');
     putenv('PUSH_QUOTA_CHECK_STATUS_FILE');
+    putenv('QUOTA_REFRESH_STATUS_FILE');
     putenv('PUSH_TIMER_UNIT_PATH');
     putenv('PUSH_TIMER_UNIT_NAME');
     array_map('unlink', glob("{$fixtureDir}/*") ?: []);
