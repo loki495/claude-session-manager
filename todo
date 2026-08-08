@@ -82,6 +82,40 @@ Larger architecture / consolidation work (bigger surface area):
   never get send-keys/capture-pane support - at most a read-only transcript
   link - so a small residual "unmanageable" category likely still remains
   after this.
+- Multi-socket tmux discovery: today the whole app is wired to exactly one
+  tmux socket path (Config::tmux_socket(), defaulting to
+  /tmp/tmux-1000/default - tmux's own standard default path, not an app
+  convention, which is why a plain `tmux` command Andres types by hand
+  lands on the same server the app manages). Every TmuxService call is
+  scoped to that one path - if a session ends up on a DIFFERENT tmux
+  server (a different explicit -S path, or a fresh server auto-spawned at
+  the conventional path after the original one's socket became
+  unreachable - see the 2026-08-08 incident where /tmp/tmux-1000's
+  contents got deleted out from under a still-running server, orphaning
+  its sessions with no clean recovery path found), the app has zero
+  visibility into it. Fixing this properly needs: TmuxService enumerating
+  every tmux socket under /tmp/tmux-$UID/ (not just "default") and
+  querying each one, SidecarStore gaining a field recording which socket a
+  session actually lives on, and the SessionStart hook recording that at
+  adoption time (today it only records the session NAME via `tmux
+  display-message -p '#S'`, not which socket it ran that query against).
+  A real structural change, not a small addition - scope/design it
+  properly before starting, don't bolt it onto an unrelated phase.
+  Related, same underlying gap (found live 2026-08-08 testing the
+  archived-sessions list): a session that's genuinely running but
+  currently untracked - a bare/no-tmux process, or one on an unreachable
+  socket - still shows up in the archived list too, since
+  list_archived_sessions()'s exclusion only knows about TRACKED
+  (sidecar + reachable-tmux) sessions, with no way to reliably match a
+  bare process back to its claude_session_id (a plain `claude` invocation
+  never puts that id anywhere visible in the process itself - Claude Code
+  picks it internally and only writes it into the transcript). Andres's
+  own call on the right fix (2026-08-08): don't patch this with a cwd-
+  matching heuristic - build it properly via the plan's own phases 5/6
+  instead (Resume for archived sessions, "Take over" - kill + resume via
+  `claude --resume` in a fresh tmux pane - for live-but-untracked ones),
+  which gives a real, correct action either way rather than trying to
+  guess whether something still counts as "archived."
 - Research: now that this app has a PreToolUse hook (see the pending-tool
   full-command-preview feature), survey whether other Claude Code hook events
   (PostToolUse, Notification, UserPromptSubmit, etc) could replace/improve any
