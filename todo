@@ -136,3 +136,7 @@ Exploratory / speculative / lower priority:
   in session.js) when there are no entries after it - presumably possible
   in some poll-timing edge case (e.g. the only "new" thing was a blocked-
   prompt/thinking-indicator update, not a real transcript entry).
+- Add copy-to-clipboard icons to transcript entries and inner
+  code/scrollable sections (e.g. the collapsible tool_use/tool_result
+  blocks - BlockedPromptView::render_collapsible_block()/its session.js
+  mirror) - copying currently means selecting text by hand.
