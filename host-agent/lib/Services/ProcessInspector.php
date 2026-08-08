@@ -114,6 +114,15 @@ class ProcessInspector
     public static function find_claude_processes(): array
     {
         $procs = [];
+        // basename, not the full configured path - found live 2026-08-08:
+        // typing bare `claude` in a terminal (PATH-resolved by the shell)
+        // gives that process argv[0] "claude" verbatim, which never equals
+        // Config::claude_bin()'s full path (e.g. /home/andres/.local/bin/
+        // claude) even though it's the exact same launcher - a real running
+        // session was invisible to this scan (not in bare[], not excluded
+        // from the archived list) purely because of how it happened to be
+        // typed.
+        $claudeBinBasename = basename(Config::claude_bin());
 
         foreach (glob('/proc/[0-9]*', GLOB_ONLYDIR) ?: [] as $procDir) {
             $pid = (int)basename($procDir);
@@ -129,8 +138,12 @@ class ProcessInspector
             // tmux server process that auto-starts to run `new-session ...
             // /home/andres/.local/bin/claude` retains that whole command line
             // as its own argv, which would otherwise false-positive-match the
-            // tmux server itself as a bare claude process.
-            if (($argv[0] ?? null) !== Config::claude_bin()) {
+            // tmux server itself as a bare claude process. Comparing by
+            // basename only widens this to also match "claude" (bare,
+            // PATH-resolved) - the tmux server's own argv[0] is "tmux",
+            // whose basename never collides with "claude" either way, so
+            // this doesn't reopen that false-positive risk.
+            if (($argv[0] ?? null) === null || basename((string)$argv[0]) !== $claudeBinBasename) {
                 continue;
             }
 

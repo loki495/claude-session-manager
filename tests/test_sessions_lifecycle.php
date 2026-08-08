@@ -484,6 +484,40 @@ try {
     }
     $bareProc = null;
 
+    // --- regression, found live 2026-08-08: find_claude_processes() used
+    // to require argv[0] to equal Config::claude_bin()'s FULL configured
+    // path exactly. Typing a bare `claude` in a terminal (PATH-resolved by
+    // the shell, not the full path) gives that process argv[0] "claude"
+    // verbatim - a real running session was invisible to this scan (not in
+    // bare[], not excluded from the archived list) purely because of how
+    // it happened to be typed. Now matched by basename instead. ---
+    // bash's `exec -a` sets argv[0] directly (same technique fake_claude
+    // itself uses - see tests/fixtures/fake_claude) - simpler and more
+    // reliable than depending on proc_open's own PATH-search behavior to
+    // simulate a PATH-resolved invocation.
+    $bareNameProc = proc_open(
+        ['bash', '-c', 'exec -a ' . escapeshellarg(basename(Config::claude_bin())) . ' ' . escapeshellarg(Config::claude_bin())],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $bareNamePipes,
+        $bareCwd
+    );
+    assert_true(is_resource($bareNameProc), 'bare-name setup: spawned a plain process invoked by bare name (PATH-resolved), not the full configured path');
+    $bareNamePid = is_resource($bareNameProc) ? (proc_get_status($bareNameProc)['pid'] ?? null) : null;
+    usleep(300000);
+
+    $foundBareName = false;
+    foreach (ProcessInspector::find_claude_processes() as $p) {
+        if ($p['pid'] === $bareNamePid) {
+            $foundBareName = true;
+        }
+    }
+    assert_true($foundBareName, 'find_claude_processes: a bare-name (PATH-resolved) invocation is still found, not just the exact-full-path one');
+
+    if (is_resource($bareNameProc)) {
+        proc_terminate($bareNameProc);
+        proc_close($bareNameProc);
+    }
+
     // --- bare processes: a fake claude process living inside a tmux
     // session this tool doesn't manage (not cc-* prefixed) must be
     // enriched with that session's name and pane title, and
