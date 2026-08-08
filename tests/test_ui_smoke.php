@@ -20,6 +20,7 @@ require __DIR__ . '/lib/http.php';
 // socket_harness.php), so its constants aren't reachable from here.
 const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuTym7Lxyboe7HSFwi79IJN7-wqbUbZmYR1CkLvXZSc';
+const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
 
 $agentSocket = sys_get_temp_dir() . '/csm-test-ui-agent.sock';
 $agentHarness = start_harness(['php', __DIR__ . '/fixtures/canned_agent.php'], $agentSocket);
@@ -225,6 +226,17 @@ try {
     assert_equal(1, substr_count($fragmentBody['sessions_html'] ?? '', 'Thinking&hellip;'), 'GET /sessions_fragment.php: thinking indicator carried through the poll fragment too, still exactly once');
     assert_contains('rm -rf /tmp/dashboard-example', $fragmentBody['sessions_html'] ?? '', 'GET /sessions_fragment.php: sessions_html carries the blocked row\'s rich context');
     assert_contains('Bare title', $fragmentBody['bare_html'] ?? '', 'GET /sessions_fragment.php: bare_html carries the canned bare process');
+
+    // --- archived_sessions_fragment.php: the dashboard's archived-sessions
+    // toggle - a separate, on-demand endpoint (never part of the regular
+    // sessions_fragment.php poll above - see DashboardController::
+    // archivedFragment()'s own doc comment for why) ---
+    $result = curl_request('GET', "{$baseUrl}/archived_sessions_fragment.php");
+    assert_equal(200, $result['status'], 'GET /archived_sessions_fragment.php: 200');
+    $archivedFragmentBody = json_decode($result['body'], true);
+    assert_true(is_array($archivedFragmentBody) && ($archivedFragmentBody['ok'] ?? false), 'GET /archived_sessions_fragment.php: response decodes as ok=true JSON');
+    assert_contains('Refactor the old widget', $archivedFragmentBody['archived_html'] ?? '', 'GET /archived_sessions_fragment.php: archived_html carries the canned archived session\'s title');
+    assert_contains('/home/andres/www/old-project', $archivedFragmentBody['archived_html'] ?? '', 'GET /archived_sessions_fragment.php: archived_html carries the canned archived session\'s cwd');
 
     // --- session_detail.php/session_history.php/sessions_list.php/quota.php now join the
     // session (not just AgentClient.php) - a tab left open just polling (no send/answer)
@@ -850,6 +862,64 @@ try {
     ]);
     assert_equal(403, $result['status'], 'POST with mismatched Origin: 403');
 
+    // --- archived_session.php: the read-only dormant-session view - no
+    // ?claude_session_id -> redirects home, same as session.php's own
+    // no-?session case. Uses its own $archived*-prefixed variables
+    // throughout (not $result) - unlike most of this file's tests, which
+    // run in one long sequential block reusing $result freely, several
+    // EARLIER blocks above (the ExitPlanMode/sidebar/answer_prompt
+    // assertions) reuse $result long after their own curl_request() call,
+    // so reassigning it here would corrupt state for code that already
+    // ran - this whole block is deliberately placed at the very end of the
+    // curl-only tier for that reason, after nothing else depends on $result
+    // anymore. ---
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php");
+    assert_equal(303, $archivedResult['status'], 'GET /archived_session.php with no claude_session_id param: 303 redirect');
+    assert_equal('/', $archivedResult['headers']['location'] ?? '', 'GET /archived_session.php with no claude_session_id param: redirects to /');
+
+    // --- archived_session.php: renders the canned archived session's
+    // detail + history, reusing the exact same TranscriptView rendering
+    // session.php itself uses ---
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+    assert_equal(200, $archivedResult['status'], 'GET /archived_session.php: 200');
+    assert_contains('Refactor the old widget', $archivedResult['body'], 'GET /archived_session.php: canned title shown');
+    assert_contains('old-project', $archivedResult['body'], 'GET /archived_session.php: canned cwd shown');
+    assert_contains('Fix the login redirect bug', $archivedResult['body'], 'GET /archived_session.php: canned history entry rendered');
+    assert_contains('Archived', $archivedResult['body'], 'GET /archived_session.php: the "Archived" badge is shown, distinguishing it from a live session.php view');
+    assert_true(!str_contains($archivedResult['body'], 'compose-bar'), 'GET /archived_session.php: no compose bar - nothing here is actionable');
+    assert_contains('Load older messages', $archivedResult['body'], 'GET /archived_session.php: load-more button shown when has_more=true');
+
+    // --- archived_session.php: an unknown (but well-formed) claude_session_id
+    // -> the page still renders (200), just with a "not found" state, same
+    // as session.php's own not-found handling ---
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=00000000-0000-4000-8000-000000000000");
+    assert_equal(200, $archivedResult['status'], 'GET /archived_session.php: 200 even for an unknown claude_session_id');
+    assert_contains('Session not found', $archivedResult['body'], 'GET /archived_session.php: shows a not-found message for an unknown claude_session_id');
+
+    // --- archived_session_history_fragment.php: "Load older messages" -
+    // pre-rendered HTML (not raw JSON entries, unlike session_history.php -
+    // see SessionController::archivedHistoryFragment()'s own doc comment) ---
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session_history_fragment.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+    assert_equal(200, $archivedResult['status'], 'GET /archived_session_history_fragment.php: 200');
+    $archivedHistoryFragmentBody = json_decode($archivedResult['body'], true);
+    assert_true(is_array($archivedHistoryFragmentBody) && ($archivedHistoryFragmentBody['ok'] ?? false), 'GET /archived_session_history_fragment.php: response decodes as ok=true JSON');
+    assert_contains('Fix the login redirect bug', $archivedHistoryFragmentBody['html'] ?? '', 'GET /archived_session_history_fragment.php: html carries the canned history entry, already rendered');
+
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session_history_fragment.php?claude_session_id=00000000-0000-4000-8000-000000000000");
+    $archivedHistoryFragmentMissingBody = json_decode($archivedResult['body'], true);
+    assert_equal(false, $archivedHistoryFragmentMissingBody['ok'] ?? null, 'GET /archived_session_history_fragment.php: ok=false for an unknown claude_session_id, not a crash');
+
+    // --- archived_session_attachment.php: same binary-endpoint contract as
+    // session_attachment.php, just keyed by claude_session_id ---
+    $archivedAttachmentUrl = "/archived_session_attachment.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&line=8&file_uuid=canned-file-uuid-1";
+    $archivedAttachmentResult = curl_request('GET', "{$baseUrl}{$archivedAttachmentUrl}");
+    assert_equal(200, $archivedAttachmentResult['status'], 'GET /archived_session_attachment.php: 200 for a real, matching claude_session_id/line/file_uuid');
+    assert_equal('canned attachment bytes', $archivedAttachmentResult['body'], 'GET /archived_session_attachment.php: streams the real (canned) file bytes');
+    assert_contains('notes.txt', $archivedAttachmentResult['headers']['content-disposition'] ?? '', 'GET /archived_session_attachment.php: Content-Disposition carries the real filename');
+
+    $wrongArchivedAttachmentResult = curl_request('GET', "{$baseUrl}/archived_session_attachment.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&line=8&file_uuid=not-the-real-uuid");
+    assert_equal(404, $wrongArchivedAttachmentResult['status'], 'GET /archived_session_attachment.php: an unrecognized file_uuid -> 404, not a silent empty body');
+
     // --- optional richer tier: only if a headless browser is already on this host ---
     $browser = find_headless_browser();
 
@@ -922,6 +992,16 @@ function run_headless_browser_checks(string $browser, int $port): void
     assert_contains('id="load-more-btn"', $detail['dom'], 'headless browser: session.php renders the load-more control');
     assert_contains('id="go-to-bottom-btn"', $detail['dom'], 'headless browser: session.php renders the floating go-to-bottom button');
     assert_true(!str_contains($detail['stderr'], 'Uncaught'), 'headless browser: no uncaught JS errors on session.php');
+
+    $archivedDetail = headless_dump_dom($browser, "{$base}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+
+    if ($archivedDetail === null) {
+        return;
+    }
+
+    assert_contains('id="load-more-btn"', $archivedDetail['dom'], 'headless browser: archived_session.php renders the load-more control');
+    assert_true(!str_contains($archivedDetail['dom'], 'id="compose-bar"'), 'headless browser: archived_session.php renders with no compose bar');
+    assert_true(!str_contains($archivedDetail['stderr'], 'Uncaught'), 'headless browser: no uncaught JS errors on archived_session.php');
 }
 
 /**

@@ -22,6 +22,7 @@ const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuT
 const CANNED_ATTACHMENT_FILE_UUID = 'canned-file-uuid-1';
 const CANNED_ATTACHMENT_BYTES = 'canned attachment bytes';
 const CANNED_IMAGE_ATTACHMENT_FILE_UUID = 'canned-file-uuid-2';
+const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
 
 const CANNED_LAST_MESSAGE = [
     'role' => 'assistant',
@@ -134,6 +135,27 @@ $response = match ($action) {
             'title' => 'Bare title',
         ]],
     ],
+    'list_archived' => [
+        'ok' => true,
+        'archived' => [[
+            'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+            'cwd' => '/home/andres/www/old-project',
+            'title' => 'Refactor the old widget',
+            'last_activity' => time() - 3 * 86400,
+        ]],
+    ],
+    'archived_session_detail' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+        ? [
+            'ok' => true,
+            'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+            'cwd' => '/home/andres/www/old-project',
+            'title' => 'Refactor the old widget',
+            'last_activity' => time() - 3 * 86400,
+        ]
+        : ['ok' => false, 'message' => 'Session not found'],
+    'archived_session_history' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+        ? ['ok' => true, 'entries' => canned_session_history_entries(), 'next_before' => 1, 'has_more' => true]
+        : ['ok' => false, 'message' => 'Transcript file not found'],
     'session_detail' => ($request['session'] ?? null) === CANNED_SESSION_NAME
         ? [
             'ok' => true,
@@ -163,6 +185,13 @@ $response = match ($action) {
         : ['ok' => false, 'message' => 'Reply cannot be empty'],
     'session_history' => canned_session_history($request),
     'session_attachment' => (string)($request['session'] ?? null) === CANNED_SESSION_NAME
+        ? match ($request['file_uuid'] ?? null) {
+            CANNED_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES)],
+            CANNED_IMAGE_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => CANNED_TEST_IMAGE_BASE64, 'media_type' => 'image/png', 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true))],
+            default => ['ok' => false, 'message' => 'Attachment not found'],
+        }
+        : ['ok' => false, 'message' => 'Attachment not found'],
+    'archived_session_attachment' => (string)($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
         ? match ($request['file_uuid'] ?? null) {
             CANNED_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES)],
             CANNED_IMAGE_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => CANNED_TEST_IMAGE_BASE64, 'media_type' => 'image/png', 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true))],

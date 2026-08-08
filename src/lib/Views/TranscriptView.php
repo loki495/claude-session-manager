@@ -56,11 +56,18 @@ class TranscriptView extends View
      * from (see TranscriptService::read_transcript_page()'s 'line' field) -
      * along with $fileUuid, that's enough for the host-agent to re-derive
      * the real file path itself (see TranscriptService::read_attachment()),
-     * without the browser ever seeing it.
+     * without the browser ever seeing it. $isArchived routes to the
+     * archived-session-view counterpart endpoint, keyed by claude_session_id
+     * rather than a live tmux session name - a dormant session has no
+     * sidecar for session_attachment.php's own action to resolve one from.
      */
-    public static function attachment_url(string $sessionName, int $line, string $fileUuid): string
+    public static function attachment_url(string $sessionIdentifier, int $line, string $fileUuid, bool $isArchived = false): string
     {
-        return '/session_attachment.php?session=' . rawurlencode($sessionName) . '&line=' . $line . '&file_uuid=' . rawurlencode($fileUuid);
+        if ($isArchived) {
+            return '/archived_session_attachment.php?claude_session_id=' . rawurlencode($sessionIdentifier) . '&line=' . $line . '&file_uuid=' . rawurlencode($fileUuid);
+        }
+
+        return '/session_attachment.php?session=' . rawurlencode($sessionIdentifier) . '&line=' . $line . '&file_uuid=' . rawurlencode($fileUuid);
     }
 
     /**
@@ -77,7 +84,7 @@ class TranscriptView extends View
      *
      * @param array<int, array{file_uuid:string, filename:string, size:int, isImage:bool, media_type:string}> $attachments
      */
-    public static function render_transcript_attachments_html(array $attachments, string $sessionName, int $line): string
+    public static function render_transcript_attachments_html(array $attachments, string $sessionIdentifier, int $line, bool $isArchived = false): string
     {
         if ($attachments === []) {
             return '';
@@ -87,7 +94,7 @@ class TranscriptView extends View
 
         foreach ($attachments as $attachment) {
             $itemsHtml .= self::render('transcript/attachment', [
-                'url' => self::attachment_url($sessionName, $line, $attachment['file_uuid']),
+                'url' => self::attachment_url($sessionIdentifier, $line, $attachment['file_uuid'], $isArchived),
                 'filename' => $attachment['filename'],
                 'sizeLabel' => self::format_attachment_size($attachment['size']),
                 'isImage' => $attachment['isImage'],
@@ -100,10 +107,10 @@ class TranscriptView extends View
     /**
      * @param array{kind:string, text:string, image?:array{media_type:string, data:string}, attachments?:array<int, array{file_uuid:string, filename:string, size:int, isImage:bool, media_type:string}>} $block
      */
-    public static function render_transcript_block(array $block, string $sessionName, int $line): string
+    public static function render_transcript_block(array $block, string $sessionIdentifier, int $line, bool $isArchived = false): string
     {
         $imageHtml = isset($block['image']) ? self::render_transcript_image_html($block['image']) : '';
-        $attachmentsHtml = !empty($block['attachments']) ? self::render_transcript_attachments_html($block['attachments'], $sessionName, $line) : '';
+        $attachmentsHtml = !empty($block['attachments']) ? self::render_transcript_attachments_html($block['attachments'], $sessionIdentifier, $line, $isArchived) : '';
 
         // The image/attachments are SIBLINGS of .tool-detail, not nested
         // inside it - unlike the raw text output, Andres wants a
@@ -301,9 +308,14 @@ class TranscriptView extends View
     }
 
     /**
+     * $sessionIdentifier is a live tmux session name, unless $isArchived is
+     * true, in which case it's a claude_session_id instead (see
+     * attachment_url()) - the archived-session read-only view's own
+     * counterpart to session.php passes its claude_session_id here.
+     *
      * @param array{role:?string, timestamp:?string, line?:int, blocks:array<int, array{kind:string, text:string}>} $entry
      */
-    public static function render_transcript_entry(array $entry, string $sessionName): string
+    public static function render_transcript_entry(array $entry, string $sessionIdentifier, bool $isArchived = false): string
     {
         $role = $entry['role'] ?? 'system';
         $colorKind = self::entry_color_kind($entry);
@@ -354,7 +366,7 @@ class TranscriptView extends View
 
         $line = (int)($entry['line'] ?? 0);
         $blocksHtml = implode('', array_map(
-            static fn(array $block): string => self::render_transcript_block($block, $sessionName, $line),
+            static fn(array $block): string => self::render_transcript_block($block, $sessionIdentifier, $line, $isArchived),
             $entry['blocks']
         ));
 

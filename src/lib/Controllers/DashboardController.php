@@ -209,4 +209,33 @@ class DashboardController extends Controller
 
         echo json_encode(AgentClient::agent_call(['action' => 'list']));
     }
+
+    /**
+     * GET-only JSON endpoint backing the dashboard's archived-sessions
+     * toggle (see index.js's show-archived-btn handler) - fetched once,
+     * lazily, only when Andres actually opens it. Deliberately NOT part of
+     * fragment()'s regular poll response - a full ~/.claude/projects scan on
+     * every 3-15s tick would be real, unnecessary work for a list that only
+     * changes when a session starts or ends (see SessionService::
+     * list_archived_dashboard()'s own doc comment). Read-only, same as
+     * fragment()/list() above.
+     */
+    public function archivedFragment(): void
+    {
+        $this->start_readonly_json();
+
+        $result = AgentClient::agent_call(['action' => 'list_archived']);
+        $ok = (bool)($result['ok'] ?? false);
+
+        if (!$ok) {
+            echo json_encode(['ok' => false, 'message' => (string)($result['message'] ?? 'Unknown error')]);
+
+            return;
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'archived_html' => SessionRowView::archived_sessions_html($result['archived'] ?? []),
+        ]);
+    }
 }

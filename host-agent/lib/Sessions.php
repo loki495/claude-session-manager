@@ -60,6 +60,13 @@ function dispatch_action(array $request): array
                 (string)($request['file_uuid'] ?? '')
             );
 
+        case 'archived_session_attachment':
+            return SessionService::archived_session_attachment(
+                (string)($request['claude_session_id'] ?? ''),
+                (int)($request['line'] ?? 0),
+                (string)($request['file_uuid'] ?? '')
+            );
+
         case 'create':
             return SessionService::create_cc_session((string)($request['workdir'] ?? ''));
 

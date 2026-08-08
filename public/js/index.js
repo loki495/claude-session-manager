@@ -516,3 +516,89 @@ document.addEventListener('keydown', function (e) {
     startPolling();
   }
 })();
+
+// Archived-sessions toggle - deliberately NOT part of the poll IIFE above:
+// fetched once, lazily, only when Andres actually opens it (see
+// DashboardController::archivedFragment()'s own doc comment for why a full
+// ~/.claude/projects scan has no business running on a timer). Once
+// loaded, the search field filters the already-rendered rows client-side
+// (a plain substring match against each row's own text) rather than
+// round-tripping to the server per keystroke - the real list is small
+// enough for that to be instant (see the unify-claude-sessions plan's own
+// research: this app's own real ~/.claude/projects had ~160 sessions
+// total, trivial for a client-side filter).
+(function () {
+  var btn = document.getElementById('show-archived-btn');
+  var container = document.getElementById('archived-container');
+
+  if (!btn || !container) {
+    return;
+  }
+
+  var loaded = false;
+
+  function filterArchivedRows() {
+    var searchInput = document.getElementById('archived-search');
+    var noMatches = document.getElementById('archived-no-matches');
+    var rows = container.querySelectorAll('[data-archived-row]');
+
+    if (!searchInput) {
+      return;
+    }
+
+    var query = searchInput.value.toLowerCase();
+    var anyVisible = false;
+
+    rows.forEach(function (row) {
+      var matches = row.textContent.toLowerCase().indexOf(query) !== -1;
+      row.classList.toggle('hidden', !matches);
+
+      if (matches) {
+        anyVisible = true;
+      }
+    });
+
+    if (noMatches) {
+      noMatches.classList.toggle('hidden', anyVisible || rows.length === 0);
+    }
+  }
+
+  btn.addEventListener('click', function () {
+    if (loaded) {
+      container.classList.toggle('hidden');
+      btn.textContent = container.classList.contains('hidden') ? 'Show archived sessions' : 'Hide archived sessions';
+
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+
+    fetch('/archived_sessions_fragment.php', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+
+        if (!data || !data.ok) {
+          btn.textContent = (data && data.message) || 'Failed to load archived sessions';
+
+          return;
+        }
+
+        container.innerHTML = data.archived_html;
+        container.classList.remove('hidden');
+        loaded = true;
+        btn.textContent = 'Hide archived sessions';
+
+        var searchInput = document.getElementById('archived-search');
+
+        if (searchInput) {
+          searchInput.addEventListener('input', filterArchivedRows);
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Network error - try again';
+      });
+  });
+})();

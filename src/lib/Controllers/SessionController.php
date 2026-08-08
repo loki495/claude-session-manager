@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\AgentClient;
 use App\Services\AuthService;
 use App\Views\PageView;
+use App\Views\TranscriptView;
 
 class SessionController extends Controller
 {
@@ -57,6 +58,94 @@ class SessionController extends Controller
             'nextBefore' => $nextBefore,
             'hasMore' => $hasMore,
             'newestLine' => $newestLine,
+        ]);
+    }
+
+    /**
+     * The archived (dormant) session read-only view's full-page render -
+     * reads `claude_session_id` from either GET or POST with no method
+     * check (matches show()'s own `session` handling), the counterpart to
+     * show() above but keyed by claude_session_id (a dormant session has
+     * no live tmux name to look up by) and rendering a deliberately
+     * separate, much smaller template: no compose bar, no live polling, no
+     * mode toggle, no Kill button - nothing here is actionable. This is
+     * purely for browsing an old conversation before deciding whether to
+     * resume it (see the unify-claude-sessions plan's own phase split -
+     * Resume is its own later phase).
+     */
+    public function showArchived(): void
+    {
+        AuthService::start_app_session();
+
+        $claudeSessionId = trim((string)($_GET['claude_session_id'] ?? $_POST['claude_session_id'] ?? ''));
+
+        if ($claudeSessionId === '') {
+            header('Location: /', true, 303);
+
+            return;
+        }
+
+        $detail = AgentClient::agent_call(['action' => 'archived_session_detail', 'claude_session_id' => $claudeSessionId]);
+        $found = (bool)($detail['ok'] ?? false);
+
+        $history = $found ? AgentClient::agent_call(['action' => 'archived_session_history', 'claude_session_id' => $claudeSessionId, 'before' => null, 'limit' => 30]) : ['ok' => false];
+        $historyOk = (bool)($history['ok'] ?? false);
+        $entries = $historyOk ? ($history['entries'] ?? []) : [];
+        $nextBefore = $historyOk ? ($history['next_before'] ?? null) : null;
+        $hasMore = $historyOk && ($history['has_more'] ?? false);
+
+        echo PageView::render_archived_session_page([
+            'claudeSessionId' => $claudeSessionId,
+            'detail' => $detail,
+            'found' => $found,
+            'history' => $history,
+            'historyOk' => $historyOk,
+            'entries' => $entries,
+            'nextBefore' => $nextBefore,
+            'hasMore' => $hasMore,
+        ]);
+    }
+
+    /**
+     * GET-only JSON endpoint backing the archived-session view's own "Load
+     * older messages" button. Unlike session_history.php (which ships raw
+     * JSON entries for session.js to render client-side, since a live view
+     * needs that same renderer for polled-in new messages too), this
+     * renders straight to HTML server-side and ships that instead - a
+     * dormant session never gets new messages, so there's no live-append
+     * path that would ever need the raw JSON shape here.
+     */
+    public function archivedHistoryFragment(): void
+    {
+        $this->start_readonly_json();
+
+        $claudeSessionId = (string)($_GET['claude_session_id'] ?? '');
+        $before = isset($_GET['before']) ? (int)$_GET['before'] : null;
+
+        $history = AgentClient::agent_call([
+            'action' => 'archived_session_history',
+            'claude_session_id' => $claudeSessionId,
+            'before' => $before,
+            'limit' => 30,
+        ]);
+
+        if (!($history['ok'] ?? false)) {
+            echo json_encode(['ok' => false, 'message' => (string)($history['message'] ?? 'Unknown error')]);
+
+            return;
+        }
+
+        $html = '';
+
+        foreach (($history['entries'] ?? []) as $entry) {
+            $html .= TranscriptView::render_transcript_entry($entry, $claudeSessionId, true);
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'html' => $html,
+            'has_more' => (bool)($history['has_more'] ?? false),
+            'next_before' => $history['next_before'] ?? null,
         ]);
     }
 
@@ -191,13 +280,40 @@ class SessionController extends Controller
     {
         AuthService::start_app_session();
 
-        $result = AgentClient::agent_call([
+        self::stream_attachment_result(AgentClient::agent_call([
             'action' => 'session_attachment',
             'session' => (string)($_GET['session'] ?? ''),
             'line' => (int)($_GET['line'] ?? 0),
             'file_uuid' => (string)($_GET['file_uuid'] ?? ''),
-        ]);
+        ]));
+    }
 
+    /**
+     * The archived-session-view counterpart to attachment() above - same
+     * binary-endpoint contract, just backed by archived_session_attachment
+     * (keyed by claude_session_id, no live tmux session/sidecar involved).
+     */
+    public function archivedAttachment(): void
+    {
+        AuthService::start_app_session();
+
+        self::stream_attachment_result(AgentClient::agent_call([
+            'action' => 'archived_session_attachment',
+            'claude_session_id' => (string)($_GET['claude_session_id'] ?? ''),
+            'line' => (int)($_GET['line'] ?? 0),
+            'file_uuid' => (string)($_GET['file_uuid'] ?? ''),
+        ]));
+    }
+
+    /**
+     * Shared by attachment()/archivedAttachment() - both just want to
+     * stream whatever session_attachment/archived_session_attachment came
+     * back with as the real binary response.
+     *
+     * @param array<string, mixed> $result
+     */
+    private static function stream_attachment_result(array $result): void
+    {
         if (!($result['ok'] ?? false)) {
             http_response_code(404);
             header('Content-Type: text/plain');

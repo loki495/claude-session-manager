@@ -149,6 +149,50 @@ class SessionRowView extends View
         ]);
     }
 
+    /**
+     * One archived (dormant) session's dashboard row - title/cwd/last-active
+     * only, no kill/action buttons (nothing to act on for a session with no
+     * live pane - see the unify-claude-sessions plan's phase split: Resume
+     * is its own later phase). Links straight to the read-only archived
+     * transcript view.
+     *
+     * @param array<string, mixed> $a
+     */
+    public static function archived_session_row_html(array $a): string
+    {
+        return self::render('session-row/archived-row', [
+            'claudeSessionId' => (string)$a['claude_session_id'],
+            'title' => (string)($a['title'] ?? $a['claude_session_id']),
+            'cwd' => $a['cwd'] ?? null,
+            'relativeTime' => self::relative_time((int)($a['last_activity'] ?? 0)),
+        ]);
+    }
+
+    /**
+     * The dashboard's whole archived-sessions section (search field + rows,
+     * or the empty state) - fetched once, lazily, only when the archived
+     * toggle is actually opened (see DashboardController::archivedFragment()
+     * and index.js's show-archived-btn handler).
+     *
+     * @param array<int, array<string, mixed>> $archived
+     */
+    public static function archived_sessions_html(array $archived): string
+    {
+        if ($archived === []) {
+            return self::render('session-row/archived-empty-state');
+        }
+
+        $rows = '';
+
+        foreach ($archived as $a) {
+            $rows .= self::archived_session_row_html($a);
+        }
+
+        return self::render('session-row/archived-list', [
+            'rowsHtml' => $rows,
+        ]);
+    }
+
     public static function relative_time(int $timestamp): string
     {
         $diff = time() - $timestamp;

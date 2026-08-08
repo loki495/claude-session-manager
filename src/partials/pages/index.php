@@ -97,6 +97,15 @@ $this->layout('layout', [
     <div id="bare-container"><?= \App\Views\SessionRowView::bare_processes_html($bare, $csrfToken) ?></div>
   <?php endif; ?>
 
+  <?php if ($agentReachable): ?>
+    <div class="select-none mt-8">
+      <button type="button" id="show-archived-btn" class="w-full text-left rounded-xl border border-slate-800 bg-slate-900/50 active:bg-slate-800 px-4 py-3 text-sm font-medium text-slate-300">
+        Show archived sessions
+      </button>
+      <div id="archived-container" class="hidden mt-3"></div>
+    </div>
+  <?php endif; ?>
+
   <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
     <div class="max-w-2xl mx-auto">
       <div class="flex items-start justify-between gap-3">

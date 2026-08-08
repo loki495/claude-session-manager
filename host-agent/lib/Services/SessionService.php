@@ -420,6 +420,29 @@ class SessionService
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];
         }
 
+        return self::read_attachment_for_claude_session($claudeSessionId, $line, $fileUuid);
+    }
+
+    /**
+     * The archived-session-view counterpart to session_attachment() - same
+     * reasoning as archived_session_history()/session_history() above.
+     *
+     * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string, size?:int}
+     */
+    public static function archived_session_attachment(string $claudeSessionId, int $line, string $fileUuid): array
+    {
+        return self::read_attachment_for_claude_session($claudeSessionId, $line, $fileUuid);
+    }
+
+    /**
+     * Shared by session_attachment() (resolves $claudeSessionId via a live
+     * session's sidecar first) and archived_session_attachment() (already
+     * has it).
+     *
+     * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string, size?:int}
+     */
+    private static function read_attachment_for_claude_session(string $claudeSessionId, int $line, string $fileUuid): array
+    {
         $path = TranscriptService::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
