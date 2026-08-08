@@ -37,6 +37,9 @@ $bareProc = null;
 /** @var string|null $adhocName a non-cc-* tmux session hosting a fake claude process, for the finally-block safety net */
 $adhocName = null;
 
+/** @var string|null $adoptedTestSession a non-cc-* tmux session carrying its own sidecar (simulating an adopted session), for the finally-block safety net */
+$adoptedTestSession = null;
+
 /** @var string|null $promptTestSession a cc-* session used to test SessionService::answer_prompt(), for the finally-block safety net */
 $promptTestSession = null;
 
@@ -500,6 +503,11 @@ try {
     $promptTestSession = 'cc-test-answer-prompt-' . getmypid();
     $promptSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $promptTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $promptSetup['exit'], 'answer_prompt setup: created a live cc-* session to answer a prompt in');
+    // A raw ad-hoc pane (not made via create_cc_session()) has no sidecar of
+    // its own - write one directly so it counts as "tracked" (see
+    // TmuxService::list_tracked_tmux_sessions()), same as answer_prompt() et
+    // al. require of any session they'll act on.
+    SidecarStore::write_sidecar($promptTestSession, ['workdir' => Config::www_root(), 'spawned_at' => time()]);
     usleep(300000);
 
     TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'Do you want to proceed?', 'Enter']);
@@ -583,6 +591,7 @@ try {
     assert_true($modeSet['ok'] ?? false, 'set_mode: ok=true once the current mode is readable, for a live session');
 
     TmuxService::tmux_run(['kill-session', '-t', $promptTestSession]);
+    SidecarStore::delete_sidecar($promptTestSession);
     $promptTestSession = null;
 
     // --- TmuxService::tmux_capture_pane(): a long single logical line (e.g. the command
@@ -619,6 +628,7 @@ try {
     $sendTestSession = 'cc-test-send-message-' . getmypid();
     $sendSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $sendTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $sendSetup['exit'], 'send_message setup: created a live cc-* session to send a message to');
+    SidecarStore::write_sidecar($sendTestSession, ['workdir' => Config::www_root(), 'spawned_at' => time()]);
     usleep(300000);
 
     assert_equal(false, SessionService::send_message('cc-not-a-real-session', 'hello')['ok'] ?? null, 'send_message: rejects a session name that is not currently live');
@@ -655,7 +665,52 @@ try {
     );
 
     TmuxService::tmux_run(['kill-session', '-t', $sendTestSession]);
+    SidecarStore::delete_sidecar($sendTestSession);
     $sendTestSession = null;
+
+    // --- Full-feature parity for an adopted (non-cc-*) session: "tracked"
+    // is now sidecar-existence, not the cc-* prefix (see TmuxService::
+    // list_tracked_tmux_sessions()), so a session session_start.php adopted
+    // - real tmux session, real sidecar, name never touched - must show up
+    // in list_all_sessions()'s main sessions[] (not bare[]), report
+    // spawned_by_csm=false, and accept the exact same actions (send_message,
+    // kill_cc_session) as an app-spawned cc-* one. Simulates the hook's own
+    // sidecar write directly rather than re-running session_start.php here -
+    // that hook's own behavior is covered separately in test_session_hook.php. ---
+    $adoptedTestSession = 'andres-manual-' . getmypid();
+    $adoptedSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $adoptedTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    assert_equal(0, $adoptedSetup['exit'], 'adopted session setup: created a live non-cc-* tmux session');
+    SidecarStore::write_sidecar($adoptedTestSession, ['workdir' => Config::www_root(), 'spawned_at' => time(), 'spawned_by_csm' => false]);
+    usleep(300000);
+
+    $listed = SessionService::list_all_sessions();
+    $adoptedEntry = null;
+
+    foreach ($listed['sessions'] as $s) {
+        if ($s['name'] === $adoptedTestSession) {
+            $adoptedEntry = $s;
+            break;
+        }
+    }
+
+    assert_true($adoptedEntry !== null, 'list: an adopted (non-cc-*) session with a sidecar appears in sessions[], not just bare[]');
+    assert_equal(false, $adoptedEntry['spawned_by_csm'] ?? null, 'list: an adopted session reports spawned_by_csm=false');
+    assert_true(
+        !in_array($adoptedTestSession, array_column($listed['bare'], 'tmux_session'), true),
+        'list: an adopted, now-tracked session is not double-counted in bare[]'
+    );
+
+    $adoptedSend = SessionService::send_message($adoptedTestSession, 'Hello from an adopted session');
+    assert_true($adoptedSend['ok'] ?? false, 'send_message: works against an adopted (non-cc-*) session, not just cc-* ones');
+    usleep(300000);
+    assert_contains('Hello from an adopted session', TmuxService::tmux_capture_pane($adoptedTestSession), 'send_message: the text actually landed in the adopted session\'s pane');
+
+    $adoptedKill = SessionService::kill_cc_session($adoptedTestSession);
+    assert_true($adoptedKill['ok'] ?? false, 'kill_cc_session: works against an adopted (non-cc-*) session, not just cc-* ones');
+    $hasAdoptedSession = TmuxService::tmux_run(['has-session', '-t', $adoptedTestSession]);
+    assert_true($hasAdoptedSession['exit'] !== 0, 'kill_cc_session: the adopted session\'s tmux session is actually gone');
+    assert_true(SidecarStore::read_sidecar($adoptedTestSession) === null, 'kill_cc_session: the adopted session\'s sidecar is removed too');
+    $adoptedTestSession = null;
 
     // --- QuotaService::quota_from_live_pane()/QuotaService::get_quota(): prefers a live session's own
     // status-line quota over the slow claude-quota fallback - crafted via
@@ -664,6 +719,7 @@ try {
     $quotaTestSession = 'cc-test-quota-' . getmypid();
     $quotaSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $quotaTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $quotaSetup['exit'], 'quota_from_live_pane setup: created a live cc-* session');
+    SidecarStore::write_sidecar($quotaTestSession, ['workdir' => Config::www_root(), 'spawned_at' => time()]);
     usleep(300000);
 
     assert_equal(null, QuotaService::quota_from_live_pane(), 'quota_from_live_pane: null while no live session shows a quota line yet');
@@ -699,6 +755,7 @@ try {
     assert_equal(51, $unknownSessionResult['quota']['session']['pct'] ?? null, 'get_quota($session): account-wide buckets still come through for an unknown session name');
 
     TmuxService::tmux_run(['kill-session', '-t', $quotaTestSession]);
+    SidecarStore::delete_sidecar($quotaTestSession);
     $quotaTestSession = null;
 } finally {
     // Defense in depth - tests/run.sh's `tmux kill-server` on the isolated
@@ -715,6 +772,9 @@ try {
     }
     if ($sendTestSession !== null) {
         TmuxService::tmux_run(['kill-session', '-t', $sendTestSession]);
+    }
+    if ($adoptedTestSession !== null) {
+        TmuxService::tmux_run(['kill-session', '-t', $adoptedTestSession]);
     }
     if ($wrapTestSession !== null) {
         TmuxService::tmux_run(['kill-session', '-t', $wrapTestSession]);

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace HostAgent\Services;
 
+use HostAgent\Stores\SidecarStore;
+
 /**
  * Every tmux command this app runs - process control (via ProcessRunner)
  * scoped specifically to tmux, plus the small amount of parsing (pane
@@ -42,9 +44,15 @@ class TmuxService
     }
 
     /**
+     * Every real tmux session on the box, regardless of name or who started
+     * it. Used where "does a tmux session by this name still actually
+     * exist" is the question - e.g. create_cc_session()'s just-spawned-still-
+     * alive check, which runs before any sidecar has been written, so
+     * list_tracked_tmux_sessions() below (sidecar-gated) can't answer it yet.
+     *
      * @return array<int, array{name:string, activity:int, attached:bool}>
      */
-    public static function list_cc_tmux_sessions(): array
+    public static function list_all_tmux_sessions(): array
     {
         $result = self::tmux_run(['list-sessions', '-F', '#{session_name}|#{session_activity}|#{session_attached}']);
 
@@ -67,10 +75,6 @@ class TmuxService
 
             [$name, $activity, $attached] = $parts;
 
-            if (!str_starts_with($name, 'cc-')) {
-                continue;
-            }
-
             $sessions[] = [
                 'name' => $name,
                 'activity' => (int)$activity,
@@ -79,6 +83,26 @@ class TmuxService
         }
 
         return $sessions;
+    }
+
+    /**
+     * The "tracked"/full-featured subset of list_all_tmux_sessions(): any
+     * live tmux session with a sidecar file, regardless of name - a cc-*
+     * session this app spawned itself, or one it adopted via the
+     * SessionStart hook (see host-agent/hooks/session_start.php). Sidecar
+     * existence, not the cc-* prefix, is what actually makes a session
+     * full-featured (kill/send/answer-prompt/mode-toggle all key off having
+     * a sidecar to read/write), so this - not the name - is the whitelist
+     * every state-changing action re-checks against.
+     *
+     * @return array<int, array{name:string, activity:int, attached:bool}>
+     */
+    public static function list_tracked_tmux_sessions(): array
+    {
+        return array_values(array_filter(
+            self::list_all_tmux_sessions(),
+            static fn(array $session): bool => SidecarStore::read_sidecar($session['name']) !== null,
+        ));
     }
 
     /**
@@ -134,12 +158,12 @@ class TmuxService
 
     /**
      * Every pane on the host, across every tmux session regardless of name -
-     * unlike tmux_session_panes(), which only ever looks inside one cc-*
+     * unlike tmux_session_panes(), which only ever looks inside one named
      * session. Used to enrich "bare" claude processes (ones
      * ProcessInspector::find_claude_processes() found but that aren't inside
-     * a cc-* session this tool manages) with a session name/title when they
-     * happen to live in some other, manually created tmux session instead of
-     * a plain terminal.
+     * a tracked session - see list_tracked_tmux_sessions()) with a session
+     * name/title when they happen to live in some other, manually created
+     * tmux session instead of a plain terminal.
      *
      * @return array<int, array{session:string, title:?string}> keyed by pane_pid
      */

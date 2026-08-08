@@ -148,7 +148,7 @@ class QuotaService
      */
     public static function quota_from_live_pane(): ?array
     {
-        foreach (TmuxService::list_cc_tmux_sessions() as $tmuxSession) {
+        foreach (TmuxService::list_tracked_tmux_sessions() as $tmuxSession) {
             $parsed = self::parse_quota_from_pane(TmuxService::tmux_capture_pane($tmuxSession['name']));
 
             if ($parsed === null) {

@@ -80,7 +80,7 @@ $this->layout('layout', [
     </form>
   </details>
 
-  <form method="post" action="/" class="select-none mb-6" onsubmit="return confirm('Kill all cc-* sessions inactive for more than 12h?');">
+  <form method="post" action="/" class="select-none mb-6" onsubmit="return confirm('Kill all tracked sessions inactive for more than 12h?');">
     <input type="hidden" name="action" value="cleanup">
     <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
     <button type="submit"

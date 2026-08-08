@@ -130,9 +130,9 @@ class SessionRowView extends View
     }
 
     /**
-     * The dashboard header's "N active cc-* sessions" line - shared so a poll
-     * (sessions_fragment.php) can keep the count in sync with the list below
-     * it without duplicating the pluralization rule in JS.
+     * The dashboard header's "N active tracked sessions" line - shared so a
+     * poll (sessions_fragment.php) can keep the count in sync with the list
+     * below it without duplicating the pluralization rule in JS.
      */
     public static function session_count_label_html(int $count): string
     {

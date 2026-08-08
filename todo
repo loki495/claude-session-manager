@@ -140,3 +140,10 @@ Exploratory / speculative / lower priority:
   code/scrollable sections (e.g. the collapsible tool_use/tool_result
   blocks - BlockedPromptView::render_collapsible_block()/its session.js
   mirror) - copying currently means selecting text by hand.
+- When listing the "old / archived" sessions (unify-claude-sessions plan,
+  phase 4), sort by how long ago it was killed / the last message in
+  either direction was sent, most recent at the top.
+- A search function to search within the contents of all sessions (from
+  the dashboard), and within a single session (from the session sidebar) -
+  broader than the plain name/title filter field phase 4 already plans for
+  the archived list.

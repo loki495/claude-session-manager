@@ -9,8 +9,10 @@ use HostAgent\Stores\PendingToolStore;
 
 /**
  * Session lifecycle and control: listing, detail/history snapshots,
- * creating/killing cc-* tmux sessions, and sending input to a live
- * session's pane (messages, prompt answers, mode switches, escape).
+ * creating/killing tracked tmux sessions (app-spawned cc-* ones, and
+ * adopted ones - see TmuxService::list_tracked_tmux_sessions()), and
+ * sending input to a live session's pane (messages, prompt answers, mode
+ * switches, escape).
  */
 class SessionService
 {
@@ -28,9 +30,10 @@ class SessionService
     public const TMUX_KEY_STEP_DELAY_USEC = 300000;
 
     /**
-     * Builds one cc-* session's list-row/detail data from already-fetched
-     * process state - shared by list_all_sessions() (called once per tmux
-     * session found) and session_detail() (called for exactly one, by name).
+     * Builds one tracked session's (cc-* or adopted) list-row/detail data
+     * from already-fetched process state - shared by list_all_sessions()
+     * (called once per tmux session found) and session_detail() (called for
+     * exactly one, by name).
      *
      * @param array{name:string, activity:int, attached:bool} $tmuxSession
      * @param array<int, array{pid:int, cwd:?string, started_at:?int}> $claudeProcs
@@ -67,7 +70,7 @@ class SessionService
             'attached' => $tmuxSession['attached'],
             'pid' => $matchedPid,
             'workdir' => $sidecar['workdir'] ?? null,
-            'spawned_by_csm' => $sidecar !== null,
+            'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
             'title' => $panes['title'],
             'working' => $panes['working'],
             'blocked_reason' => $prompt['question'] ?? null,
@@ -122,7 +125,7 @@ class SessionService
      */
     public static function list_all_sessions(): array
     {
-        $tmuxSessions = TmuxService::list_cc_tmux_sessions();
+        $tmuxSessions = TmuxService::list_tracked_tmux_sessions();
         $claudeProcs = ProcessInspector::find_claude_processes();
         $ppidMap = ProcessInspector::build_ppid_map();
 
@@ -183,7 +186,7 @@ class SessionService
     {
         $tmuxSession = null;
 
-        foreach (TmuxService::list_cc_tmux_sessions() as $s) {
+        foreach (TmuxService::list_tracked_tmux_sessions() as $s) {
             if ($s['name'] === $name) {
                 $tmuxSession = $s;
                 break;
@@ -307,10 +310,13 @@ class SessionService
 
         // tmux new-session returns success as soon as the session is
         // registered, before checking whether the pane's command actually
-        // stayed running (e.g. bad cwd). Confirm it actually persisted.
+        // stayed running (e.g. bad cwd). Confirm it actually persisted. Must
+        // use list_all_tmux_sessions() here, not list_tracked_tmux_sessions()
+        // - the sidecar isn't written until a few lines below, so a
+        // sidecar-gated check would always report "not there yet".
         usleep(300000);
 
-        $stillThere = in_array($name, array_column(TmuxService::list_cc_tmux_sessions(), 'name'), true);
+        $stillThere = in_array($name, array_column(TmuxService::list_all_tmux_sessions(), 'name'), true);
 
         if (!$stillThere) {
             return [
@@ -319,20 +325,26 @@ class SessionService
             ];
         }
 
-        SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId]);
+        // spawned_by_csm is set here too, not left for the SessionStart hook
+        // to backfill - the hook only rebinds/confirms it on its own first
+        // fire moments later, and a dashboard poll landing in that gap would
+        // otherwise see this brand-new, definitely-app-spawned session
+        // reported as spawned_by_csm=false.
+        SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true]);
 
         return ['ok' => true, 'message' => "Created session {$name} in {$workdir}"];
     }
 
     /**
      * $requested must exactly match a name from a freshly-fetched
-     * TmuxService::list_cc_tmux_sessions() call made inside this same request.
+     * TmuxService::list_tracked_tmux_sessions() call made inside this same
+     * request.
      *
      * @return array{ok:bool, message:string}
      */
     public static function kill_cc_session(string $requested): array
     {
-        $whitelist = array_column(TmuxService::list_cc_tmux_sessions(), 'name');
+        $whitelist = array_column(TmuxService::list_tracked_tmux_sessions(), 'name');
 
         if (!in_array($requested, $whitelist, true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
@@ -366,7 +378,7 @@ class SessionService
      */
     public static function answer_prompt(string $name, int $option): array
     {
-        if (!in_array($name, array_column(TmuxService::list_cc_tmux_sessions(), 'name'), true)) {
+        if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
@@ -426,7 +438,7 @@ class SessionService
             return ['ok' => false, 'message' => 'Reply cannot be empty'];
         }
 
-        if (!in_array($name, array_column(TmuxService::list_cc_tmux_sessions(), 'name'), true)) {
+        if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
@@ -489,7 +501,7 @@ class SessionService
             return ['ok' => false, 'message' => 'Rejected: invalid direction'];
         }
 
-        if (!in_array($name, array_column(TmuxService::list_cc_tmux_sessions(), 'name'), true)) {
+        if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
@@ -519,7 +531,7 @@ class SessionService
      */
     public static function send_escape(string $name): array
     {
-        if (!in_array($name, array_column(TmuxService::list_cc_tmux_sessions(), 'name'), true)) {
+        if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
@@ -538,7 +550,7 @@ class SessionService
             return ['ok' => false, 'message' => 'Rejected: not a recognized mode'];
         }
 
-        if (!in_array($name, array_column(TmuxService::list_cc_tmux_sessions(), 'name'), true)) {
+        if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
@@ -597,7 +609,7 @@ class SessionService
             return ['ok' => false, 'message' => 'Message cannot be empty'];
         }
 
-        if (!in_array($name, array_column(TmuxService::list_cc_tmux_sessions(), 'name'), true)) {
+        if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
@@ -631,7 +643,7 @@ class SessionService
         $killed = [];
         $failed = [];
 
-        foreach (TmuxService::list_cc_tmux_sessions() as $session) {
+        foreach (TmuxService::list_tracked_tmux_sessions() as $session) {
             if (($now - $session['activity']) <= Config::cleanup_threshold_seconds()) {
                 continue;
             }
@@ -651,12 +663,14 @@ class SessionService
 
     /**
      * Kills a "bare" claude process (one ProcessInspector::find_claude_processes() found running
-     * on the host that isn't inside a cc-* session this tool manages) by pid.
+     * on the host that isn't inside a tracked - i.e. sidecar-having, see
+     * TmuxService::list_tracked_tmux_sessions() - session) by pid.
      * $pid is re-scanned against a fresh ProcessInspector::find_claude_processes() rather than
      * trusted from the caller, so a stale or reused pid can't be used to kill
-     * an unrelated process. If the pid lives inside some other tmux session
-     * (one not named cc-*, e.g. created by hand), the whole session is killed
-     * for a clean shutdown of that pane; otherwise SIGTERM is sent directly.
+     * an unrelated process. If the pid lives inside some other, untracked
+     * tmux session (e.g. one created by hand whose SessionStart hook hasn't
+     * fired yet), the whole session is killed for a clean shutdown of that
+     * pane; otherwise SIGTERM is sent directly.
      *
      * @return array{ok:bool, message:string}
      */
