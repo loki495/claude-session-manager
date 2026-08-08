@@ -601,6 +601,7 @@ try {
     assert_contains('id="compose-attachments-preview"', $result['body'], 'GET /session.php: compose-attachments preview container present, for pending uploads shown as removable chips above the textarea');
     assert_contains('id="uploaded-files-list"', $result['body'], 'GET /session.php: sidebar uploaded-files list present');
     assert_contains('id="delete-all-uploads-btn"', $result['body'], 'GET /session.php: sidebar delete-all-uploads button present');
+    assert_contains('id="plan-files-list"', $result['body'], 'GET /session.php: sidebar plan/handoff-files list present');
     assert_true(
         preg_match('/id="compose-textarea"[^>]*class="[^"]*\btext-base\b/', $result['body']) === 1,
         'GET /session.php: compose textarea uses a >=16px font size, so focusing it does not trigger iOS zoom'
@@ -824,6 +825,17 @@ try {
     $filesBody = json_decode($result['body'], true);
     assert_true(is_array($filesBody) && ($filesBody['ok'] ?? false), 'GET /uploaded_files.php: response decodes as ok=true JSON');
     assert_equal(2, count($filesBody['files'] ?? []), 'GET /uploaded_files.php: canned files passed through');
+
+    // --- session_plan_files.php: GET-only, passes the canned agent's plan/handoff-files list through as JSON ---
+    $result = curl_request('GET', "{$baseUrl}/session_plan_files.php?session=cc-20260101-1200");
+    assert_equal(200, $result['status'], 'GET /session_plan_files.php: 200');
+    $planFilesBody = json_decode($result['body'], true);
+    assert_true(is_array($planFilesBody) && ($planFilesBody['ok'] ?? false), 'GET /session_plan_files.php: response decodes as ok=true JSON');
+    assert_equal(['PLAN.md', 'handoff-2026-08-08.md'], array_column($planFilesBody['files'] ?? [], 'name'), 'GET /session_plan_files.php: canned files passed through');
+
+    $planFilesUnknownResult = curl_request('GET', "{$baseUrl}/session_plan_files.php?session=cc-not-a-real-session");
+    $planFilesUnknownBody = json_decode($planFilesUnknownResult['body'], true);
+    assert_equal(false, $planFilesUnknownBody['ok'] ?? null, 'GET /session_plan_files.php: ok=false for an unrecognized session, not a crash');
 
     // --- delete_uploaded_file.php: GET not allowed, CSRF enforced, canned agent accepts/rejects by filename ---
     $result = curl_request('GET', "{$baseUrl}/delete_uploaded_file.php");

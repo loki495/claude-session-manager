@@ -129,6 +129,15 @@ Smaller polish (low effort, low risk):
   code/scrollable sections (e.g. the collapsible tool_use/tool_result
   blocks - BlockedPromptView::render_collapsible_block()/its session.js
   mirror) - copying currently means selecting text by hand.
+- Two related nav/render polish items (Andres, 2026-08-08): (1) detect
+  the iOS swipe-back gesture going from session.php to the dashboard and
+  show a loading blanket over the page during that transition, same
+  spirit as a real native-app transition rather than a bare flash of the
+  old page; (2) something like Alpine's x-cloak for transcript entries -
+  right now, entries that are about to be hidden by a toggle (Show tool
+  outputs/Show tool calls) can flash visible before the hide-tool-details/
+  hide-tool-calls CSS rule (see session.php's own <style> block) actually
+  applies, instead of never being visible at all.
 
 Exploratory / speculative / lower priority:
 
@@ -177,9 +186,5 @@ Exploratory / speculative / lower priority:
     echo "Success! Process $PID moved to tmux session: $SESSION_NAME"
     sleep 1
     exec tmux attach-session -t "$SESSION_NAME"
-- session.php sidebar: show the handoff/plan files (e.g. plan docs, handoff
-  prompts) sitting in the session's own cwd - not session-specific data,
-  just a directory listing/glance, but useful for spotting stale ones
-  worth cleaning up (still a manual delete, not automated).
 - Future end-user/contributor separation concerns: remove hardcoded paths,
   README is out of date/too long (split into files if necessary).

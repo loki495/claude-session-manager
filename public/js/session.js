@@ -375,6 +375,7 @@
   var uploadedFilesList = document.getElementById('uploaded-files-list');
   var uploadedFilesTotal = document.getElementById('uploaded-files-total');
   var deleteAllUploadsBtn = document.getElementById('delete-all-uploads-btn');
+  var planFilesList = document.getElementById('plan-files-list');
 
   function formatFileSize(bytes) {
     if (bytes < 1024) {
@@ -427,6 +428,47 @@
       })
       .catch(function () {
         uploadedFilesList.innerHTML = '<div class="text-slate-500 text-xs">Could not load files.</div>';
+      });
+  }
+
+  // Sidebar "Plan/handoff files" glance (Andres's own idea, 2026-08-08) -
+  // a read-only listing of *.md files sitting directly in this session's
+  // own cwd (README.md/CLAUDE.md excluded server-side - see
+  // SessionService::list_plan_files()), so ad-hoc plan docs/handoff
+  // prompts don't go unnoticed once stale. No delete action here on
+  // purpose - cleanup stays manual.
+  function planFileRowHtml(f) {
+    var name = escapeHtml(f.name);
+    return '<div class="flex items-center justify-between gap-2">'
+      + '<span class="truncate text-slate-300" title="' + name + '">' + name + '</span>'
+      + '<span class="shrink-0 text-xs text-slate-500">' + escapeHtml(relativeTimeLabel(f.mtime)) + '</span>'
+      + '</div>';
+  }
+
+  function loadPlanFiles() {
+    if (!planFilesList) {
+      return Promise.resolve();
+    }
+
+    return fetch('/session_plan_files.php?session=' + encodeURIComponent(sessionName), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok) {
+          planFilesList.innerHTML = '<div class="text-slate-500 text-xs">Could not load files.</div>';
+          return;
+        }
+
+        var files = data.files || [];
+
+        if (files.length === 0) {
+          planFilesList.innerHTML = '<div class="text-slate-500 text-xs">No plan/handoff files found.</div>';
+          return;
+        }
+
+        planFilesList.innerHTML = files.map(planFileRowHtml).join('');
+      })
+      .catch(function () {
+        planFilesList.innerHTML = '<div class="text-slate-500 text-xs">Could not load files.</div>';
       });
   }
 
@@ -505,6 +547,7 @@
     sidebar.scrollTop = 0;
     loadSidebarList();
     loadUploadedFiles();
+    loadPlanFiles();
   }
 
   function closeSidebar() {
@@ -1942,7 +1985,8 @@
       pollInfo(wasNearBottom),
       pollHistory(wasNearBottom),
       refreshSidebarNotification(),
-      sidebarCurrentlyOpen ? loadUploadedFiles() : Promise.resolve()
+      sidebarCurrentlyOpen ? loadUploadedFiles() : Promise.resolve(),
+      sidebarCurrentlyOpen ? loadPlanFiles() : Promise.resolve()
     ]).finally(function () {
       pollRunning = false;
 

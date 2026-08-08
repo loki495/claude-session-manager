@@ -37,6 +37,12 @@
       </button>
     </div>
     <div class="px-4 py-3 border-t border-slate-800">
+      <span class="block text-xs font-medium text-slate-500 mb-2">Plan/handoff files</span>
+      <div id="plan-files-list" class="flex flex-col gap-1.5 text-sm">
+        <div class="text-slate-500 text-xs">Loading&hellip;</div>
+      </div>
+    </div>
+    <div class="px-4 py-3 border-t border-slate-800">
       <form method="post" action="/" onsubmit="return confirm('Close session <?= htmlspecialchars($sessionName, ENT_QUOTES) ?>?');">
         <input type="hidden" name="action" value="kill">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">

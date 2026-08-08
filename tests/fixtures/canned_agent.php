@@ -211,6 +211,12 @@ $response = match ($action) {
         ? ['ok' => true, 'message' => 'Sent free-text reply to ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Reply cannot be empty'],
     'session_history' => canned_session_history($request),
+    'list_plan_files' => ($request['session'] ?? null) === CANNED_SESSION_NAME
+        ? ['ok' => true, 'files' => [
+            ['name' => 'PLAN.md', 'size' => 512, 'mtime' => time() - 300],
+            ['name' => 'handoff-2026-08-08.md', 'size' => 1024, 'mtime' => time() - 3600],
+        ]]
+        : ['ok' => false, 'message' => 'Unknown working directory for this session'],
     'session_attachment' => (string)($request['session'] ?? null) === CANNED_SESSION_NAME
         ? match ($request['file_uuid'] ?? null) {
             CANNED_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES)],

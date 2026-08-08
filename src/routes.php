@@ -34,6 +34,7 @@ $router->get('/session.php', [SessionController::class, 'show']);
 $router->post('/session.php', [SessionController::class, 'show']);
 
 $router->get('/session_detail.php', [SessionController::class, 'detail']);
+$router->get('/session_plan_files.php', [SessionController::class, 'planFiles']);
 $router->get('/session_history.php', [SessionController::class, 'history']);
 $router->get('/session_attachment.php', [SessionController::class, 'attachment']);
 

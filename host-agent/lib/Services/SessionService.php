@@ -332,6 +332,65 @@ class SessionService
     }
 
     /**
+     * Every markdown file sitting directly in $sessionName's own working
+     * directory (never subdirectories) - the sidebar's "plan/handoff
+     * files" glance (Andres's own idea, 2026-08-08): ad-hoc plan docs and
+     * handoff prompts a session or Andres drops straight into a
+     * project's root are otherwise invisible/easy to forget about once
+     * stale. Deliberately read-only, no delete action here - cleanup
+     * stays a manual delete, this is purely a glance (Andres's own
+     * framing). README.md/CLAUDE.md are excluded - permanent, expected
+     * project docs, not the kind of ad-hoc scratch file this is meant to
+     * surface. Workdir is resolved server-side from the session's own
+     * sidecar, never trusted from the caller - same discipline as every
+     * other per-session action in this file.
+     *
+     * @return array{ok:bool, files?:array<int, array{name:string, size:int, mtime:int}>, message?:string}
+     */
+    public static function list_plan_files(string $sessionName): array
+    {
+        $sidecar = SidecarStore::read_sidecar($sessionName);
+        $workdir = is_string($sidecar['workdir'] ?? null) ? $sidecar['workdir'] : null;
+
+        if ($workdir === null) {
+            return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+        }
+
+        if (!is_dir($workdir)) {
+            return ['ok' => true, 'files' => []];
+        }
+
+        $excludedNames = ['readme.md', 'claude.md'];
+        $files = [];
+
+        foreach (scandir($workdir) ?: [] as $entry) {
+            if (strtolower((string)pathinfo($entry, PATHINFO_EXTENSION)) !== 'md') {
+                continue;
+            }
+
+            if (in_array(strtolower($entry), $excludedNames, true)) {
+                continue;
+            }
+
+            $full = $workdir . '/' . $entry;
+
+            if (!is_file($full)) {
+                continue;
+            }
+
+            $files[] = [
+                'name' => $entry,
+                'size' => (int)filesize($full),
+                'mtime' => (int)filemtime($full),
+            ];
+        }
+
+        usort($files, fn(array $a, array $b) => $b['mtime'] <=> $a['mtime']);
+
+        return ['ok' => true, 'files' => $files];
+    }
+
+    /**
      * Fresh, single-session snapshot for the detail page - re-derives
      * everything from a live tmux/proc scan by name rather than trusting
      * anything from the caller, same discipline as kill_cc_session()'s

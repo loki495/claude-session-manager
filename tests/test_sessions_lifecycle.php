@@ -314,6 +314,50 @@ assert_equal(false, $result['ok'] ?? null, 'SessionService::browse_dir(/etc): re
 $result = SessionService::browse_dir(Config::www_root() . '/does-not-exist');
 assert_equal(false, $result['ok'] ?? null, 'SessionService::browse_dir(missing dir): rejects a nonexistent path');
 
+// --- SessionService::list_plan_files(): the sidebar's "Plan/handoff
+// files" glance - *.md files directly in a session's own cwd (never
+// subdirectories), README.md/CLAUDE.md excluded, sorted most-recently-
+// modified first. No real tmux pane needed - this only reads the
+// sidecar's own recorded workdir, same as UploadService's own
+// session_workdir() lookup. ---
+assert_equal(false, SessionService::list_plan_files('cc-not-a-real-session')['ok'] ?? null, 'list_plan_files: rejects a session with no sidecar (unknown workdir)');
+
+$planFilesSession = 'cc-test-plan-files-' . getmypid();
+$planFilesDir = Config::www_root() . '/project-a';
+SidecarStore::write_sidecar($planFilesSession, ['workdir' => $planFilesDir, 'spawned_at' => time()]);
+
+file_put_contents($planFilesDir . '/README.md', 'readme');
+file_put_contents($planFilesDir . '/CLAUDE.md', 'claude md');
+file_put_contents($planFilesDir . '/notes.txt', 'not markdown');
+file_put_contents($planFilesDir . '/nested/deep-plan.md', 'nested - must not appear, non-recursive');
+file_put_contents($planFilesDir . '/older-plan.md', 'older');
+touch($planFilesDir . '/older-plan.md', time() - 3600);
+file_put_contents($planFilesDir . '/PLAN.md', 'newer');
+touch($planFilesDir . '/PLAN.md', time());
+
+$planFilesResult = SessionService::list_plan_files($planFilesSession);
+assert_true($planFilesResult['ok'] ?? false, 'list_plan_files: ok=true for a session with a real, known workdir');
+$planFileNames = array_column($planFilesResult['files'] ?? [], 'name');
+assert_equal(['PLAN.md', 'older-plan.md'], $planFileNames, 'list_plan_files: only top-level *.md files, README.md/CLAUDE.md excluded, sorted most-recently-modified first');
+
+$planFileSizes = array_column($planFilesResult['files'] ?? [], 'size', 'name');
+assert_equal(strlen('newer'), $planFileSizes['PLAN.md'] ?? null, 'list_plan_files: reports the real file size');
+
+@unlink($planFilesDir . '/README.md');
+@unlink($planFilesDir . '/CLAUDE.md');
+@unlink($planFilesDir . '/notes.txt');
+@unlink($planFilesDir . '/nested/deep-plan.md');
+@unlink($planFilesDir . '/older-plan.md');
+@unlink($planFilesDir . '/PLAN.md');
+SidecarStore::delete_sidecar($planFilesSession);
+
+$missingWorkdirSession = 'cc-test-plan-files-missing-' . getmypid();
+SidecarStore::write_sidecar($missingWorkdirSession, ['workdir' => Config::www_root() . '/does-not-exist', 'spawned_at' => time()]);
+$missingWorkdirResult = SessionService::list_plan_files($missingWorkdirSession);
+assert_true($missingWorkdirResult['ok'] ?? false, 'list_plan_files: ok=true even when the workdir no longer exists on disk');
+assert_equal([], $missingWorkdirResult['files'] ?? null, 'list_plan_files: empty list for a missing workdir, not an error');
+SidecarStore::delete_sidecar($missingWorkdirSession);
+
 try {
     // --- create ---
     $created = create_and_track(Config::www_root() . '/project-a', $createdSessions);

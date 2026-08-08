@@ -178,6 +178,20 @@ class SessionController extends Controller
     }
 
     /**
+     * GET-only JSON endpoint backing the sidebar's "Plan/handoff files"
+     * glance (see session.js's loadPlanFiles()) - read-only, same
+     * no-CSRF-needed reasoning as detail() above.
+     */
+    public function planFiles(): void
+    {
+        $this->start_readonly_json();
+
+        $sessionName = trim((string)($_GET['session'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call(['action' => 'list_plan_files', 'session' => $sessionName]));
+    }
+
+    /**
      * GET-only JSON endpoint backing session.php's "load more" transcript
      * pagination (see session.php's inline script). Read-only, same
      * no-CSRF-needed reasoning as detail() above.

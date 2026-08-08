@@ -117,6 +117,9 @@ function dispatch_action(array $request): array
         case 'browse_dir':
             return SessionService::browse_dir((string)($request['path'] ?? ''));
 
+        case 'list_plan_files':
+            return SessionService::list_plan_files((string)($request['session'] ?? ''));
+
         case 'quota':
             $quotaSession = trim((string)($request['session'] ?? ''));
 
