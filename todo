@@ -3,6 +3,29 @@ says otherwise). Reordered 2026-08-04 by gain/effort/surface-area/code-practice.
 
 Bigger features needing research first (moderate-high surface area):
 
+- Quota-reset push notification (shipped 2026-08-06) fired hours late in
+  practice - not near the real reset time, only right after Andres sent
+  a message to a session hours later. Needs research before deciding
+  what to do: QuotaService::get_quota(null) (what push_trigger.php's
+  quota pass calls every ~10s) prefers quota_from_live_pane() - which
+  only has data at all while SOME tmux pane is actively showing a status
+  line, i.e. only right after real API activity in a session - and
+  otherwise falls back to a claude-quota scrape cached with a 5-minute
+  TTL (QUOTA_CACHE_TTL_SECONDS), refreshed in the background only when
+  something calls get_quota() while the cache is already stale. With no
+  session live/active for a long stretch, the cached value can go stale
+  and just sit there (background refresh never re-triggered, or
+  triggered but nothing forces the NEXT tick to actually pick up the
+  freshly-written cache promptly) until something (a real session
+  becoming live again) supplies fresh data - explains a detection delay
+  measured in hours, not minutes. Worth checking: does the timer's own
+  10s polling actually keep re-triggering background refreshes on
+  schedule once the TTL elapses (claim_quota_refresh_marker()'s own
+  90s-abandoned-marker logic might be relevant), or does the push pass
+  need its own independent, more eager refresh path rather than sharing
+  quota.php's on-demand-refresh-when-a-browser-asks model built for a
+  human staring at a page, not a background timer that wants to catch a
+  reset within seconds of it actually happening.
 - Recognize plan-mode entries and mode switches for better display on
   session.php, and better push notifications for them. Two related but
   distinct things: (1) when Claude presents a plan (ExitPlanMode), it
