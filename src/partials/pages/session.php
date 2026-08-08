@@ -74,27 +74,41 @@ $this->layout('layout', [
 
     <h2 class="select-none text-sm font-medium text-slate-400 mb-2">History</h2>
 
-    <?php if (!$historyOk): ?>
-      <div class="select-none rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
-        <?= $this->e((string)($history['message'] ?? 'No transcript available for this session.')) ?>
-      </div>
-    <?php elseif (empty($entries)): ?>
-      <div class="select-none rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
-        Nothing recorded yet.
-      </div>
-    <?php else: ?>
-      <button type="button" id="load-more-btn"
-        data-session="<?= $this->e($sessionName) ?>"
-        data-before="<?= $nextBefore !== null ? (int)$nextBefore : '' ?>"
-        class="select-none w-full mb-2 rounded-lg border border-slate-800 bg-slate-900/50 active:bg-slate-800 text-xs text-slate-400 px-3 py-2 <?= $hasMore ? '' : 'hidden' ?>">
-        Load older messages
-      </button>
-      <div id="history-list" class="flex flex-col gap-2">
+    <!-- #history-list and #load-more-btn are ALWAYS rendered (never
+         conditionally, unlike the old version of this template) - both are
+         captured ONCE by session.js at load time (document.getElementById,
+         never re-queried), so a session opened before its first line
+         exists (a brand-new session, or one that's genuinely empty so
+         far) used to leave `list` permanently null for the rest of the
+         page's life once either container was missing, crashing the very
+         first appendPendingEntry() call (list.appendChild() on null) the
+         moment a message was actually sent - found live 2026-08-08. The
+         "nothing here yet" messaging now lives INSIDE #history-list as a
+         plain placeholder note instead, which session.js's own
+         appendPendingEntry()/pollHistory() already remove the moment any
+         real content (optimistic or polled) actually lands - see
+         removeHistoryEmptyNote() there. -->
+    <button type="button" id="load-more-btn"
+      data-session="<?= $this->e($sessionName) ?>"
+      data-before="<?= $nextBefore !== null ? (int)$nextBefore : '' ?>"
+      class="select-none w-full mb-2 rounded-lg border border-slate-800 bg-slate-900/50 active:bg-slate-800 text-xs text-slate-400 px-3 py-2 <?= $hasMore ? '' : 'hidden' ?>">
+      Load older messages
+    </button>
+    <div id="history-list" class="flex flex-col gap-2">
+      <?php if (!$historyOk): ?>
+        <p id="history-empty-note" class="select-none rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
+          <?= $this->e((string)($history['message'] ?? 'No transcript available for this session.')) ?>
+        </p>
+      <?php elseif (empty($entries)): ?>
+        <p id="history-empty-note" class="select-none rounded-lg px-4 py-3 text-sm bg-slate-900/50 border border-slate-800 text-slate-500">
+          Nothing recorded yet.
+        </p>
+      <?php else: ?>
         <?php foreach ($entries as $entry): ?>
           <?= \App\Views\TranscriptView::render_transcript_entry($entry, $sessionName) ?>
         <?php endforeach; ?>
-      </div>
-    <?php endif; ?>
+      <?php endif; ?>
+    </div>
 
     <div id="thinking-indicator" class="mt-4">
       <?= \App\Views\TranscriptView::render_thinking_indicator_html($detail) ?>

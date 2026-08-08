@@ -25,6 +25,7 @@ const CANNED_IMAGE_ATTACHMENT_FILE_UUID = 'canned-file-uuid-2';
 const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
 const CANNED_RESUMED_SESSION_NAME = 'cc-20260101-1400';
 const CANNED_TAKEN_OVER_SESSION_NAME = 'cc-20260101-1500';
+const CANNED_NEW_SESSION_NAME = 'cc-20260101-1600';
 
 const CANNED_LAST_MESSAGE = [
     'role' => 'assistant',
@@ -178,7 +179,31 @@ $response = match ($action) {
             'claude_session_id' => CANNED_CLAUDE_SESSION_ID,
             'has_transcript' => true,
         ]
-        : ['ok' => false, 'message' => 'Session not found'],
+        : (($request['session'] ?? null) === CANNED_NEW_SESSION_NAME
+            ? [
+                // A brand-new session: found (session_detail succeeds),
+                // but with no transcript on disk yet - session_history()
+                // below falls through to its own "no transcript" branch
+                // for any session name other than CANNED_SESSION_NAME,
+                // which already covers this. See test_ui_smoke.php's
+                // "brand-new session" block for what this proves:
+                // #history-list must still render (with a placeholder
+                // note inside it) rather than being omitted entirely.
+                'ok' => true,
+                'name' => CANNED_NEW_SESSION_NAME,
+                'activity' => time() - 5,
+                'attached' => false,
+                'pid' => 12347,
+                'workdir' => '/home/andres/www/new-project',
+                'spawned_by_csm' => true,
+                'title' => null,
+                'working' => false,
+                'blocked_reason' => null,
+                'current_mode' => 'manual',
+                'claude_session_id' => null,
+                'has_transcript' => false,
+            ]
+            : ['ok' => false, 'message' => 'Session not found']),
     'answer_prompt' => ($request['session'] ?? null) === CANNED_SESSION_NAME && ($request['option'] ?? null) === 1
         ? ['ok' => true, 'message' => 'Sent option 1 to ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: that option is not currently offered by this prompt'],
@@ -244,8 +269,8 @@ $response = match ($action) {
     // SessionService::send_message()'s own real semantics) - lets
     // test_ui_smoke.php prove session_send.php's attachments[] field
     // actually reaches the agent action as attachment_paths.
-    'send_message' => ($request['session'] ?? null) === CANNED_SESSION_NAME && (trim((string)($request['text'] ?? '')) !== '' || !empty($request['attachment_paths']))
-        ? ['ok' => true, 'message' => 'Sent message to ' . CANNED_SESSION_NAME]
+    'send_message' => in_array($request['session'] ?? null, [CANNED_SESSION_NAME, CANNED_NEW_SESSION_NAME], true) && (trim((string)($request['text'] ?? '')) !== '' || !empty($request['attachment_paths']))
+        ? ['ok' => true, 'message' => 'Sent message to ' . $request['session']]
         : ['ok' => false, 'message' => 'Message cannot be empty'],
     'set_mode' => ($request['session'] ?? null) === CANNED_SESSION_NAME && in_array($request['mode'] ?? null, ['manual', 'accept edits', 'plan', 'auto'], true)
         ? ['ok' => true, 'message' => 'Set mode for ' . CANNED_SESSION_NAME . ' to ' . $request['mode']]

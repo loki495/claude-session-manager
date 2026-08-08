@@ -23,6 +23,7 @@ const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuT
 const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
 const CANNED_RESUMED_SESSION_NAME = 'cc-20260101-1400';
 const CANNED_TAKEN_OVER_SESSION_NAME = 'cc-20260101-1500';
+const CANNED_NEW_SESSION_NAME = 'cc-20260101-1600';
 
 $agentSocket = sys_get_temp_dir() . '/csm-test-ui-agent.sock';
 $agentHarness = start_harness(['php', __DIR__ . '/fixtures/canned_agent.php'], $agentSocket);
@@ -1031,6 +1032,22 @@ try {
         preg_match('#<form method="post" action="/take_over_bare\.php" class="take-over-form"[^>]*>\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="pid" value="54321">\s*<button type="submit"[^>]*>\s*Take over#', $takeOverFragmentBody['bare_html'] ?? '') === 1,
         'GET /sessions_fragment.php: bare_html carries a Take over form for the canned bare pid'
     );
+
+    // --- session.php: a brand-new session (found, but no transcript on
+    // disk yet) must still render #history-list (with a placeholder note
+    // inside it), not omit the container entirely - found live
+    // 2026-08-08: session.js captures #history-list via a single
+    // getElementById() at load time, never re-queried, so a missing
+    // container left `list` permanently null for the whole page's life,
+    // crashing the very first compose send (list.appendChild() on null)
+    // rather than just showing an empty state. ---
+    $newSessionResult = curl_request('GET', "{$baseUrl}/session.php?session=" . CANNED_NEW_SESSION_NAME);
+    assert_equal(200, $newSessionResult['status'], 'GET /session.php (brand-new session): 200');
+    assert_true(
+        preg_match('#<div id="history-list"[^>]*>\s*<p id="history-empty-note"[^>]*>#', $newSessionResult['body']) === 1,
+        'GET /session.php (brand-new session): #history-list is present and contains the placeholder note, not omitted'
+    );
+    assert_contains('id="compose-bar"', $newSessionResult['body'], 'GET /session.php (brand-new session): compose bar still renders normally');
 
     // --- optional richer tier: only if a headless browser is already on this host ---
     $browser = find_headless_browser();

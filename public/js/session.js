@@ -937,10 +937,100 @@
     return textBlock ? textBlock.text : '';
   }
 
+  // --- pending-compose-message persistence: survives a navigation away
+  // and back to this same session, found live 2026-08-08 (Andres: a
+  // message sent while Claude was mid-turn, still showing dimmed, was
+  // gone entirely after navigating to another page and back before it
+  // was confirmed). pendingEntries itself is plain in-memory JS state,
+  // wiped on any real page navigation - sessionStorage is the one piece
+  // that actually survives it. Only ever tracks ONE compose message at a
+  // time (the textarea/send button are disabled while a send is in
+  // flight, so there's never a second concurrent one from this same
+  // tab) - deliberately NOT used for prompt-answer pendings, which
+  // already have their own more reliable answerPendingReason-based
+  // reconciliation (see the comment on that near the top of this file)
+  // rather than generic text-matching. ---
+  var PENDING_MESSAGE_STORAGE_KEY = 'csm-pending-message-' + sessionName;
+  // A restored pending bubble that's actually already long confirmed
+  // (the tab closed before its own poll could reconcile+clear storage,
+  // then reopened well after Claude Code wrote the real transcript line)
+  // would sit forever un-reconciled - pollHistory() only ever asks the
+  // server for entries newer than THIS load's own newestLine, so an
+  // already-rendered confirmation can never show up in a future `fresh`
+  // batch to match against. Capping how old a restored entry can be
+  // avoids that: Claude Code's own write latency for a compose send is a
+  // couple of seconds at most (measured live elsewhere in this file), so
+  // anything older than this is far more likely already-confirmed than
+  // still genuinely in flight.
+  var PENDING_MESSAGE_MAX_AGE_MS = 2 * 60 * 1000;
+
+  function savePendingMessageToStorage(role, text) {
+    try {
+      window.sessionStorage.setItem(PENDING_MESSAGE_STORAGE_KEY, JSON.stringify({ role: role, text: text, savedAt: Date.now() }));
+    } catch (e) {}
+  }
+
+  function clearPendingMessageFromStorage() {
+    try {
+      window.sessionStorage.removeItem(PENDING_MESSAGE_STORAGE_KEY);
+    } catch (e) {}
+  }
+
+  // Called once at page load, before polling starts - re-renders whatever
+  // compose message was still unconfirmed when this tab last navigated
+  // away from this session, as a normal pending entry (pollHistory()'s
+  // existing reconcilePendingEntries() then clears it exactly the same
+  // way as any other pending entry, once the real confirming line
+  // arrives).
+  function restorePendingMessageFromStorage() {
+    var raw;
+
+    try {
+      raw = window.sessionStorage.getItem(PENDING_MESSAGE_STORAGE_KEY);
+    } catch (e) {
+      return;
+    }
+
+    if (!raw) {
+      return;
+    }
+
+    var saved;
+
+    try {
+      saved = JSON.parse(raw);
+    } catch (e) {
+      clearPendingMessageFromStorage();
+      return;
+    }
+
+    if (!saved || typeof saved.text !== 'string' || saved.text === '' || typeof saved.savedAt !== 'number' || (Date.now() - saved.savedAt) > PENDING_MESSAGE_MAX_AGE_MS) {
+      clearPendingMessageFromStorage();
+      return;
+    }
+
+    appendPendingEntry(saved.role, [{ kind: 'text', text: saved.text }]);
+  }
+
+  // #history-list always exists now (see session.php's own comment on the
+  // container) but starts with a placeholder note ("No transcript
+  // available"/"Nothing recorded yet") when there's no real content yet -
+  // removed the moment anything real actually shows up, optimistic or
+  // polled, so it's not still sitting there once messages exist.
+  function removeHistoryEmptyNote() {
+    var note = document.getElementById('history-empty-note');
+
+    if (note && note.parentNode) {
+      note.parentNode.removeChild(note);
+    }
+  }
+
   function appendPendingEntry(role, blocks) {
     if (!list) {
       return null;
     }
+
+    removeHistoryEmptyNote();
 
     var wasNearBottom = isNearBottom();
     var el = renderEntry({ role: role, timestamp: new Date().toISOString(), blocks: blocks });
@@ -1001,6 +1091,10 @@
 
       if (matched && el.parentNode) {
         el.parentNode.removeChild(el);
+      }
+
+      if (matched && el.dataset.pendingRole === 'user') {
+        clearPendingMessageFromStorage();
       }
 
       return !matched;
@@ -1583,6 +1677,8 @@
   var pollTimer = null; // pending setTimeout ID for the next cycle, or null while a cycle's own requests are in flight (nothing pending to clear right then)
   var pollingActive = false; // whether polling should keep going - distinct from pollTimer, which is null during a cycle's in-flight window
   var pollAbortController = new AbortController(); // reset in startPolling() each time polling (re)starts, so a lingering abort from a previous stop can't affect a fresh one
+  var pollRunning = false; // true while a pollOnce() cycle's requests are actually in flight - see pollOnce()'s own re-entrancy guard
+  var pollQueuedAgain = false; // a pollOnce() call arrived while one was already running - run exactly one more pass once the current one finishes
 
   // Wipes the rendered history and pagination state clean, same in spirit
   // to how a real terminal clears on /clear - called once a rotation to a
@@ -1780,6 +1876,7 @@
           return;
         }
 
+        removeHistoryEmptyNote();
         reconcilePendingEntries(fresh);
 
         var fragment = document.createDocumentFragment();
@@ -1806,7 +1903,30 @@
   // 1s option) can never pile up overlapping in-flight requests - each
   // cycle waits its full interval AFTER the previous one finishes, not on
   // a fixed clock regardless of how long that previous one took.
+  //
+  // That guarantee only ever covered the regular timer's own cycle()
+  // calls, though - sendComposedMessage() also calls pollOnce() directly,
+  // to pick up the just-sent message right away rather than waiting for
+  // the next tick. If a scheduled cycle was already in flight at that
+  // exact moment, two genuinely concurrent pollHistory() calls could
+  // race: each computes `fresh`/reconciles pendingEntries against its own
+  // snapshot of the shared, mutable `newestLine`, which is read again at
+  // response-processing time rather than pinned to what it was when that
+  // response's own fetch was issued - found live 2026-08-08 as the cause
+  // of an optimistic "Sending…" bubble surviving alongside the real,
+  // already-confirmed entry once both arrived close together. The guard
+  // below makes pollOnce() itself re-entrant-safe regardless of caller:
+  // a call that arrives while one's already running just marks "run
+  // once more after this" instead of starting a second overlapping pass.
   function pollOnce() {
+    if (pollRunning) {
+      pollQueuedAgain = true;
+
+      return Promise.resolve();
+    }
+
+    pollRunning = true;
+
     // Captured once, synchronously, before either fetch fires - both
     // independent responses use this same snapshot so a poll cycle either
     // scrolls once (if the user was at the bottom when it started) or not
@@ -1823,7 +1943,14 @@
       pollHistory(wasNearBottom),
       refreshSidebarNotification(),
       sidebarCurrentlyOpen ? loadUploadedFiles() : Promise.resolve()
-    ]);
+    ]).finally(function () {
+      pollRunning = false;
+
+      if (pollQueuedAgain) {
+        pollQueuedAgain = false;
+        pollOnce();
+      }
+    });
   }
 
   function startPolling() {
@@ -2054,11 +2181,23 @@
       pendingAttachments.forEach(function (a) { body.append('attachments[]', a.path); });
 
       var pendingEl = appendPendingEntry('user', [{ kind: 'text', text: optimisticText }]);
+      savePendingMessageToStorage('user', optimisticText);
 
       fetch('/session_send.php', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        // keepalive: a plain page navigation (this app has no client-side
+        // router - see CLAUDE.md - so leaving this session is always a
+        // real browser navigation/unload) can otherwise abort an in-flight
+        // fetch outright, not just lose track of it client-side - found
+        // live 2026-08-08 as the likely cause behind a compose message
+        // reported as genuinely gone, not just visually stale, after
+        // navigating away fast enough. keepalive lets the request finish
+        // even once the page that started it is gone. Body is a short
+        // compose message/attachment-path list, well under the spec's
+        // ~64KB keepalive request-body cap.
+        keepalive: true,
         body: body.toString()
       })
         .then(function (r) { return parseJsonResponse(r, 'compose-send'); })
@@ -2072,11 +2211,13 @@
             pollOnce(); // pick up the new message (and whatever happens next) right away, not on the next 15s tick
           } else {
             removePendingEntry(pendingEl);
+            clearPendingMessageFromStorage();
             setComposeStatus((data && data.message) || 'Failed to send message.');
           }
         })
         .catch(function () {
           removePendingEntry(pendingEl);
+          clearPendingMessageFromStorage();
           setComposeStatus('Network error - message not sent.');
         })
         .finally(function () {
@@ -2370,6 +2511,10 @@
       stopPolling();
     }
   });
+
+  // Restored before the initial scroll-to-bottom below, so if it's the
+  // newest thing on the page, landing at the bottom actually shows it.
+  restorePendingMessageFromStorage();
 
   // Land at the bottom on open - the current/latest activity (and any
   // pending prompt) is what matters first, same as any chat app.
