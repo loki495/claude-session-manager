@@ -26,24 +26,26 @@ Bigger features needing research first (moderate-high surface area):
   quota.php's on-demand-refresh-when-a-browser-asks model built for a
   human staring at a page, not a background timer that wants to catch a
   reset within seconds of it actually happening.
-- Recognize plan-mode entries and mode switches for better display on
-  session.php, and better push notifications for them. Two related but
-  distinct things: (1) when Claude presents a plan (ExitPlanMode), it
-  currently just renders as generic assistant text in the transcript -
-  worth its own distinct visual treatment, similar to how subagent
-  calls/reports got their own entry kind and color. (2) mode CHANGES
-  (accept edits / plan / manual / auto) aren't currently visible as
-  discrete events in the transcript at all - render_mode_toggle_html()
-  only shows the CURRENT mode, there's no record of "mode switched from
-  X to Y at this point." Needs research: does the transcript JSONL
-  actually record a plan-presentation or mode-switch as a distinguishable
-  entry/field at all (parse_transcript_line() in Transcript.php would be
-  the place to check), or would this need new detection logic (e.g.
-  matching on ExitPlanMode tool_use the same way Agent/subagent calls
-  are already detected)? For notifications: presumably a plan ready for
-  review should push-notify similarly to a blocked prompt (it's
-  functionally "waiting on you"), which check_and_send_pushes() doesn't
-  currently know how to detect at all.
+- Mode CHANGES (accept edits / plan / manual / auto) aren't currently
+  visible as discrete events in the transcript at all -
+  render_mode_toggle_html() only shows the CURRENT mode, there's no
+  record of "mode switched from X to Y at this point." (Split off from
+  the plan-recognition item, shipped 2026-08-07 - see TranscriptService::
+  find_exit_plan_mode_tool_use_ids()/parse_transcript_line() for that
+  half.) Research already done: the transcript JSONL DOES have a
+  dedicated line for this - {"type":"permission-mode","permissionMode":
+  "default"|"acceptEdits"|"plan"|"auto"} (default=manual in this app's
+  own terminology) - but it's logged redundantly (239 occurrences in one
+  real session, mostly repeats of the unchanged value, not one-per-real-
+  transition) and has NO timestamp field. Surfacing genuine "switched
+  from X to Y here" events needs tracking last-seen mode across
+  consecutive lines while scanning (stateful), which doesn't fit
+  parse_transcript_line()'s current per-line-stateless model - and is
+  harder for backward pagination ("Load older messages") than forward
+  polling, since "previous" flips meaning depending on walk direction.
+  Worth deciding: full bidirectional support, or a smaller scope (e.g.
+  only ever detected going forward from whenever a session was first
+  opened, never backfilled into older history)?
 - Investigate: Andres reports messages he typed sometimes disappear from
   session.php after navigating to another page and back to the session.
   Needs more detail to reproduce - which messages (his own compose sends,
