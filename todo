@@ -136,14 +136,3 @@ Exploratory / speculative / lower priority:
   in session.js) when there are no entries after it - presumably possible
   in some poll-timing edge case (e.g. the only "new" thing was a blocked-
   prompt/thinking-indicator update, not a real transcript entry).
-- Show quota reset times in Andres's local timezone, and show them on the
-  dashboard too (currently: session.php's compose-bar quota footer shows
-  an absolute reset time via formatAbsolute() in quota-footer.js, added
-  2026-08-04 - worth checking whether that's already rendering in the
-  browser's local timezone via toLocaleTimeString()'s default behavior,
-  or whether it's showing whatever timezone the account/plan's own
-  "resets" text reports (e.g. "8pm (America/Los_Angeles)"), which may not
-  match Andres's actual timezone. Also check whether index.php's
-  dashboard-wide footer - same shared quota-footer.js/#quota-info markup,
-  no session context - already shows this same absolute-time detail or
-  needs its own look).
