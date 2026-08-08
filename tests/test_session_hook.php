@@ -259,29 +259,47 @@ try {
     // --- the actual hook script: no CSM_SESSION_NAME env -> no-op ---
 
     $sidecarName = 'cc-hooktest-' . bin2hex(random_bytes(3));
-    SidecarStore::write_sidecar($sidecarName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => 'old-id']);
+    $oldId = '11111111-1111-4111-8111-111111111111';
+    $newId = '22222222-2222-4222-8222-222222222222';
+    write_fixture_transcript($oldId);
+    write_fixture_transcript($newId);
+    SidecarStore::write_sidecar($sidecarName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => $oldId]);
 
-    run_session_start_hook(null, ['session_id' => 'new-id']);
-    assert_equal('old-id', SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when CSM_SESSION_NAME is unset');
+    run_session_start_hook(null, ['session_id' => $newId]);
+    assert_equal($oldId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when CSM_SESSION_NAME is unset');
 
     // --- CSM_SESSION_NAME set, but no matching sidecar (already killed/never tracked) -> no-op, no crash ---
 
-    run_session_start_hook('cc-does-not-exist', ['session_id' => 'new-id']);
+    run_session_start_hook('cc-does-not-exist', ['session_id' => $newId]);
     assert_equal(null, SidecarStore::read_sidecar('cc-does-not-exist'), 'session_start.php: no-op when CSM_SESSION_NAME has no sidecar file');
 
-    // --- CSM_SESSION_NAME set + real sidecar + valid payload -> rebinds claude_session_id, keeps the rest ---
+    // --- CSM_SESSION_NAME set + real sidecar + valid payload with a REAL matching transcript -> rebinds claude_session_id, keeps the rest ---
 
-    run_session_start_hook($sidecarName, ['session_id' => 'new-id']);
+    run_session_start_hook($sidecarName, ['session_id' => $newId]);
     $rebound = SidecarStore::read_sidecar($sidecarName);
-    assert_equal('new-id', $rebound['claude_session_id'] ?? null, 'session_start.php: rebinds claude_session_id to the new session-id from stdin');
+    assert_equal($newId, $rebound['claude_session_id'] ?? null, 'session_start.php: rebinds claude_session_id to the new session-id from stdin when a real transcript for it exists');
     assert_equal('/fixture/workdir', $rebound['workdir'] ?? null, 'session_start.php: preserves workdir across the rebind');
     assert_equal(1000, $rebound['spawned_at'] ?? null, 'session_start.php: preserves spawned_at across the rebind');
     assert_equal(true, $rebound['spawned_by_csm'] ?? null, 'session_start.php: a CSM_SESSION_NAME session is recorded as spawned_by_csm=true');
 
+    // --- CSM_SESSION_NAME set + real sidecar + payload reports a session-id
+    // with NO matching transcript anywhere -> the rebind is refused, the
+    // working sidecar is left exactly as it was. Regression test for the
+    // 2026-08-08 live incident: a `claude` process run manually from inside
+    // a tracked pane's own Bash tool (e.g. testing `--resume` behavior)
+    // inherits CSM_SESSION_NAME and fires its own genuine SessionStart with
+    // its own, unrelated session_id, which the hook used to trust blindly -
+    // clobbering a working sidecar with an id that never had a transcript,
+    // permanently breaking "view transcript" for that pane. ---
+
+    $phantomId = '99999999-9999-4999-8999-999999999999';
+    run_session_start_hook($sidecarName, ['session_id' => $phantomId]);
+    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: a session-id with no matching transcript file anywhere is never trusted enough to rebind an existing, working sidecar');
+
     // --- malformed/empty stdin -> no-op, never crashes, sidecar untouched ---
 
     run_session_start_hook($sidecarName, null);
-    assert_equal('new-id', SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
+    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
 
     // --- adopted (non-CSM) sessions: no tmux pane at all -> no-op, no sidecar ever created ---
 
@@ -299,12 +317,15 @@ try {
 
     $fakeTmuxDir = fake_tmux_bin_dir($adoptedName);
 
-    run_session_start_hook(null, ['session_id' => 'adopted-id-1', 'cwd' => '/home/andres/www/some-other-project'], [
+    $adoptedId1 = '33333333-3333-4333-8333-333333333333';
+    write_fixture_transcript($adoptedId1);
+
+    run_session_start_hook(null, ['session_id' => $adoptedId1, 'cwd' => '/home/andres/www/some-other-project'], [
         'TMUX' => '/tmp/fake-tmux-socket,12345,0',
         'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
     ]);
     $adopted = SidecarStore::read_sidecar($adoptedName);
-    assert_equal('adopted-id-1', $adopted['claude_session_id'] ?? null, 'session_start.php: an adopted session (real tmux pane, no CSM_SESSION_NAME) gets a brand new sidecar, first time seen');
+    assert_equal($adoptedId1, $adopted['claude_session_id'] ?? null, 'session_start.php: an adopted session (real tmux pane, no CSM_SESSION_NAME) gets a brand new sidecar, first time seen');
     assert_equal('/home/andres/www/some-other-project', $adopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir comes from the hook payload\'s own cwd field');
     assert_equal(false, $adopted['spawned_by_csm'] ?? null, 'session_start.php: an adopted session is recorded as spawned_by_csm=false, distinguishing it from an app-spawned one');
     assert_true(is_int($adopted['spawned_at'] ?? null), 'session_start.php: an adopted session gets a real spawned_at timestamp on first sight');
@@ -315,12 +336,14 @@ try {
     // seen" again. ---
 
     $firstSpawnedAt = $adopted['spawned_at'];
-    run_session_start_hook(null, ['session_id' => 'adopted-id-2', 'cwd' => '/should/be/ignored'], [
+    $adoptedId2 = '44444444-4444-4444-8444-444444444444';
+    write_fixture_transcript($adoptedId2);
+    run_session_start_hook(null, ['session_id' => $adoptedId2, 'cwd' => '/should/be/ignored'], [
         'TMUX' => '/tmp/fake-tmux-socket,12345,0',
         'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
     ]);
     $reboundAdopted = SidecarStore::read_sidecar($adoptedName);
-    assert_equal('adopted-id-2', $reboundAdopted['claude_session_id'] ?? null, 'session_start.php: an adopted session rotating (e.g. /clear) rebinds claude_session_id the same as a CSM one would');
+    assert_equal($adoptedId2, $reboundAdopted['claude_session_id'] ?? null, 'session_start.php: an adopted session rotating (e.g. /clear) rebinds claude_session_id the same as a CSM one would');
     assert_equal('/home/andres/www/some-other-project', $reboundAdopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir is preserved across a rebind, not overwritten from the new payload');
     assert_equal($firstSpawnedAt, $reboundAdopted['spawned_at'] ?? null, 'session_start.php: an adopted session\'s spawned_at is preserved across a rebind');
 
@@ -390,6 +413,10 @@ try {
     @rmdir(dirname($settingsPath));
     array_map('unlink', glob("{$fixtureSidecarDir}/*") ?: []);
     @rmdir($fixtureSidecarDir);
+    array_map('unlink', glob("{$fixtureHome}/.claude/projects/fixture-project/*") ?: []);
+    @rmdir("{$fixtureHome}/.claude/projects/fixture-project");
+    @rmdir("{$fixtureHome}/.claude/projects");
+    @rmdir("{$fixtureHome}/.claude");
     @rmdir($fixtureHome);
 }
 
@@ -444,6 +471,24 @@ function run_session_start_hook(?string $csmSessionName, ?array $payload, array 
     fclose($pipes[1]);
     fclose($pipes[2]);
     proc_close($process);
+}
+
+/**
+ * Creates a real, minimal transcript file under the fixture HOME_ROOT's
+ * .claude/projects tree so TranscriptService::find_transcript_path()
+ * (used by session_start.php to refuse trusting a session-id with no real
+ * transcript - see the 2026-08-08 regression test above) finds it. The
+ * containing directory name is arbitrary - find_transcript_path() globs by
+ * session-id filename only, never decodes the directory name.
+ */
+function write_fixture_transcript(string $sessionId): void
+{
+    $dir = Config::home_root() . '/.claude/projects/fixture-project';
+    if (!is_dir($dir)) {
+        mkdir($dir, 0700, true);
+    }
+
+    file_put_contents("{$dir}/{$sessionId}.jsonl", json_encode(['type' => 'user', 'sessionId' => $sessionId]) . "\n");
 }
 
 /**

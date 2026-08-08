@@ -44,6 +44,7 @@ declare(strict_types=1);
 require __DIR__ . '/../lib/Sessions.php';
 
 use HostAgent\Services\TmuxService;
+use HostAgent\Services\TranscriptService;
 use HostAgent\Stores\SidecarStore;
 
 $input = stream_get_contents(STDIN);
@@ -82,6 +83,35 @@ $existingSidecar = SidecarStore::read_sidecar($sessionName);
 
 if ($existingSidecar === null && !$createIfMissing) {
     exit(0); // session already killed/cleaned up since this hook fired - nothing to rebind
+}
+
+// CSM_SESSION_NAME is inherited by every child process of the tracked
+// pane, not just the one interactive conversation running in it - a
+// `claude` process run manually from inside that pane's own Bash tool
+// (e.g. to test `--resume` behavior live) fires its own genuine
+// SessionStart with its own, unrelated session_id, and this hook can't
+// otherwise tell that apart from the pane's real session rotating.
+// Found live 2026-08-08: exactly this happened, clobbering a working
+// sidecar with an id that had no transcript anywhere, breaking transcript
+// lookup until manually repaired. Require a real transcript file to
+// actually exist for the reported id before trusting it enough to
+// rebind - a phantom/nested invocation that never produces real
+// transcript content won't pass. Bounded retries because on a genuine
+// rotation the file may not have been created yet at the exact instant
+// this hook fires (SessionStart can fire before Claude Code's own first
+// write to the new transcript path - same kind of ordering surprise
+// already found for the Stop hook, see tests/README/todo notes on that).
+$transcriptConfirmed = false;
+for ($attempt = 0; $attempt < 4; $attempt++) {
+    if (TranscriptService::find_transcript_path($claudeSessionId) !== null) {
+        $transcriptConfirmed = true;
+        break;
+    }
+    usleep(150000);
+}
+
+if (!$transcriptConfirmed) {
+    exit(0);
 }
 
 // cwd: prefers the hook's own payload field (Claude Code sends this on
