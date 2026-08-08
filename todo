@@ -130,10 +130,6 @@ Exploratory / speculative / lower priority:
     echo "Success! Process $PID moved to tmux session: $SESSION_NAME"
     sleep 1
     exec tmux attach-session -t "$SESSION_NAME"
-- Investigate ways to make the web app UI feel more "tight" / native-app-
-  like: less "moveable"/rubber-banding scroll behavior in scrollable
-  sections, so it reads less like a plain webpage-with-no-browser-chrome
-  and more like a native app.
 - Future end-user/contributor separation concerns: remove hardcoded paths,
   README is out of date/too long (split into files if necessary).
 - session.php: don't show the "new content" divider bar (markNewContent()
@@ -151,13 +147,6 @@ Exploratory / speculative / lower priority:
   dashboard-wide footer - same shared quota-footer.js/#quota-info markup,
   no session context - already shows this same absolute-time detail or
   needs its own look).
-- Tweak session.php's transcript layout for desktop (leave mobile
-  exactly as-is - likely a sm:/md: breakpoint split, not a separate
-  template) to better use the page width: wider content, bigger font,
-  and maybe split bubbles left/right by role (user on the right,
-  everything else on the left) like a typical desktop chat UI, instead
-  of the current single-column max-w-2xl layout that reads fine on
-  phones but leaves a lot of unused width on a desktop browser.
 - session.php: the sidebar ("Other sessions" drawer, #sidebar) opens
   wherever its own internal scroll position last was, not reset to the
   top - reported live: opening it while scrolled far down the main
