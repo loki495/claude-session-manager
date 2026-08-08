@@ -24,6 +24,10 @@ $router->post('/', [DashboardController::class, 'handleAction']);
 $router->get('/sessions_fragment.php', [DashboardController::class, 'fragment']);
 $router->get('/sessions_list.php', [DashboardController::class, 'list']);
 $router->get('/archived_sessions_fragment.php', [DashboardController::class, 'archivedFragment']);
+$router->get('/take_over_bare.php', [DashboardController::class, 'takeOverBare']);
+$router->post('/take_over_bare.php', [DashboardController::class, 'takeOverBare']);
+$router->get('/take_over_bare_confirm.php', [DashboardController::class, 'takeOverBareConfirm']);
+$router->post('/take_over_bare_confirm.php', [DashboardController::class, 'takeOverBareConfirm']);
 
 // Reads `session` from either GET or POST with no method check at all.
 $router->get('/session.php', [SessionController::class, 'show']);

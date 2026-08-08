@@ -192,6 +192,143 @@ document.addEventListener('keydown', function (e) {
   }
 });
 
+// --- "Take over" a bare (untracked) process - unify-claude-sessions
+// plan's phase 6. The confirm() dialog lives inline on the form's own
+// onsubmit (see bare-process-row.php, same pattern as the Kill form
+// right next to it) - by the time this listener runs, that's already
+// been accepted. Two outcomes from the server: a confident match (pid
+// already killed and a new session already resumed server-side - just
+// redirect), or needs_choice (nothing killed yet - show a picker built
+// from the candidates already in the response, no second fetch). ---
+(function () {
+  function actionButtonsWrapper(row) {
+    return row.querySelector('.take-over-form').closest('.flex.flex-col');
+  }
+
+  function restoreRow(row) {
+    var picker = row.querySelector('.take-over-picker');
+    picker.classList.add('hidden');
+    picker.innerHTML = '';
+    actionButtonsWrapper(row).classList.remove('hidden');
+  }
+
+  function renderPicker(row, data) {
+    actionButtonsWrapper(row).classList.add('hidden');
+
+    var picker = row.querySelector('.take-over-picker');
+    var options = (data.candidates || []).map(function (c) {
+      var when = c.last_activity ? new Date(c.last_activity * 1000).toLocaleString() : '';
+      var selected = c.claude_session_id === data.suggested_claude_session_id ? ' selected' : '';
+      return '<option value="' + escapeHtml(c.claude_session_id) + '"' + selected + '>'
+        + escapeHtml(c.title || c.claude_session_id) + ' - ' + escapeHtml(when) + '</option>';
+    }).join('');
+
+    if (options === '') {
+      picker.innerHTML = '<div class="text-xs text-slate-500">No past conversations found for this working directory.</div>'
+        + '<button type="button" class="take-over-cancel-btn mt-2 select-none rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5">Cancel</button>';
+      picker.classList.remove('hidden');
+      return;
+    }
+
+    picker.innerHTML = '<div class="text-xs text-slate-400 mb-1">Which conversation should this pid resume?</div>'
+      + '<select class="take-over-select w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200">' + options + '</select>'
+      + '<div class="mt-2 flex gap-2">'
+      + '<button type="button" class="take-over-confirm-btn select-none rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5">Resume</button>'
+      + '<button type="button" class="take-over-cancel-btn select-none rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5">Cancel</button>'
+      + '</div>';
+    picker.classList.remove('hidden');
+    picker.dataset.workdir = data.workdir;
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target.closest('.take-over-form');
+
+    if (!form) {
+      return;
+    }
+
+    e.preventDefault();
+
+    var row = form.closest('[data-bare-row]');
+    var btn = form.querySelector('button');
+    btn.disabled = true;
+
+    fetch('/take_over_bare.php', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(new FormData(form)).toString()
+    })
+      .then(function (r) { return parseJsonResponse(r, 'take-over-bare'); })
+      .then(function (data) {
+        if (data && data.ok && data.name) {
+          window.location.href = '/session.php?session=' + encodeURIComponent(data.name);
+          return;
+        }
+
+        if (data && data.ok && data.needs_choice) {
+          renderPicker(row, data);
+          return;
+        }
+
+        alert((data && data.message) || 'Failed to take over this process.');
+        btn.disabled = false;
+      })
+      .catch(function () {
+        alert('Network error - take-over not started.');
+        btn.disabled = false;
+      });
+  });
+
+  document.addEventListener('click', function (e) {
+    var cancelBtn = e.target.closest('.take-over-cancel-btn');
+
+    if (cancelBtn) {
+      var cancelRow = cancelBtn.closest('[data-bare-row]');
+      restoreRow(cancelRow);
+      cancelRow.querySelector('.take-over-form button').disabled = false;
+      return;
+    }
+
+    var confirmBtn = e.target.closest('.take-over-confirm-btn');
+
+    if (!confirmBtn) {
+      return;
+    }
+
+    var confirmRow = confirmBtn.closest('[data-bare-row]');
+    var picker = confirmRow.querySelector('.take-over-picker');
+    var select = picker.querySelector('.take-over-select');
+    confirmBtn.disabled = true;
+
+    fetch('/take_over_bare_confirm.php', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        pid: confirmRow.dataset.pid,
+        csrf_token: confirmRow.dataset.csrfToken,
+        workdir: picker.dataset.workdir,
+        claude_session_id: select.value
+      }).toString()
+    })
+      .then(function (r) { return parseJsonResponse(r, 'take-over-bare-confirm'); })
+      .then(function (data) {
+        if (data && data.ok && data.name) {
+          window.location.href = '/session.php?session=' + encodeURIComponent(data.name);
+          return;
+        }
+
+        alert((data && data.message) || 'Failed to resume the chosen session.');
+        confirmBtn.disabled = false;
+      })
+      .catch(function () {
+        alert('Network error - take-over not completed.');
+        confirmBtn.disabled = false;
+      });
+  });
+})();
+
 // "Show last 3 messages" toggle, one per session row. Lazy-loaded on
 // first click (via session_history.php, the same endpoint session.php's
 // "load more" uses) and cached in the DOM after that - toggling again

@@ -146,6 +146,53 @@ class TranscriptService
     }
 
     /**
+     * The first real message line's own `timestamp` field, as a Unix
+     * epoch int - Claude Code's own session-start moment, read via the
+     * same bounded scan as find_first_cwd() (same file, same first few
+     * lines, just a different field - kept as its own pass rather than
+     * merged into find_first_cwd() to avoid changing that function's
+     * already-relied-on return shape). Used by SessionService::
+     * take_over_bare_process()'s heuristic: matching a bare process's own
+     * `started_at` (from /proc) against each candidate transcript's
+     * creation time to suggest the most likely one to resume, since a
+     * bare process's OS pid is never recorded anywhere in the transcript
+     * itself (checked: no `pid` field anywhere in the JSONL schema).
+     */
+    public static function find_first_timestamp(string $path): ?int
+    {
+        $handle = @fopen($path, 'rb');
+
+        if ($handle === false) {
+            return null;
+        }
+
+        $timestamp = null;
+
+        for ($i = 0; $i < self::FIRST_CWD_SCAN_LINES; $i++) {
+            $line = fgets($handle);
+
+            if ($line === false) {
+                break;
+            }
+
+            $decoded = json_decode($line, true);
+
+            if (is_array($decoded) && is_string($decoded['timestamp'] ?? null) && $decoded['timestamp'] !== '') {
+                $parsed = strtotime($decoded['timestamp']);
+
+                if ($parsed !== false) {
+                    $timestamp = $parsed;
+                    break;
+                }
+            }
+        }
+
+        fclose($handle);
+
+        return $timestamp;
+    }
+
+    /**
      * One entry per known transcript under claude_projects_dir(), live or
      * dormant - the raw data behind the unify-claude-sessions plan's
      * archived-session list. Deliberately returns the raw ai_title (not a

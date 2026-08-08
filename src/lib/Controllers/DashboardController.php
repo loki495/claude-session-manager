@@ -257,4 +257,44 @@ class DashboardController extends Controller
             'archived_html' => SessionRowView::archived_sessions_html($result['archived'] ?? [], $csrfToken),
         ]);
     }
+
+    /**
+     * POST-only JSON endpoint for a bare-process row's "Take over" button
+     * (unify-claude-sessions plan's phase 6) - AJAX, not the classic
+     * redirect+flash pattern the rest of handleAction() uses, since the
+     * client needs to inspect the response to decide between two very
+     * different outcomes: a confident match (killed and resumed already -
+     * redirect straight to the new session) or needs_choice (nothing
+     * killed yet - render a picker instead). See index.js's take-over
+     * button handler.
+     */
+    public function takeOverBare(): void
+    {
+        $this->require_post_json();
+
+        $pid = (int)($_POST['pid'] ?? 0);
+
+        echo json_encode(AgentClient::agent_call(['action' => 'take_over_bare', 'pid' => $pid]));
+    }
+
+    /**
+     * POST-only JSON endpoint for the take-over picker's confirm step -
+     * only ever reached after takeOverBare() above came back
+     * needs_choice=true and a human picked a specific claude_session_id.
+     */
+    public function takeOverBareConfirm(): void
+    {
+        $this->require_post_json();
+
+        $pid = (int)($_POST['pid'] ?? 0);
+        $workdir = trim((string)($_POST['workdir'] ?? ''));
+        $claudeSessionId = trim((string)($_POST['claude_session_id'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call([
+            'action' => 'take_over_bare_with_id',
+            'pid' => $pid,
+            'workdir' => $workdir,
+            'claude_session_id' => $claudeSessionId,
+        ]));
+    }
 }

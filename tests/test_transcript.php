@@ -351,6 +351,30 @@ file_put_contents($noCwdFile, str_repeat("{\"type\":\"mode\",\"mode\":\"default\
 assert_equal(null, TranscriptService::find_first_cwd($noCwdFile), 'find_first_cwd: gives up after FIRST_CWD_SCAN_LINES rather than reading the whole file');
 @unlink($noCwdFile);
 
+// --- TranscriptService::find_first_timestamp(): reads the first real
+// message line's own timestamp as a Unix epoch int - the take-over
+// heuristic's "when did this conversation actually start" signal, since
+// a bare process's OS pid is never recorded in the transcript itself. ---
+assert_equal(
+    null,
+    TranscriptService::find_first_timestamp($fakeHome . '/.claude/projects/-some-project/' . $uuid . '.jsonl'),
+    'find_first_timestamp: this fixture\'s first real line has no timestamp field -> null, not a crash'
+);
+
+$timestampFile = $fakeHome . '/.claude/projects/-some-project/has-timestamp.jsonl';
+file_put_contents($timestampFile, implode("\n", [
+    '{"type":"mode","mode":"default"}',
+    '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"cwd":"/home/andres/www/some-project","timestamp":"2026-08-02T04:06:15.197Z"}',
+]) . "\n");
+assert_equal(strtotime('2026-08-02T04:06:15.197Z'), TranscriptService::find_first_timestamp($timestampFile), 'find_first_timestamp: skips a leading meta line, finds timestamp on the first real message line');
+assert_equal(null, TranscriptService::find_first_timestamp('/does/not/exist.jsonl'), 'find_first_timestamp: missing file -> null');
+
+$noTimestampFile = $fakeHome . '/.claude/projects/-some-project/no-timestamp.jsonl';
+file_put_contents($noTimestampFile, str_repeat("{\"type\":\"mode\",\"mode\":\"default\"}\n", 30));
+assert_equal(null, TranscriptService::find_first_timestamp($noTimestampFile), 'find_first_timestamp: gives up after FIRST_CWD_SCAN_LINES rather than reading the whole file');
+@unlink($noTimestampFile);
+@unlink($timestampFile);
+
 // --- TranscriptService::list_all_transcripts(): one entry per known
 // transcript, live or dormant, across every project dir - raw ai_title
 // (nullable), not a cascaded display title (that's SessionService's job). ---

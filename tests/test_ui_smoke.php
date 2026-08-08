@@ -22,6 +22,7 @@ const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAA
 const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuTym7Lxyboe7HSFwi79IJN7-wqbUbZmYR1CkLvXZSc';
 const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
 const CANNED_RESUMED_SESSION_NAME = 'cc-20260101-1400';
+const CANNED_TAKEN_OVER_SESSION_NAME = 'cc-20260101-1500';
 
 $agentSocket = sys_get_temp_dir() . '/csm-test-ui-agent.sock';
 $agentHarness = start_harness(['php', __DIR__ . '/fixtures/canned_agent.php'], $agentSocket);
@@ -963,6 +964,73 @@ try {
 
     $archivedResumeRejectFollow = curl_request('GET', "{$baseUrl}/", [], $cookieJar);
     assert_contains('Rejected', $archivedResumeRejectFollow['body'], 'POST resume (unrecognized id): flash shows the rejection message');
+
+    // --- take_over_bare.php/take_over_bare_confirm.php: AJAX JSON
+    // endpoints (unlike resume above) - a bare-process row's "Take over"
+    // button, and the picker's confirm step. Own $takeOver*-prefixed
+    // variables, same end-of-curl-only-tier reasoning as the rest of this
+    // block. ---
+    $takeOverFrontPage = curl_request('GET', "{$baseUrl}/", [], $cookieJar);
+    $takeOverCsrfToken = extract_csrf_token($takeOverFrontPage['body']);
+    assert_true($takeOverCsrfToken !== null, 'GET / (take-over setup): page includes a csrf_token field');
+
+    $takeOverMethodResult = curl_request('GET', "{$baseUrl}/take_over_bare.php");
+    assert_equal(405, $takeOverMethodResult['status'], 'GET /take_over_bare.php: 405 (POST required)');
+
+    $takeOverCsrfRejectResult = curl_request('POST', "{$baseUrl}/take_over_bare.php", [
+        '-d', 'pid=54321&csrf_token=not-the-real-token',
+    ], $cookieJar);
+    assert_equal(403, $takeOverCsrfRejectResult['status'], 'POST /take_over_bare.php with a wrong csrf_token: 403');
+
+    $takeOverResult = curl_request('POST', "{$baseUrl}/take_over_bare.php", [
+        '-d', 'pid=54321&csrf_token=' . urlencode((string)$takeOverCsrfToken),
+    ], $cookieJar);
+    assert_equal(200, $takeOverResult['status'], 'POST /take_over_bare.php with valid CSRF: 200 (JSON, not a redirect)');
+    $takeOverBody = json_decode($takeOverResult['body'], true);
+    assert_true(is_array($takeOverBody) && ($takeOverBody['ok'] ?? false), 'POST /take_over_bare.php: canned agent accepts the pid, response decodes as ok=true JSON');
+    assert_true($takeOverBody['needs_choice'] ?? false, 'POST /take_over_bare.php: canned agent returns needs_choice (no marker match), nothing killed yet');
+    assert_equal('/home/andres/www/some-other-project', $takeOverBody['workdir'] ?? null, 'POST /take_over_bare.php: canned workdir passed through');
+    assert_equal([CANNED_ARCHIVED_CLAUDE_SESSION_ID], array_column($takeOverBody['candidates'] ?? [], 'claude_session_id'), 'POST /take_over_bare.php: canned candidate list passed through');
+    assert_equal(CANNED_ARCHIVED_CLAUDE_SESSION_ID, $takeOverBody['suggested_claude_session_id'] ?? null, 'POST /take_over_bare.php: canned suggested_claude_session_id passed through');
+
+    $takeOverRejectResult = curl_request('POST', "{$baseUrl}/take_over_bare.php", [
+        '-d', 'pid=99999&csrf_token=' . urlencode((string)$takeOverCsrfToken),
+    ], $cookieJar);
+    $takeOverRejectBody = json_decode($takeOverRejectResult['body'], true);
+    assert_equal(false, $takeOverRejectBody['ok'] ?? null, 'POST /take_over_bare.php: canned agent rejects an unrecognized pid');
+
+    $takeOverConfirmMethodResult = curl_request('GET', "{$baseUrl}/take_over_bare_confirm.php");
+    assert_equal(405, $takeOverConfirmMethodResult['status'], 'GET /take_over_bare_confirm.php: 405 (POST required)');
+
+    $takeOverConfirmCsrfRejectResult = curl_request('POST', "{$baseUrl}/take_over_bare_confirm.php", [
+        '-d', 'pid=54321&workdir=' . urlencode('/home/andres/www/some-other-project') . '&claude_session_id=' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '&csrf_token=not-the-real-token',
+    ], $cookieJar);
+    assert_equal(403, $takeOverConfirmCsrfRejectResult['status'], 'POST /take_over_bare_confirm.php with a wrong csrf_token: 403');
+
+    $takeOverConfirmResult = curl_request('POST', "{$baseUrl}/take_over_bare_confirm.php", [
+        '-d', 'pid=54321&workdir=' . urlencode('/home/andres/www/some-other-project') . '&claude_session_id=' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '&csrf_token=' . urlencode((string)$takeOverCsrfToken),
+    ], $cookieJar);
+    assert_equal(200, $takeOverConfirmResult['status'], 'POST /take_over_bare_confirm.php with valid CSRF: 200 (JSON, not a redirect)');
+    $takeOverConfirmBody = json_decode($takeOverConfirmResult['body'], true);
+    assert_true(is_array($takeOverConfirmBody) && ($takeOverConfirmBody['ok'] ?? false), 'POST /take_over_bare_confirm.php: canned agent accepts the chosen session, response decodes as ok=true JSON');
+    assert_equal(CANNED_TAKEN_OVER_SESSION_NAME, $takeOverConfirmBody['name'] ?? null, 'POST /take_over_bare_confirm.php: canned new session name passed through, for the client to redirect to');
+
+    $takeOverConfirmRejectResult = curl_request('POST', "{$baseUrl}/take_over_bare_confirm.php", [
+        '-d', 'pid=54321&workdir=' . urlencode('/home/andres/www/some-other-project') . '&claude_session_id=00000000-0000-4000-8000-000000000000&csrf_token=' . urlencode((string)$takeOverCsrfToken),
+    ], $cookieJar);
+    $takeOverConfirmRejectBody = json_decode($takeOverConfirmRejectResult['body'], true);
+    assert_equal(false, $takeOverConfirmRejectBody['ok'] ?? null, 'POST /take_over_bare_confirm.php: canned agent rejects a claude_session_id that does not match the resolved candidate');
+
+    // --- sessions_fragment.php's bare_html: proves the Take over form
+    // (SessionRowView::bare_process_row_html() -> bare-process-row.php)
+    // actually rendered, with the real pid and a fresh csrf_token, not
+    // just that the endpoint itself works when called directly above. ---
+    $takeOverFragmentResult = curl_request('GET', "{$baseUrl}/sessions_fragment.php");
+    $takeOverFragmentBody = json_decode($takeOverFragmentResult['body'], true);
+    assert_true(
+        preg_match('#<form method="post" action="/take_over_bare\.php" class="take-over-form"[^>]*>\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="pid" value="54321">\s*<button type="submit"[^>]*>\s*Take over#', $takeOverFragmentBody['bare_html'] ?? '') === 1,
+        'GET /sessions_fragment.php: bare_html carries a Take over form for the canned bare pid'
+    );
 
     // --- optional richer tier: only if a headless browser is already on this host ---
     $browser = find_headless_browser();

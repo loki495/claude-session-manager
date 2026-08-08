@@ -202,3 +202,16 @@ Exploratory / speculative / lower priority:
   "its own entry" should actually look like (a real history-list entry
   styled like a tool_use block, vs. just a bigger/less-cramped card still
   inside the blocked-prompt section).
+- Quota-refreshing may still be using the old scrape/cache script instead
+  of just pulling from the live tmux pane's own status line
+  (QuotaService::quota_from_live_pane() - see the item above about the
+  quota-reset push notification for the related fallback/caching path).
+  Andres noticed this live 2026-08-08 - needs investigation into why the
+  live-pane path isn't winning when it should be.
+- session.php: tweak transcript entries to look more like the Claude app
+  (Andres, 2026-08-08): user messages in bubbles; Claude's own messages
+  free-flowing with no border/background; prompts and permissions stay
+  boxed with their options, as today (see the item above about a blocked
+  prompt's own context becoming its own entry - related); subagents,
+  plans, and tools can probably stay as they are now - boxed summary plus
+  the existing expand/collapse toggles.

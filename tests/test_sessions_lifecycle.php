@@ -52,6 +52,15 @@ $wrapTestSession = null;
 /** @var string|null $quotaTestSession a cc-* session used to test QuotaService::quota_from_live_pane(), for the finally-block safety net */
 $quotaTestSession = null;
 
+/** @var resource|null $takeOverBareProc a plain (non-tmux) fake claude process used to test take_over_bare_process(), for the finally-block safety net */
+$takeOverBareProc = null;
+
+/** @var string|null $markerAdhocName a non-cc-* tmux session used to test take_over_bare_process()'s marker-matched path, for the finally-block safety net */
+$markerAdhocName = null;
+
+/** @var string[] $dualBareAdhocNames non-cc-* tmux sessions used to test bare_process_take_over_candidates()'s other-live-bare-process exclusion, for the finally-block safety net */
+$dualBareAdhocNames = [];
+
 /**
  * @return array{ok:bool, name:?string, message:string}
  */
@@ -599,6 +608,221 @@ try {
     assert_true($hasSession['exit'] !== 0, 'kill_bare_process: ad-hoc tmux session no longer exists');
     $adhocName = null;
 
+    // --- SessionService::take_over_bare_process()/take_over_bare_process_with_id():
+    // unify-claude-sessions plan's phase 6. Two paths: a cwd-scoped
+    // candidate list (nothing killed until a human picks one - a plain,
+    // no-tmux bare process can only ever go this way, since there's no
+    // pane to read a statusline marker from), and a confident one-click
+    // match via the marker (tested separately below). ---
+    assert_equal(false, SessionService::take_over_bare_process(999999)['ok'] ?? null, 'take_over_bare_process: rejects a pid that is not a running claude process');
+
+    $takeOverCwd = Config::www_root() . '/project-a';
+    $takeOverFakeHome = sys_get_temp_dir() . '/csm-test-take-over-home-' . getmypid();
+    @mkdir($takeOverFakeHome . '/.claude/projects/-take-over-project', 0700, true);
+
+    $dormantUuid = '55555555-5555-4555-8555-555555555555';
+    file_put_contents(
+        $takeOverFakeHome . '/.claude/projects/-take-over-project/' . $dormantUuid . '.jsonl',
+        json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]], 'cwd' => $takeOverCwd, 'timestamp' => date('c', time() - 3600)]) . "\n"
+    );
+    putenv("HOME_ROOT={$takeOverFakeHome}");
+
+    $takeOverBareProc = proc_open([Config::claude_bin()], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $takeOverBarePipes, $takeOverCwd);
+    assert_true(is_resource($takeOverBareProc), 'take-over setup: spawned a plain (non-tmux) bare process');
+    $takeOverBarePid = is_resource($takeOverBareProc) ? (proc_get_status($takeOverBareProc)['pid'] ?? null) : null;
+    usleep(300000);
+
+    $resolved = $takeOverBarePid !== null ? SessionService::take_over_bare_process($takeOverBarePid) : ['ok' => false];
+    assert_true($resolved['ok'] ?? false, 'take_over_bare_process: ok=true when no confident marker match exists');
+    assert_true($resolved['needs_choice'] ?? false, 'take_over_bare_process: needs_choice=true for a no-tmux bare process (no pane to read a marker from)');
+    assert_equal($takeOverCwd, $resolved['workdir'] ?? null, 'take_over_bare_process: workdir read via /proc, matches the process\'s real cwd');
+    assert_equal([$dormantUuid], array_column($resolved['candidates'] ?? [], 'claude_session_id'), 'take_over_bare_process: candidates scoped to exactly this cwd');
+    assert_equal($dormantUuid, $resolved['suggested_claude_session_id'] ?? null, 'take_over_bare_process: suggests the sole candidate for this cwd');
+
+    $stillRunningAfterResolve = false;
+    foreach (ProcessInspector::find_claude_processes() as $p) {
+        if ($p['pid'] === $takeOverBarePid) {
+            $stillRunningAfterResolve = true;
+        }
+    }
+    assert_true($stillRunningAfterResolve, 'take_over_bare_process: the needs_choice path kills nothing - the original process is still running, fully cancelable');
+
+    $confirmed = SessionService::take_over_bare_process_with_id((int)$takeOverBarePid, $takeOverCwd, $dormantUuid);
+    assert_true($confirmed['ok'] ?? false, 'take_over_bare_process_with_id: ok=true');
+    $takeOverName = $confirmed['name'] ?? null;
+    assert_true(is_string($takeOverName) && str_starts_with($takeOverName, 'cc-'), 'take_over_bare_process_with_id: returns the new pane name');
+
+    if (is_string($takeOverName)) {
+        $createdSessions[] = $takeOverName;
+    }
+
+    usleep(300000);
+    $stillRunningAfterConfirm = false;
+    foreach (ProcessInspector::find_claude_processes() as $p) {
+        if ($p['pid'] === $takeOverBarePid) {
+            $stillRunningAfterConfirm = true;
+        }
+    }
+    assert_true(!$stillRunningAfterConfirm, 'take_over_bare_process_with_id: the original bare process was killed');
+
+    $takeOverEntry = is_string($takeOverName) ? find_session($takeOverName) : null;
+    assert_true($takeOverEntry !== null, 'take_over_bare_process_with_id: the new session appears in list_all_sessions()');
+    assert_equal($dormantUuid, $takeOverEntry['claude_session_id'] ?? null, 'take_over_bare_process_with_id: sidecar records the chosen claude_session_id');
+    assert_equal($takeOverCwd, $takeOverEntry['workdir'] ?? null, 'take_over_bare_process_with_id: sidecar records the chosen workdir');
+
+    if (is_string($takeOverName)) {
+        SessionService::kill_cc_session($takeOverName);
+        $createdSessions = array_values(array_diff($createdSessions, [$takeOverName]));
+    }
+
+    if (is_resource($takeOverBareProc)) {
+        proc_close($takeOverBareProc);
+    }
+    $takeOverBareProc = null;
+
+    // --- take_over_bare_process_with_id(): tolerates the pid already
+    // having exited on its own between resolve and confirm (a real
+    // possibility - some time passes while a human picks from the
+    // picker) - the kill step is skipped, but the resume still goes
+    // through, reusing the now-free $dormantUuid from above. ---
+    $toleranceResult = SessionService::take_over_bare_process_with_id(999999, $takeOverCwd, $dormantUuid);
+    assert_true($toleranceResult['ok'] ?? false, 'take_over_bare_process_with_id: still resumes even when the pid is already gone (kill step skipped, tolerated)');
+    $toleranceName = $toleranceResult['name'] ?? null;
+
+    if (is_string($toleranceName)) {
+        SessionService::kill_cc_session($toleranceName);
+    }
+
+    @unlink($takeOverFakeHome . '/.claude/projects/-take-over-project/' . $dormantUuid . '.jsonl');
+    @rmdir($takeOverFakeHome . '/.claude/projects/-take-over-project');
+    @rmdir($takeOverFakeHome . '/.claude/projects');
+    @rmdir($takeOverFakeHome . '/.claude');
+    @rmdir($takeOverFakeHome);
+    putenv('HOME_ROOT');
+
+    // --- take_over_bare_process(): the confident, one-click path - a
+    // statusline marker (StatuslineMarkerService::parse_marker_from_pane())
+    // in the bare process's own tmux pane names an exact claude_session_id
+    // backed by a real transcript, so nothing needs to be shown to a human
+    // at all: kill + resume happen inside this one call. Uses project-b
+    // (not project-a, already exercised above) to keep this fixture's cwd
+    // uncorrelated with the candidate-list test's own dormant transcript. ---
+    $markerCwd = Config::www_root() . '/project-b';
+    $markerFakeHome = sys_get_temp_dir() . '/csm-test-take-over-marker-home-' . getmypid();
+    @mkdir($markerFakeHome . '/.claude/projects/-marker-project', 0700, true);
+    $markerUuid = '77777777-7777-4777-8777-777777777777';
+    file_put_contents(
+        $markerFakeHome . '/.claude/projects/-marker-project/' . $markerUuid . '.jsonl',
+        json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]], 'cwd' => $markerCwd]) . "\n"
+    );
+    putenv("HOME_ROOT={$markerFakeHome}");
+
+    $markerAdhocName = 'csm-test-marker-adhoc-' . getmypid();
+    $markerSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $markerAdhocName, '-c', $markerCwd, Config::claude_bin()]);
+    assert_equal(0, $markerSetup['exit'], 'marker take-over setup: created a live non-cc-* tmux session hosting a fake_claude process');
+    usleep(300000);
+
+    TmuxService::tmux_run(['send-keys', '-t', $markerAdhocName, 'csm-data:{"session_id":"' . $markerUuid . '"}', 'Enter']);
+    usleep(300000);
+
+    $markerBareEntry = null;
+    foreach (SessionService::list_all_sessions()['bare'] as $b) {
+        if (($b['tmux_session'] ?? null) === $markerAdhocName) {
+            $markerBareEntry = $b;
+            break;
+        }
+    }
+    assert_true($markerBareEntry !== null, 'marker take-over setup: the fake_claude process is visible as a bare (untracked) process');
+    $markerPid = $markerBareEntry['pid'] ?? null;
+
+    $markerTakeOver = $markerPid !== null ? SessionService::take_over_bare_process((int)$markerPid) : ['ok' => false];
+    assert_true($markerTakeOver['ok'] ?? false, 'take_over_bare_process: ok=true for a marker-matched bare process');
+    assert_true(!($markerTakeOver['needs_choice'] ?? false), 'take_over_bare_process: no picker needed - the marker gave a confident match');
+    $markerTakeOverName = $markerTakeOver['name'] ?? null;
+    assert_true(is_string($markerTakeOverName) && str_starts_with($markerTakeOverName, 'cc-'), 'take_over_bare_process: returns the new pane name, already resumed');
+
+    $markerHasSession = TmuxService::tmux_run(['has-session', '-t', $markerAdhocName]);
+    assert_true($markerHasSession['exit'] !== 0, 'take_over_bare_process: the original ad-hoc tmux session was killed as part of the one-click take-over');
+
+    $markerEntry = is_string($markerTakeOverName) ? find_session($markerTakeOverName) : null;
+    assert_true($markerEntry !== null, 'take_over_bare_process: the new session appears in list_all_sessions()');
+    assert_equal($markerUuid, $markerEntry['claude_session_id'] ?? null, 'take_over_bare_process: sidecar records the exact claude_session_id read from the statusline marker, not a guess');
+
+    if (is_string($markerTakeOverName)) {
+        SessionService::kill_cc_session($markerTakeOverName);
+    }
+
+    @unlink($markerFakeHome . '/.claude/projects/-marker-project/' . $markerUuid . '.jsonl');
+    @rmdir($markerFakeHome . '/.claude/projects/-marker-project');
+    @rmdir($markerFakeHome . '/.claude/projects');
+    @rmdir($markerFakeHome . '/.claude');
+    @rmdir($markerFakeHome);
+    putenv('HOME_ROOT');
+
+    // --- bare_process_take_over_candidates(): excludes another OTHER
+    // live (marker-matched) bare process's own session for the same
+    // cwd, even though nothing tracks it via a sidecar (Andres's own
+    // concern, 2026-08-08) - resume_cc_session()'s already-live guard
+    // only checks sidecars, so without this a candidate transcript
+    // still being actively written by a different live bare process
+    // could get a second pane fighting over it. A genuinely dormant
+    // transcript (no live process at all) must still be offered. ---
+    $dualBareCwd = Config::www_root() . '/project-a';
+    $dualBareFakeHome = sys_get_temp_dir() . '/csm-test-dual-bare-home-' . getmypid();
+    @mkdir($dualBareFakeHome . '/.claude/projects/-dual-bare-project', 0700, true);
+
+    $targetUuid = '88888888-8888-4888-8888-888888888888';
+    $otherLiveUuid = '99999999-9999-4999-9999-999999999999';
+    $genuinelyDormantUuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    foreach ([$targetUuid, $otherLiveUuid, $genuinelyDormantUuid] as $i => $uuid) {
+        file_put_contents(
+            $dualBareFakeHome . '/.claude/projects/-dual-bare-project/' . $uuid . '.jsonl',
+            json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]], 'cwd' => $dualBareCwd, 'timestamp' => date('c', time() - 3600 + $i)]) . "\n"
+        );
+    }
+    putenv("HOME_ROOT={$dualBareFakeHome}");
+
+    $targetAdhocName = 'csm-test-dual-bare-target-' . getmypid();
+    $otherAdhocName = 'csm-test-dual-bare-other-' . getmypid();
+    TmuxService::tmux_run(['new-session', '-d', '-s', $targetAdhocName, '-c', $dualBareCwd, Config::claude_bin()]);
+    TmuxService::tmux_run(['new-session', '-d', '-s', $otherAdhocName, '-c', $dualBareCwd, Config::claude_bin()]);
+    $dualBareAdhocNames = [$targetAdhocName, $otherAdhocName];
+    usleep(300000);
+
+    // Only the OTHER pane gets a marker - the target pane has none,
+    // forcing take_over_bare_process() into the needs_choice path for it.
+    TmuxService::tmux_run(['send-keys', '-t', $otherAdhocName, 'csm-data:{"session_id":"' . $otherLiveUuid . '"}', 'Enter']);
+    usleep(300000);
+
+    $dualBareEntries = [];
+    foreach (SessionService::list_all_sessions()['bare'] as $b) {
+        if (in_array($b['tmux_session'] ?? null, [$targetAdhocName, $otherAdhocName], true)) {
+            $dualBareEntries[$b['tmux_session']] = $b;
+        }
+    }
+    assert_true(isset($dualBareEntries[$targetAdhocName], $dualBareEntries[$otherAdhocName]), 'dual-bare setup: both fake_claude processes are visible as bare');
+
+    $dualBareResolved = SessionService::take_over_bare_process((int)$dualBareEntries[$targetAdhocName]['pid']);
+    assert_true($dualBareResolved['needs_choice'] ?? false, 'take_over_bare_process: target pid (no marker of its own) falls to the picker path');
+    $dualBareCandidateIds = array_column($dualBareResolved['candidates'] ?? [], 'claude_session_id');
+    assert_true(in_array($targetUuid, $dualBareCandidateIds, true), 'bare_process_take_over_candidates: includes the target pid\'s own (dormant, since it has no marker) transcript');
+    assert_true(in_array($genuinelyDormantUuid, $dualBareCandidateIds, true), 'bare_process_take_over_candidates: includes a genuinely dormant transcript with no live process at all');
+    assert_true(!in_array($otherLiveUuid, $dualBareCandidateIds, true), 'bare_process_take_over_candidates: excludes another BARE process\'s own live session (marker-matched), even though nothing tracks it via a sidecar');
+
+    TmuxService::tmux_run(['kill-session', '-t', $targetAdhocName]);
+    TmuxService::tmux_run(['kill-session', '-t', $otherAdhocName]);
+    $dualBareAdhocNames = [];
+
+    foreach ([$targetUuid, $otherLiveUuid, $genuinelyDormantUuid] as $uuid) {
+        @unlink($dualBareFakeHome . '/.claude/projects/-dual-bare-project/' . $uuid . '.jsonl');
+    }
+    @rmdir($dualBareFakeHome . '/.claude/projects/-dual-bare-project');
+    @rmdir($dualBareFakeHome . '/.claude/projects');
+    @rmdir($dualBareFakeHome . '/.claude');
+    @rmdir($dualBareFakeHome);
+    putenv('HOME_ROOT');
+
     // --- SessionService::answer_prompt(): sends the chosen option's number + Enter to a
     // live session's pane, exactly like a human attached over tmux would
     // type. fake_claude/cat doesn't understand a real permission prompt,
@@ -894,6 +1118,23 @@ try {
         proc_terminate($bareProc);
         proc_close($bareProc);
     }
+    if ($takeOverBareProc !== null && is_resource($takeOverBareProc)) {
+        proc_terminate($takeOverBareProc);
+        proc_close($takeOverBareProc);
+    }
+    if ($markerAdhocName !== null) {
+        TmuxService::tmux_run(['kill-session', '-t', $markerAdhocName]);
+    }
+    foreach ($dualBareAdhocNames as $leftoverDualBare) {
+        TmuxService::tmux_run(['kill-session', '-t', $leftoverDualBare]);
+    }
+    // All three take-over blocks above always restore HOME_ROOT before
+    // falling through to later tests, but if anything in one of them
+    // throws partway through (a strict-types TypeError, say), that
+    // putenv() never runs - clear it here too, defense in depth, so a
+    // mid-block failure can't leak a fake HOME_ROOT into whatever runs
+    // next.
+    putenv('HOME_ROOT');
 }
 
 test_exit();

@@ -79,6 +79,16 @@ function dispatch_action(array $request): array
         case 'kill_bare':
             return SessionService::kill_bare_process((int)($request['pid'] ?? 0));
 
+        case 'take_over_bare':
+            return SessionService::take_over_bare_process((int)($request['pid'] ?? 0));
+
+        case 'take_over_bare_with_id':
+            return SessionService::take_over_bare_process_with_id(
+                (int)($request['pid'] ?? 0),
+                (string)($request['workdir'] ?? ''),
+                (string)($request['claude_session_id'] ?? '')
+            );
+
         case 'answer_prompt':
             return SessionService::answer_prompt((string)($request['session'] ?? ''), (int)($request['option'] ?? 0));
 

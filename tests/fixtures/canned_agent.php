@@ -24,6 +24,7 @@ const CANNED_ATTACHMENT_BYTES = 'canned attachment bytes';
 const CANNED_IMAGE_ATTACHMENT_FILE_UUID = 'canned-file-uuid-2';
 const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
 const CANNED_RESUMED_SESSION_NAME = 'cc-20260101-1400';
+const CANNED_TAKEN_OVER_SESSION_NAME = 'cc-20260101-1500';
 
 const CANNED_LAST_MESSAGE = [
     'role' => 'assistant',
@@ -215,6 +216,30 @@ $response = match ($action) {
     'kill_bare' => ($request['pid'] ?? null) === CANNED_BARE_PID
         ? ['ok' => true, 'message' => 'Killed tmux session csm-test-adhoc (pid ' . CANNED_BARE_PID . ')']
         : ['ok' => false, 'message' => 'Rejected: not a currently running claude process'],
+    // Always the needs_choice path (never the marker-matched instant one) -
+    // that path is exercised thoroughly server-side in
+    // test_sessions_lifecycle.php; this fixture only needs to prove the
+    // HTTP layer passes the picker payload through intact.
+    'take_over_bare' => ($request['pid'] ?? null) === CANNED_BARE_PID
+        ? [
+            'ok' => true,
+            'needs_choice' => true,
+            'pid' => CANNED_BARE_PID,
+            'workdir' => '/home/andres/www/some-other-project',
+            'candidates' => [[
+                'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+                'cwd' => '/home/andres/www/some-other-project',
+                'title' => 'Refactor the old widget',
+                'last_activity' => time() - 3 * 86400,
+            ]],
+            'suggested_claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+        ]
+        : ['ok' => false, 'message' => 'Rejected: not a currently running claude process'],
+    'take_over_bare_with_id' => ($request['pid'] ?? null) === CANNED_BARE_PID
+        && (string)($request['claude_session_id'] ?? '') === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+        && (string)($request['workdir'] ?? '') === '/home/andres/www/some-other-project'
+        ? ['ok' => true, 'message' => 'Resumed session ' . CANNED_TAKEN_OVER_SESSION_NAME . ' in /home/andres/www/some-other-project', 'name' => CANNED_TAKEN_OVER_SESSION_NAME]
+        : ['ok' => false, 'message' => 'Rejected: could not take over this process'],
     // An attachment with no typed text at all is a valid send (mirrors
     // SessionService::send_message()'s own real semantics) - lets
     // test_ui_smoke.php prove session_send.php's attachments[] field
