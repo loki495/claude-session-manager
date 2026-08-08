@@ -147,11 +147,3 @@ Exploratory / speculative / lower priority:
   dashboard-wide footer - same shared quota-footer.js/#quota-info markup,
   no session context - already shows this same absolute-time detail or
   needs its own look).
-- session.php: the sidebar ("Other sessions" drawer, #sidebar) opens
-  wherever its own internal scroll position last was, not reset to the
-  top - reported live: opening it while scrolled far down the main
-  transcript can show "the bottom" of the sidebar's own content first,
-  needing an extra manual scroll-up to see anything useful. Likely fix:
-  reset the sidebar's own scrollTop to 0 each time it's opened (the
-  sidebar-toggle-btn click handler in session.js), not tied to the main
-  page's own scroll position at all.
