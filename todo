@@ -186,3 +186,19 @@ Exploratory / speculative / lower priority:
   responses to tool outputs." Specific to this app's session pages (the
   existing "Show tool outputs" toggle - BlockedPromptView::
   render_collapsible_block()), not a general Claude Code behavior change.
+- session.php: a blocked prompt's context longer than a short "Do you want
+  to proceed?"-style question (e.g. a real Bash command, a multi-line
+  diff/explanation) should render as its own separate entry in the
+  history, not inline inside the blocked-prompt card where it's harder to
+  read (Andres's framing, 2026-08-08). Today prompt_context always renders
+  inline via the same render_collapsible_block() used for tool_use/
+  tool_result blocks (see BlockedPromptView::blocked_prompt_rich_html(),
+  ~line 169) - a collapsed one-liner inside the amber blocked-prompt card
+  itself, never a standalone card in the transcript flow the way a real
+  tool_use entry does. Needs a decision before implementing: the exact
+  length/complexity threshold for "longer than a short question" (compare
+  to collapsible_summary()'s existing TOOL_USE_SUMMARY_LINE_MAX=80
+  precedent - could reuse that same cutoff, or need its own), and what
+  "its own entry" should actually look like (a real history-list entry
+  styled like a tool_use block, vs. just a bigger/less-cramped card still
+  inside the blocked-prompt section).
