@@ -48,9 +48,15 @@ Bigger features needing research first (moderate-high surface area):
   opened, never backfilled into older history)?
 - Investigate: Andres reports messages he typed sometimes disappear from
   session.php after navigating to another page and back to the session.
-  Needs more detail to reproduce - which messages (his own compose sends,
-  or ones typed directly into a real Claude Code session outside the app?),
-  how soon after sending, whether a poll cycle happens in between.
+  Repro detail from Andres (2026-08-08): a message sent while Claude is
+  mid-turn renders dimmed client-side, presumably meaning session.js knows
+  it hasn't been confirmed/accepted yet. If he navigates to the dashboard
+  or another session and comes back before it's actually delivered, the
+  message is gone - lost, not just visually stale. Need to: keep the
+  pending/dimmed message client-side (or re-derive it) across a navigation
+  away and back, and make sure it's actually retried/delivered rather than
+  silently dropped, and that it eventually shows up in the real
+  transcript once accepted.
 
 Larger architecture / consolidation work (bigger surface area):
 
@@ -147,3 +153,11 @@ Exploratory / speculative / lower priority:
   the dashboard), and within a single session (from the session sidebar) -
   broader than the plain name/title filter field phase 4 already plans for
   the archived list.
+- session.php: a middle ground for tool calls/outputs between fully shown
+  (spammy) and fully hidden (Andres loses enough context to trust generic
+  narration like "as expected" / "the mistake was..." without seeing what
+  was actually checked). Andres's own framing (2026-08-08): "consider
+  adding tool usage summaries when hidden, or a skill to enable better
+  responses to tool outputs." Specific to this app's session pages (the
+  existing "Show tool outputs" toggle - BlockedPromptView::
+  render_collapsible_block()), not a general Claude Code behavior change.
