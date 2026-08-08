@@ -101,6 +101,24 @@ class DashboardController extends Controller
                 $message = (string)($result['message'] ?? 'Unknown error');
                 break;
 
+            case 'resume':
+                $workdir = trim((string)($_POST['workdir'] ?? ''));
+                $claudeSessionId = trim((string)($_POST['claude_session_id'] ?? ''));
+                $result = AgentClient::agent_call(['action' => 'resume', 'workdir' => $workdir, 'claude_session_id' => $claudeSessionId]);
+                $ok = (bool)($result['ok'] ?? false);
+                $message = (string)($result['message'] ?? 'Unknown error');
+
+                // Unlike every other action here, a successful resume redirects
+                // straight to the now-live session view rather than back to the
+                // dashboard with a flash - decided explicitly with Andres
+                // 2026-08-08, see the unify-claude-sessions plan's phase 5.
+                if ($ok && is_string($result['name'] ?? null) && $result['name'] !== '') {
+                    header('Location: /session.php?session=' . urlencode((string)$result['name']), true, 303);
+
+                    return;
+                }
+                break;
+
             case 'kill':
                 $requested = (string)($_POST['session'] ?? '');
                 $result = AgentClient::agent_call(['action' => 'kill', 'session' => $requested]);
@@ -224,6 +242,7 @@ class DashboardController extends Controller
     {
         $this->start_readonly_json();
 
+        $csrfToken = AuthService::csrf_token();
         $result = AgentClient::agent_call(['action' => 'list_archived']);
         $ok = (bool)($result['ok'] ?? false);
 
@@ -235,7 +254,7 @@ class DashboardController extends Controller
 
         echo json_encode([
             'ok' => true,
-            'archived_html' => SessionRowView::archived_sessions_html($result['archived'] ?? []),
+            'archived_html' => SessionRowView::archived_sessions_html($result['archived'] ?? [], $csrfToken),
         ]);
     }
 }

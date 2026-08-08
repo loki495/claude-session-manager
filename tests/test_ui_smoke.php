@@ -21,6 +21,7 @@ require __DIR__ . '/lib/http.php';
 const CANNED_TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 const CANNED_VAPID_PUBLIC_KEY = 'BAhRdSrCIQS6QqCKKxkfmfSQ_DyQk63-8zoSMWlb2PXjhuTym7Lxyboe7HSFwi79IJN7-wqbUbZmYR1CkLvXZSc';
 const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
+const CANNED_RESUMED_SESSION_NAME = 'cc-20260101-1400';
 
 $agentSocket = sys_get_temp_dir() . '/csm-test-ui-agent.sock';
 $agentHarness = start_harness(['php', __DIR__ . '/fixtures/canned_agent.php'], $agentSocket);
@@ -237,6 +238,10 @@ try {
     assert_true(is_array($archivedFragmentBody) && ($archivedFragmentBody['ok'] ?? false), 'GET /archived_sessions_fragment.php: response decodes as ok=true JSON');
     assert_contains('Refactor the old widget', $archivedFragmentBody['archived_html'] ?? '', 'GET /archived_sessions_fragment.php: archived_html carries the canned archived session\'s title');
     assert_contains('/home/andres/www/old-project', $archivedFragmentBody['archived_html'] ?? '', 'GET /archived_sessions_fragment.php: archived_html carries the canned archived session\'s cwd');
+    assert_true(
+        preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="resume">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="claude_session_id" value="' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '">\s*<input type="hidden" name="workdir" value="/home/andres/www/old-project">\s*<button type="submit"[^>]*>\s*Resume#', $archivedFragmentBody['archived_html'] ?? '') === 1,
+        'GET /archived_sessions_fragment.php: archived_html carries a Resume form with the row\'s claude_session_id and cwd (phase 5, known-id resume)'
+    );
 
     // --- session_detail.php/session_history.php/sessions_list.php/quota.php now join the
     // session (not just AgentClient.php) - a tab left open just polling (no send/answer)
@@ -919,6 +924,45 @@ try {
 
     $wrongArchivedAttachmentResult = curl_request('GET', "{$baseUrl}/archived_session_attachment.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&line=8&file_uuid=not-the-real-uuid");
     assert_equal(404, $wrongArchivedAttachmentResult['status'], 'GET /archived_session_attachment.php: an unrecognized file_uuid -> 404, not a silent empty body');
+
+    // --- POST resume: unlike every other dashboard action, a successful
+    // resume redirects straight to the now-live session.php view, not back
+    // to / with a flash - decided explicitly with Andres 2026-08-08 (see
+    // the unify-claude-sessions plan's phase 5). Own $archivedResume*
+    // variables throughout, same reasoning as the rest of this
+    // end-of-curl-only-tier block. ---
+    $archivedResumeFrontPage = curl_request('GET', "{$baseUrl}/", [], $cookieJar);
+    $archivedResumeCsrfToken = extract_csrf_token($archivedResumeFrontPage['body']);
+    assert_true($archivedResumeCsrfToken !== null, 'GET / (resume setup): page includes a csrf_token field');
+
+    $archivedResumeResult = curl_request('POST', "{$baseUrl}/", [
+        '-d', 'action=resume&csrf_token=' . urlencode((string)$archivedResumeCsrfToken)
+            . '&claude_session_id=' . urlencode(CANNED_ARCHIVED_CLAUDE_SESSION_ID)
+            . '&workdir=' . urlencode('/home/andres/www/old-project'),
+    ], $cookieJar);
+    assert_equal(303, $archivedResumeResult['status'], 'POST resume: 303 redirect');
+    assert_equal(
+        '/session.php?session=' . CANNED_RESUMED_SESSION_NAME,
+        $archivedResumeResult['headers']['location'] ?? '',
+        'POST resume: redirects straight to the now-live session view, not back to / with a flash'
+    );
+
+    // --- POST resume: canned agent rejects an unrecognized claude_session_id
+    // - falls back to the classic flash-to-/ behavior, same as every other
+    // action here, since there is no new session name to redirect to. ---
+    $archivedResumeRejectFrontPage = curl_request('GET', "{$baseUrl}/", [], $cookieJar);
+    $archivedResumeRejectCsrfToken = extract_csrf_token($archivedResumeRejectFrontPage['body']);
+
+    $archivedResumeRejectResult = curl_request('POST', "{$baseUrl}/", [
+        '-d', 'action=resume&csrf_token=' . urlencode((string)$archivedResumeRejectCsrfToken)
+            . '&claude_session_id=00000000-0000-4000-8000-000000000000'
+            . '&workdir=' . urlencode('/home/andres/www/old-project'),
+    ], $cookieJar);
+    assert_equal(303, $archivedResumeRejectResult['status'], 'POST resume (unrecognized id): 303 redirect');
+    assert_equal('/', $archivedResumeRejectResult['headers']['location'] ?? '', 'POST resume (unrecognized id): falls back to redirecting home, not to a session view');
+
+    $archivedResumeRejectFollow = curl_request('GET', "{$baseUrl}/", [], $cookieJar);
+    assert_contains('Rejected', $archivedResumeRejectFollow['body'], 'POST resume (unrecognized id): flash shows the rejection message');
 
     // --- optional richer tier: only if a headless browser is already on this host ---
     $browser = find_headless_browser();

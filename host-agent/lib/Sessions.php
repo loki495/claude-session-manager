@@ -70,6 +70,9 @@ function dispatch_action(array $request): array
         case 'create':
             return SessionService::create_cc_session((string)($request['workdir'] ?? ''));
 
+        case 'resume':
+            return SessionService::resume_cc_session((string)($request['workdir'] ?? ''), (string)($request['claude_session_id'] ?? ''));
+
         case 'kill':
             return SessionService::kill_cc_session((string)($request['session'] ?? ''));
 

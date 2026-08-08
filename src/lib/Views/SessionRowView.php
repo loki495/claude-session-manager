@@ -152,21 +152,25 @@ class SessionRowView extends View
     }
 
     /**
-     * One archived (dormant) session's dashboard row - title/cwd/last-active
-     * only, no kill/action buttons (nothing to act on for a session with no
-     * live pane - see the unify-claude-sessions plan's phase split: Resume
-     * is its own later phase). Links straight to the read-only archived
-     * transcript view.
+     * One archived (dormant) session's dashboard row - title/cwd/last-active.
+     * Links straight to the read-only archived transcript view; also renders
+     * a "Resume" button (phase 5 of the unify-claude-sessions plan) when
+     * $a['cwd'] is known - resume_cc_session() needs an absolute workdir to
+     * spawn into, and a handful of archived rows have a null cwd
+     * (TranscriptService::find_first_cwd() found no real message line to
+     * read it from), so those rows just don't get a button rather than
+     * posting a workdir-less resume the agent would only reject anyway.
      *
      * @param array<string, mixed> $a
      */
-    public static function archived_session_row_html(array $a): string
+    public static function archived_session_row_html(array $a, string $csrfToken): string
     {
         return self::render('session-row/archived-row', [
             'claudeSessionId' => (string)$a['claude_session_id'],
             'title' => (string)($a['title'] ?? $a['claude_session_id']),
             'cwd' => $a['cwd'] ?? null,
             'relativeTime' => self::relative_time((int)($a['last_activity'] ?? 0)),
+            'csrfToken' => $csrfToken,
         ]);
     }
 
@@ -178,7 +182,7 @@ class SessionRowView extends View
      *
      * @param array<int, array<string, mixed>> $archived
      */
-    public static function archived_sessions_html(array $archived): string
+    public static function archived_sessions_html(array $archived, string $csrfToken): string
     {
         if ($archived === []) {
             return self::render('session-row/archived-empty-state');
@@ -187,7 +191,7 @@ class SessionRowView extends View
         $rows = '';
 
         foreach ($archived as $a) {
-            $rows .= self::archived_session_row_html($a);
+            $rows .= self::archived_session_row_html($a, $csrfToken);
         }
 
         return self::render('session-row/archived-list', [

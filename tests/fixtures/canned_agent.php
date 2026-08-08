@@ -23,6 +23,7 @@ const CANNED_ATTACHMENT_FILE_UUID = 'canned-file-uuid-1';
 const CANNED_ATTACHMENT_BYTES = 'canned attachment bytes';
 const CANNED_IMAGE_ATTACHMENT_FILE_UUID = 'canned-file-uuid-2';
 const CANNED_ARCHIVED_CLAUDE_SESSION_ID = '99999999-8888-4777-a666-555555555555';
+const CANNED_RESUMED_SESSION_NAME = 'cc-20260101-1400';
 
 const CANNED_LAST_MESSAGE = [
     'role' => 'assistant',
@@ -205,6 +206,9 @@ $response = match ($action) {
         'dirs' => ['project-a', 'project-b'],
     ],
     'create' => ['ok' => true, 'message' => 'Created session cc-20260101-1300 in /home/andres/www/demo-project'],
+    'resume' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID && (string)($request['workdir'] ?? '') === '/home/andres/www/old-project'
+        ? ['ok' => true, 'message' => 'Resumed session ' . CANNED_RESUMED_SESSION_NAME . ' in /home/andres/www/old-project', 'name' => CANNED_RESUMED_SESSION_NAME]
+        : ['ok' => false, 'message' => 'Rejected: unknown claude_session_id or workdir'],
     'kill' => ($request['session'] ?? null) === CANNED_SESSION_NAME
         ? ['ok' => true, 'message' => 'Killed ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],

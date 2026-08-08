@@ -579,6 +579,84 @@ class SessionService
     }
 
     /**
+     * True if $claudeSessionId is already the id bound to some currently
+     * live/tracked pane - guards resume_cc_session() against two panes
+     * fighting over the same transcript file. Cheap: only reads the
+     * sidecar of each already-tracked (sidecar-gated) tmux session, no
+     * pane-scraping.
+     */
+    private static function claude_session_id_already_live(string $claudeSessionId): bool
+    {
+        foreach (TmuxService::list_tracked_tmux_sessions() as $tmuxSession) {
+            $sidecar = SidecarStore::read_sidecar($tmuxSession['name']);
+
+            if (is_string($sidecar['claude_session_id'] ?? null) && $sidecar['claude_session_id'] === $claudeSessionId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resumes a known, dormant `claude_session_id` (an archived-list row,
+     * per the unify-claude-sessions plan's phase 5) in a fresh, app-managed
+     * tmux pane - the exact same spawn shape as create_cc_session(), just
+     * `--resume <id>` instead of `--session-id <new-uuid>`. Verified live
+     * 2026-08-08: unlike the no-id form (which always drops into an
+     * interactive picker, even with a single candidate - see the plan
+     * file's findings), `--resume <explicit-id>` goes straight to the
+     * resumed conversation, no picker, so this needs no extra
+     * picker-handling step the way a future bare-process Take-over will.
+     *
+     * @return array{ok:bool, message:string, name?:string}
+     */
+    public static function resume_cc_session(string $workdir, string $claudeSessionId): array
+    {
+        if ($workdir === '' || $workdir[0] !== '/') {
+            return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
+        }
+
+        if ($claudeSessionId === '') {
+            return ['ok' => false, 'message' => 'Missing claude_session_id'];
+        }
+
+        if (self::claude_session_id_already_live($claudeSessionId)) {
+            return ['ok' => false, 'message' => 'This session already has a live pane - refusing to open a second one on the same transcript'];
+        }
+
+        $name = 'cc-' . date('Ymd-His');
+
+        $result = TmuxService::tmux_run([
+            'new-session', '-d', '-s', $name,
+            '-c', $workdir,
+            '-e', "CSM_SESSION_NAME={$name}",
+            '-x', (string)Config::new_session_pane_width(),
+            '-y', (string)Config::new_session_pane_height(),
+            Config::claude_bin(), '--resume', $claudeSessionId,
+        ]);
+
+        if ($result['exit'] !== 0) {
+            return ['ok' => false, 'message' => 'Failed to resume session: ' . trim($result['stderr'])];
+        }
+
+        usleep(300000);
+
+        $stillThere = in_array($name, array_column(TmuxService::list_all_tmux_sessions(), 'name'), true);
+
+        if (!$stillThere) {
+            return [
+                'ok' => false,
+                'message' => "Session {$name} did not stay running - check the working directory still exists and the claude binary starts correctly",
+            ];
+        }
+
+        SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true]);
+
+        return ['ok' => true, 'message' => "Resumed session {$name} in {$workdir}", 'name' => $name];
+    }
+
+    /**
      * $requested must exactly match a name from a freshly-fetched
      * TmuxService::list_tracked_tmux_sessions() call made inside this same
      * request.

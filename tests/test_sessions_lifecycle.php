@@ -395,6 +395,45 @@ try {
         assert_true(!file_exists(Config::sidecar_dir() . "/{$name}.json"), 'kill: sidecar file removed');
     }
 
+    // --- SessionService::resume_cc_session(): input validation ---
+    $result = SessionService::resume_cc_session('relative/path', '11111111-1111-4111-8111-111111111111');
+    assert_equal(false, $result['ok'] ?? null, 'resume: rejects a relative workdir');
+
+    $result = SessionService::resume_cc_session(Config::www_root() . '/project-a', '');
+    assert_equal(false, $result['ok'] ?? null, 'resume: rejects an empty claude_session_id');
+
+    // --- resume: happy path, reusing the claude_session_id freed up by the
+    // kill just above. fake_claude ignores every arg (see its own header
+    // comment) so this exercises the real tmux-spawn + sidecar-write path
+    // without needing a real claude binary to actually honor --resume. ---
+    $resumeId = $session['claude_session_id'] ?? null;
+    assert_true($resumeId !== null, 'resume setup: have a claude_session_id to resume (from the killed session above)');
+
+    $resumed = $resumeId !== null ? SessionService::resume_cc_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => false];
+    assert_true($resumed['ok'] ?? false, 'resume: ok=true for a dormant claude_session_id');
+    $resumedName = $resumed['name'] ?? null;
+    assert_true(is_string($resumedName) && str_starts_with($resumedName, 'cc-'), 'resume: returns the new pane name');
+
+    if (is_string($resumedName)) {
+        $createdSessions[] = $resumedName;
+    }
+
+    $resumedEntry = is_string($resumedName) ? find_session($resumedName) : null;
+    assert_true($resumedEntry !== null, 'resume: the new session appears in list_all_sessions()');
+    assert_equal($resumeId, $resumedEntry['claude_session_id'] ?? null, 'resume: sidecar records the resumed claude_session_id, not a freshly generated one');
+    assert_equal(Config::www_root() . '/project-a', $resumedEntry['workdir'] ?? null, 'resume: sidecar records the requested workdir');
+
+    // --- resume: refuses a claude_session_id that already has a live pane
+    // (the one just resumed above) - the guard against two panes fighting
+    // over the same transcript. ---
+    $dupResume = $resumeId !== null ? SessionService::resume_cc_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => true];
+    assert_equal(false, $dupResume['ok'] ?? null, 'resume: refuses a claude_session_id that already has a live pane');
+
+    if (is_string($resumedName)) {
+        SessionService::kill_cc_session($resumedName);
+        $createdSessions = array_values(array_diff($createdSessions, [$resumedName]));
+    }
+
     // --- input validation: relative path rejected before touching tmux ---
     $result = SessionService::create_cc_session('relative/path');
     assert_equal(false, $result['ok'] ?? null, 'create: rejects a relative workdir');
