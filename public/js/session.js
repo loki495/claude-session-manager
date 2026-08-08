@@ -496,6 +496,13 @@
   function openSidebar() {
     sidebarOverlay.classList.remove('hidden');
     sidebar.classList.remove('translate-x-full');
+    // The sidebar is its own independently-scrollable element (#sidebar
+    // has overflow-y-auto), not tied to the main page's scroll position -
+    // but without this, it opens wherever its OWN scrollTop last was left
+    // (e.g. still scrolled down from a previous open), reading as "opens
+    // at the bottom" if the main page also happened to be scrolled far
+    // down when it was last closed. Always starts fresh at the top.
+    sidebar.scrollTop = 0;
     loadSidebarList();
     loadUploadedFiles();
   }
