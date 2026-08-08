@@ -60,28 +60,19 @@ Bigger features needing research first (moderate-high surface area):
 
 Larger architecture / consolidation work (bigger surface area):
 
-- index.php: list all known sessions grouped by project folder (not just currently-
-  running ones - scan ~/.claude/projects for past sessions per cwd), and offer to
-  restart/reattach a listed-but-not-currently-running one via `claude --resume
-  <session-id>` in a fresh tmux pane. Overlaps with the "unify sessions/bare
-  processes" and reptyr items below (all under the general theme of "surface every
-  session, not just ones currently live and app-spawned"), but this one's
-  specifically about PAST/dormant sessions, not currently-running bare ones -
-  worth reconciling into one coherent design rather than three separate features
-  before building any of them.
-- index.php: unify the "sessions" (cc-* tmux, app-tracked) and "Other claude
-  processes" (bare) lists into one. The SessionStart hook fires for every claude
-  session on the box now, not just ones this app spawned, which makes this
-  tractable: generalize the hook to register a sidecar for ANY claude session
-  running inside a tmux pane - key it off the pane's own tmux session name (via
-  `tmux display-message`), not just the app-set CSM_SESSION_NAME env var, which
-  only app-spawned sessions have - then fold those into the main list with full
-  features (transcript, compose, answer-prompt, mode toggle all work via tmux
-  send-keys/capture-pane regardless of who started the pane). Hard boundary: a
-  claude process with NO tmux pane at all (bare terminal/SSH, no wrapper) can
-  never get send-keys/capture-pane support - at most a read-only transcript
-  link - so a small residual "unmanageable" category likely still remains
-  after this.
+- unify-claude-sessions plan (see /home/andres/.claude/plans/
+  unify-claude-sessions.md), phases 5-6 remaining - phases 1-4 shipped
+  2026-08-08 (bug fix, tracked-by-sidecar not cc-* prefix, ai-title
+  everywhere, dashboard archived-sessions toggle + read-only view).
+  Needs Andres's own input before starting (real UX decisions, not
+  mechanical): phase 5 is Resume (SessionService::resume_cc_session() -
+  `claude --resume <id>` in a fresh tmux pane - plus a "Resume" button on
+  each archived row), phase 6 is "Take over" for a live-but-untracked
+  session (kill + resume in a fresh pane). Both now also need to account
+  for the archived-exclusion gap logged in the next item below (a
+  live-but-untracked session showing in archived too) as part of their
+  own design, per Andres's own call not to patch that separately with a
+  heuristic.
 - Multi-socket tmux discovery: today the whole app is wired to exactly one
   tmux socket path (Config::tmux_socket(), defaulting to
   /tmp/tmux-1000/default - tmux's own standard default path, not an app
