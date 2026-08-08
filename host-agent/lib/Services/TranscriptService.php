@@ -534,6 +534,54 @@ class TranscriptService
     }
 
     /**
+     * The most recent ai-title Claude Code itself generated for this
+     * transcript - a real {"type":"ai-title","aiTitle":"...","sessionId":
+     * "..."} JSONL line it writes on its own (confirmed present in real
+     * transcripts; not confirmed every session gets one, e.g. a very short
+     * one might not have enough turns), normally skipped entirely by
+     * transcript_meta_only_types(). This is the primary session-title
+     * source for the unify-claude-sessions plan's "minimize tmux reliance"
+     * goal - it works for a dormant session exactly as well as a live one,
+     * unlike today's live-pane-title scrape. Scans the whole file rather
+     * than stopping at the first hit since Claude Code can write more than
+     * one over a long conversation (the title can change) - the LATEST one
+     * wins. Returns null (never a blank string) when none is found, so
+     * callers can fall through their own fallback chain.
+     */
+    public static function find_latest_ai_title(string $path): ?string
+    {
+        $lines = @file($path, FILE_IGNORE_NEW_LINES);
+
+        if ($lines === false) {
+            return null;
+        }
+
+        $latest = null;
+
+        foreach ($lines as $line) {
+            // Cheap short-circuit before paying for a full json_decode, same
+            // reasoning as find_exit_plan_mode_tool_use_ids() above.
+            if (!str_contains($line, '"ai-title"')) {
+                continue;
+            }
+
+            $decoded = json_decode($line, true);
+
+            if (!is_array($decoded) || ($decoded['type'] ?? null) !== 'ai-title') {
+                continue;
+            }
+
+            $aiTitle = is_string($decoded['aiTitle'] ?? null) ? trim($decoded['aiTitle']) : '';
+
+            if ($aiTitle !== '') {
+                $latest = $aiTitle;
+            }
+        }
+
+        return $latest;
+    }
+
+    /**
      * Parses one JSONL line into a renderable transcript entry, or null for a
      * meta-only, malformed, or content-less line. $exitPlanModeToolUseIds
      * (see find_exit_plan_mode_tool_use_ids()) is how a plan's tool_result

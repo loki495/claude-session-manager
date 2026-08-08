@@ -48,10 +48,18 @@ class SessionRowView extends View
                 . BlockedPromptView::last_message_preview_html($s['last_message'] ?? null, 'mt-1');
         }
 
+        $name = (string)$s['name'];
+        $title = (string)($s['title'] ?? $name);
+
         return self::render('session-row/row', [
-            'name' => (string)$s['name'],
-            'title' => (string)($s['title'] ?? $s['name']),
-            'hasExplicitTitle' => ($s['title'] ?? null) !== null,
+            'name' => $name,
+            'title' => $title,
+            // SessionService::build_session_entry()'s title always resolves
+            // to SOMETHING now (ai-title -> live pane -> workdir basename ->
+            // raw name, see SessionService::session_title()) - the raw name
+            // subtitle below is only worth showing when title is genuinely
+            // different text, not a second copy of the same string.
+            'hasExplicitTitle' => $title !== $name,
             'workdir' => $s['workdir'] ?? null,
             'relativeTime' => self::relative_time((int)$s['activity']),
             'attached' => !empty($s['attached']),

@@ -6,13 +6,16 @@ declare(strict_types=1);
  * hand-crafted fixture JSONL (tests/fixtures/transcript_sample.jsonl) - no
  * tmux, no socket, no real ~/.claude/projects involved. See
  * test_sessions_lifecycle.php and test_agent_client_protocol.php for the
- * tmux/socket-backed suites.
+ * tmux/socket-backed suites. Also covers SessionService::session_title()
+ * at the bottom - its only real dependency is TranscriptService's own
+ * transcript-path/ai-title lookups, so it needs no tmux either.
  */
 
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use HostAgent\Services\Config;
+use HostAgent\Services\SessionService;
 use HostAgent\Services\TranscriptService;
 
 // Config::home_root() no longer needs stubbing here (it did back when
@@ -476,5 +479,74 @@ assert_equal(false, $missingFile['ok'] ?? null, 'read_attachment: attachment pat
 
 @unlink($attachmentTranscript);
 @rmdir($attachmentFixtureDir);
+
+// --- TranscriptService::find_latest_ai_title(): the primary session-title
+// source for the unify-claude-sessions plan (works for a dormant session
+// exactly as well as a live one, unlike a live-pane-title scrape) - keeps
+// the LATEST ai-title line, since a long conversation can get more than
+// one as Claude Code refines it. ---
+$aiTitleFixture = sys_get_temp_dir() . '/csm-test-ai-title-' . getmypid() . '.jsonl';
+file_put_contents($aiTitleFixture, implode("\n", [
+    '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}',
+    '{"type":"ai-title","aiTitle":"First title","sessionId":"abc"}',
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}',
+    '{"type":"ai-title","aiTitle":"Second, more accurate title","sessionId":"abc"}',
+]) . "\n");
+
+assert_equal('Second, more accurate title', TranscriptService::find_latest_ai_title($aiTitleFixture), 'find_latest_ai_title: keeps the LATEST ai-title line, not the first');
+assert_equal(null, TranscriptService::find_latest_ai_title('/does/not/exist.jsonl'), 'find_latest_ai_title: missing file -> null');
+
+file_put_contents($aiTitleFixture, "{\"type\":\"ai-title\",\"aiTitle\":\"\",\"sessionId\":\"abc\"}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n");
+assert_equal(null, TranscriptService::find_latest_ai_title($aiTitleFixture), 'find_latest_ai_title: a blank aiTitle is not treated as a real title');
+
+@unlink($aiTitleFixture);
+
+// --- SessionService::session_title(): the fallback cascade behind
+// build_session_entry()'s title field - ai-title first, then the live
+// pane title, then the workdir basename, then the raw session name as
+// the one source that's always available (a title should never come back
+// blank). Uses the same HOME_ROOT-fixture pattern as find_transcript_path()
+// above since this function resolves a real transcript path internally. ---
+$titleFakeHome = sys_get_temp_dir() . '/csm-test-session-title-home-' . getmypid();
+$titleUuid = '87654321-4321-4321-8321-210987654321';
+@mkdir($titleFakeHome . '/.claude/projects/-some-project', 0700, true);
+file_put_contents(
+    $titleFakeHome . '/.claude/projects/-some-project/' . $titleUuid . '.jsonl',
+    '{"type":"ai-title","aiTitle":"Real ai-title wins","sessionId":"' . $titleUuid . '"}' . "\n"
+);
+putenv("HOME_ROOT={$titleFakeHome}");
+
+assert_equal(
+    'Real ai-title wins',
+    SessionService::session_title($titleUuid, 'live pane title', '/some/workdir', 'cc-20260101-1200'),
+    'session_title: ai-title wins even when a live pane title, workdir, and name are all also available'
+);
+assert_equal(
+    'live pane title',
+    SessionService::session_title('00000000-0000-4000-8000-000000000000', 'live pane title', '/some/workdir', 'cc-20260101-1200'),
+    'session_title: falls back to the live pane title when no ai-title is found (well-formed but nonexistent session id)'
+);
+assert_equal(
+    'workdir',
+    SessionService::session_title(null, null, '/some/path/workdir', 'cc-20260101-1200'),
+    'session_title: falls back to the workdir basename when there\'s no claude_session_id or live pane title'
+);
+assert_equal(
+    'cc-20260101-1200',
+    SessionService::session_title(null, null, null, 'cc-20260101-1200'),
+    'session_title: falls back to the raw session name as the last resort'
+);
+assert_equal(
+    'cc-20260101-1200',
+    SessionService::session_title(null, '', '', 'cc-20260101-1200'),
+    'session_title: an empty-string live pane title or workdir is treated the same as absent, not shown as a blank title'
+);
+
+@unlink($titleFakeHome . '/.claude/projects/-some-project/' . $titleUuid . '.jsonl');
+@rmdir($titleFakeHome . '/.claude/projects/-some-project');
+@rmdir($titleFakeHome . '/.claude/projects');
+@rmdir($titleFakeHome . '/.claude');
+@rmdir($titleFakeHome);
+putenv('HOME_ROOT');
 
 test_exit();

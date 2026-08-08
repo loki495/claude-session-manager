@@ -30,6 +30,40 @@ class SessionService
     public const TMUX_KEY_STEP_DELAY_USEC = 300000;
 
     /**
+     * The fallback cascade behind build_session_entry()'s title field: the
+     * transcript's own ai-title first (see TranscriptService::
+     * find_latest_ai_title()), since it needs no live pane at all and works
+     * the same for a dormant session as a live one - the unify-claude-
+     * sessions plan's "minimize tmux reliance" goal made concrete. Falls
+     * back, in order, to today's live-pane-title scrape, the working
+     * directory's basename, and finally the raw session name - the one
+     * source that's always available. Mirrors NotificationContentBuilder::
+     * push_notification_title()'s own cascade for the same reason: a title
+     * should never come back blank.
+     */
+    public static function session_title(?string $claudeSessionId, ?string $livePaneTitle, ?string $workdir, string $name): string
+    {
+        if ($claudeSessionId !== null) {
+            $transcriptPath = TranscriptService::find_transcript_path($claudeSessionId);
+            $aiTitle = $transcriptPath !== null ? TranscriptService::find_latest_ai_title($transcriptPath) : null;
+
+            if ($aiTitle !== null) {
+                return $aiTitle;
+            }
+        }
+
+        if ($livePaneTitle !== null && $livePaneTitle !== '') {
+            return $livePaneTitle;
+        }
+
+        if ($workdir !== null && $workdir !== '') {
+            return basename($workdir);
+        }
+
+        return $name;
+    }
+
+    /**
      * Builds one tracked session's (cc-* or adopted) list-row/detail data
      * from already-fetched process state - shared by list_all_sessions()
      * (called once per tmux session found) and session_detail() (called for
@@ -38,7 +72,7 @@ class SessionService
      * @param array{name:string, activity:int, attached:bool} $tmuxSession
      * @param array<int, array{pid:int, cwd:?string, started_at:?int}> $claudeProcs
      * @param array<int, int> $ppidMap
-     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:?string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, current_mode:?string, claude_session_id:?string, last_message:?array}
+     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, current_mode:?string, claude_session_id:?string, last_message:?array}
      */
     public static function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppidMap): array
     {
@@ -63,15 +97,16 @@ class SessionService
         }
 
         $claudeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
+        $workdir = is_string($sidecar['workdir'] ?? null) ? $sidecar['workdir'] : null;
 
         return [
             'name' => $tmuxSession['name'],
             'activity' => $tmuxSession['activity'],
             'attached' => $tmuxSession['attached'],
             'pid' => $matchedPid,
-            'workdir' => $sidecar['workdir'] ?? null,
+            'workdir' => $workdir,
             'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
-            'title' => $panes['title'],
+            'title' => self::session_title($claudeSessionId, $panes['title'], $workdir, $tmuxSession['name']),
             'working' => $panes['working'],
             'blocked_reason' => $prompt['question'] ?? null,
             'resume_hint' => $prompt !== null ? TmuxService::tmux_attach_hint($tmuxSession['name']) : null,
