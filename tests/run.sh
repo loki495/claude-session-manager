@@ -5,12 +5,15 @@
 # fails or the run is interrupted. Usage: bash tests/run.sh [--bail] [--cleanup]
 #   --bail     stop at the first failing test file instead of running the rest
 #   --cleanup  don't run tests at all - just sweep any stray test-infra
-#              processes left over from a past run that never got torn down
-#              (e.g. one that was SIGKILLed, skipping every trap below) and
-#              exit. Safe to run any time - it's the same sweep a normal run
-#              already does defensively before starting (see
-#              sweep_stray_processes() below), just without running the
-#              suite afterward.
+#              processes for THIS checkout (see sweep_stray_processes()
+#              below) and exit. A deliberate, explicit action, not run
+#              automatically before a normal test run - it kills every
+#              matching process by script path, which would also take out
+#              a legitimate concurrent use of the same harness (e.g. a
+#              scratch script for manual Playwright verification, a
+#              different socket path/purpose entirely - found live
+#              2026-08-08 running this automatically). Only reach for this
+#              to tidy up already-existing old orphans by hand.
 set -uo pipefail
 
 bail=0
@@ -74,12 +77,21 @@ if [ "${QUOTA_CACHE_FILE:-}" = "$REAL_QUOTA_CACHE_FILE" ] || [ -z "${QUOTA_CACHE
     exit 1
 fi
 
-# Best-effort sweep of stray processes from a PAST run of this same
-# checkout that never made it to its own EXIT trap (a SIGKILL, a killed
-# terminal, an OOM) - safe to run unconditionally before a normal test run
-# starts (the lock above already guarantees no OTHER legitimate run of this
-# checkout is active right now to accidentally sweep), and also exposed
-# standalone via --cleanup for tidying up without running the suite.
+# Explicit --cleanup only, deliberately NOT run automatically before every
+# normal test run. Found live 2026-08-08, the same night this was added:
+# running it unconditionally killed a legitimate, currently-in-use scratch
+# verification server (a manual Playwright-verification harness, same
+# socket_harness.php script, a DIFFERENT socket path/purpose entirely) as
+# an unintended side effect of just running the normal suite - pkill -f
+# against the script path matches every instance of it, not just genuinely
+# orphaned ones, and the lock above only guards against a second run.sh of
+# this checkout, not an unrelated harness use. A real fix for the
+# accumulation problem this was meant to help with already exists at the
+# right layer: socket_harness.php's own kill_stale_listener() only ever
+# kills the ONE specific process actually blocking the exact socket path a
+# new instance needs, never anything else - --cleanup here is for
+# deliberately tidying up already-existing old orphans by hand, not
+# something safe to run as a side effect of unrelated work.
 # Scoped to this checkout's own absolute paths throughout, never a bare
 # process-name pattern, so it can never reach into an unrelated project.
 sweep_stray_processes() {
@@ -108,8 +120,6 @@ if [ "$cleanup_only" -eq 1 ]; then
     echo "Done."
     exit 0
 fi
-
-sweep_stray_processes
 
 cleanup() {
     # Guard repeated here (not just above) so cleanup() is safe to call

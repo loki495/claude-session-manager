@@ -8,7 +8,7 @@ $this->layout('layout', [
 <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Claude%20Sessions%22%2C%22display%22%3A%22standalone%22%7D">
 <?php $this->stop() ?>
 
-<div class="max-w-2xl mx-auto px-4 py-6 pb-32">
+<div id="page-content" class="max-w-2xl mx-auto px-4 py-6 pb-44">
 
   <header class="select-none mb-6 flex items-start justify-between gap-2">
     <div class="min-w-0">
@@ -106,19 +106,31 @@ $this->layout('layout', [
     </div>
   <?php endif; ?>
 
-  <div class="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur border-t border-slate-800 px-4 py-3">
-    <div class="max-w-2xl mx-auto">
-      <div class="flex items-start justify-between gap-3">
-        <?= \App\Views\QuotaFooterView::quota_footer_html() ?>
-        <a href="/"
-          class="select-none min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
-          Refresh
-        </a>
-      </div>
-      <?= \App\Views\PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
-    </div>
-  </div>
+</div>
 
+<!-- A sibling of #page-content, not nested inside it (that nesting was
+     harmless in principle - position:fixed escapes document flow
+     regardless of DOM nesting - but session.php's own compose-bar has
+     always been a sibling, and matching that removes any doubt). No
+     backdrop-blur - found live: a position:fixed element combined with
+     backdrop-filter is a known-flaky pairing on iOS Safari specifically
+     (Andres reported the footer visually detaching to the middle of the
+     screen mid-scroll on mobile), so this trades the subtle frosted-glass
+     effect for a plain (still translucent, bg-slate-950/90) background
+     instead. will-change-transform hints the browser to promote this to
+     its own compositing layer up front rather than only reacting once
+     scrolling has already started, the other half of the same mitigation. -->
+<div id="dashboard-footer" class="fixed bottom-0 inset-x-0 bg-slate-950/90 border-t border-slate-800 px-4 py-3 will-change-transform">
+  <div class="max-w-2xl mx-auto">
+    <div class="flex items-start justify-between gap-3">
+      <?= \App\Views\QuotaFooterView::quota_footer_html() ?>
+      <a href="/"
+        class="select-none min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
+        Refresh
+      </a>
+    </div>
+    <?= \App\Views\PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
+  </div>
 </div>
 <script>
 window.CSM_BOOTSTRAP = <?= json_encode(['agentReachable' => $agentReachable]) ?>;

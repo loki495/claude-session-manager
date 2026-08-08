@@ -92,21 +92,21 @@
   // fixed - a static pb-44 (the CSS fallback for no-ResizeObserver browsers)
   // was tuned for the common case and left the last history entries tucked
   // behind the compose bar whenever it grew taller than that guess (e.g. the
-  // quota footer expanded to 3 lines).
+  // quota footer expanded to 3 lines). watchFixedFooterHeight() is shared
+  // with index.js/common.js - index.php's own dashboard footer has the exact
+  // same variable-height problem.
   var pageContent = document.getElementById('page-content');
+  var GO_TO_BOTTOM_GAP_PX = 12;
+  var PAGE_CONTENT_GAP_PX = 16;
 
-  if (composeBar && window.ResizeObserver) {
-    var GO_TO_BOTTOM_GAP_PX = 12;
-    var PAGE_CONTENT_GAP_PX = 16;
-    new ResizeObserver(function () {
-      if (goToBottomBtn) {
-        goToBottomBtn.style.bottom = (composeBar.offsetHeight + GO_TO_BOTTOM_GAP_PX) + 'px';
-      }
-      if (pageContent) {
-        pageContent.style.paddingBottom = (composeBar.offsetHeight + PAGE_CONTENT_GAP_PX) + 'px';
-      }
-    }).observe(composeBar);
-  }
+  watchFixedFooterHeight(composeBar, function (height) {
+    if (goToBottomBtn) {
+      goToBottomBtn.style.bottom = (height + GO_TO_BOTTOM_GAP_PX) + 'px';
+    }
+    if (pageContent) {
+      pageContent.style.paddingBottom = (height + PAGE_CONTENT_GAP_PX) + 'px';
+    }
+  });
 
   // --- slideable sidebar: other sessions' status/prompt, fetched fresh each
   // time it's opened rather than polled continuously in the background. ---

@@ -6,7 +6,11 @@ use App\Views\TranscriptView;
 
 if ($found): ?>
   <?php $composeBlocked = !empty($detail['blocked_reason']); ?>
-  <div id="compose-bar" class="select-none fixed bottom-0 inset-x-0 z-20 bg-slate-950/95 backdrop-blur border-t border-slate-800 px-4 py-3">
+  <!-- No backdrop-blur - found live: position:fixed + backdrop-filter is a
+       known-flaky pairing on iOS Safari (visually detaches mid-scroll on
+       mobile). will-change-transform is the other half of the same
+       mitigation - promotes this to its own compositing layer up front. -->
+  <div id="compose-bar" class="select-none fixed bottom-0 inset-x-0 z-20 bg-slate-950/95 border-t border-slate-800 px-4 py-3 will-change-transform">
     <div class="max-w-2xl lg:max-w-4xl mx-auto">
       <div id="compose-input-row" class="<?= $composeBlocked ? 'hidden' : '' ?>">
         <div id="compose-attachments-preview" class="hidden flex flex-wrap gap-2 mb-2"></div>

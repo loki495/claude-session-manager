@@ -1,3 +1,22 @@
+// The dashboard footer's height varies (quota box collapsed/expanded with
+// a variable number of live-data lines, the push-notify button shown/
+// hidden), so #page-content's bottom padding is tracked live rather than
+// left at the static pb-44 CSS fallback - see watchFixedFooterHeight() in
+// common.js (shared with session.js's own compose-bar, which has the same
+// variable-height problem). Deliberately its own IIFE, not folded into the
+// agent-reachability-gated poll IIFE below - the footer renders (and can
+// still grow taller than the static fallback) even when the agent is
+// unreachable.
+(function () {
+  watchFixedFooterHeight(document.getElementById('dashboard-footer'), function (height) {
+    var pageContent = document.getElementById('page-content');
+
+    if (pageContent) {
+      pageContent.style.paddingBottom = (height + 16) + 'px';
+    }
+  });
+})();
+
 // Reassigned once the live-poll IIFE further down actually defines
 // pollOnce() (a no-op stub until then, and permanently if the agent is
 // unreachable - see there) - lets the answer-prompt/freetext handlers

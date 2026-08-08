@@ -100,3 +100,24 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
     }
   });
 }
+
+// --- fixed-footer height tracking: shared between session.php's compose
+// bar and index.php's dashboard footer, both position:fixed at the bottom
+// of the viewport with genuinely variable height (the quota box alone is
+// user-collapsible AND shows a variable number of lines depending on live
+// data, and the push-notify button/mode-toggle rows can each independently
+// appear or disappear). A static CSS padding-bottom guess (the class list's
+// own pb-* is only the no-ResizeObserver CSS fallback) left the last
+// history entries/dashboard rows tucked behind the footer whenever it grew
+// taller than that guess - found live on the dashboard too, not just
+// session.php, which is why this moved here instead of staying a
+// session.js-only fix. ---
+function watchFixedFooterHeight(footerEl, onHeightChange) {
+  if (!footerEl || !window.ResizeObserver) {
+    return;
+  }
+
+  new ResizeObserver(function () {
+    onHeightChange(footerEl.offsetHeight);
+  }).observe(footerEl);
+}
