@@ -63,6 +63,8 @@ class SessionRowView extends View
             'workdir' => $s['workdir'] ?? null,
             'relativeTime' => self::relative_time((int)$s['activity']),
             'attached' => !empty($s['attached']),
+            'contextUsedPercentage' => $s['context_used_percentage'] ?? null,
+            'gitWorktree' => $s['git_worktree'] ?? null,
             'blockedHtml' => $blockedHtml,
             'csrfToken' => $csrfToken,
         ]);

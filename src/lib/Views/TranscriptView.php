@@ -149,6 +149,8 @@ class TranscriptView extends View
             'workdir' => $detail['workdir'] ?? null,
             'relativeTime' => SessionRowView::relative_time((int)$detail['activity']),
             'attached' => (bool)$detail['attached'],
+            'contextUsedPercentage' => $detail['context_used_percentage'] ?? null,
+            'gitWorktree' => $detail['git_worktree'] ?? null,
         ]);
     }
 

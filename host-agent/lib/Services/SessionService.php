@@ -169,6 +169,8 @@ class SessionService
 
         $claudeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
         $workdir = is_string($sidecar['workdir'] ?? null) ? $sidecar['workdir'] : null;
+        $liveMarker = StatuslineMarkerService::parse_marker_from_pane($paneContent);
+        $claudeSessionId = self::self_heal_claude_session_id($tmuxSession['name'], $sidecar, $claudeSessionId, $liveMarker['session_id']);
 
         return [
             'name' => $tmuxSession['name'],
@@ -190,7 +192,56 @@ class SessionService
             'current_mode' => PromptParser::parse_current_mode($paneContent),
             'claude_session_id' => $claudeSessionId,
             'last_message' => self::session_last_message($claudeSessionId),
+            // Both sourced from StatuslineMarkerService's live-pane marker,
+            // same mechanism as the self-heal cross-check above - null
+            // whenever the marker isn't installed yet, the pane hasn't
+            // rendered a statusline update since Claude Code had context-
+            // window data to report, or the session isn't in a worktree.
+            'context_used_percentage' => $liveMarker['context_used_percentage'],
+            'git_worktree' => $liveMarker['git_worktree'],
         ];
+    }
+
+    /**
+     * Cross-checks the sidecar's claude_session_id against
+     * StatuslineMarkerService's live-pane signal and self-heals a
+     * stale/wrong one - $liveSessionId is whatever build_session_entry()
+     * already parsed out of the pane content it captured for prompt
+     * parsing, no extra tmux capture-pane call here. Only ever overwrites
+     * when (a) a sidecar actually exists (nothing to preserve workdir/
+     * spawned_at from otherwise - an untracked/bare session gets no
+     * sidecar from this) and (b) the live id resolves to a real transcript
+     * file, the same "don't trust an id nothing backs" rule
+     * session_start.php's SessionStart hook itself now enforces (see its
+     * own docblock, added 2026-08-08) - applied here as a second,
+     * independent layer that self-corrects even if a bad write already
+     * slipped past the hook, rather than depending on catching the right
+     * hook fire in the first place.
+     *
+     * @param array<string, mixed>|null $sidecar
+     */
+    public static function self_heal_claude_session_id(string $sessionName, ?array $sidecar, ?string $claudeSessionId, ?string $liveId): ?string
+    {
+        if ($sidecar === null) {
+            return $claudeSessionId;
+        }
+
+        if ($liveId === null || $liveId === $claudeSessionId) {
+            return $claudeSessionId;
+        }
+
+        if (TranscriptService::find_transcript_path($liveId) === null) {
+            return $claudeSessionId;
+        }
+
+        SidecarStore::write_sidecar($sessionName, [
+            'workdir' => $sidecar['workdir'] ?? null,
+            'spawned_at' => $sidecar['spawned_at'] ?? time(),
+            'claude_session_id' => $liveId,
+            'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
+        ]);
+
+        return $liveId;
     }
 
     /**

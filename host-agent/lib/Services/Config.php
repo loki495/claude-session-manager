@@ -127,4 +127,16 @@ class Config
     {
         return 'php ' . self::csm_repo_root() . '/host-agent/hooks/pre_tool_use.php';
     }
+
+    /**
+     * Fallback statusline script this app installs (and points
+     * ~/.claude/settings.json's statusLine at) only when Andres has no
+     * statusLine of his own configured yet - see StatuslineMarkerService.
+     * When one already exists, its own script file is appended to instead;
+     * this path is never touched in that case.
+     */
+    public static function statusline_fallback_script_path(): string
+    {
+        return self::home_root() . '/.claude/csm-statusline.sh';
+    }
 }

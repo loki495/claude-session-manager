@@ -17,7 +17,19 @@
     <div class="select-none text-sm truncate"><?= $this->e($title) ?></div>
     <?php if ($hasExplicitTitle): ?><div class="select-none font-mono text-xs text-slate-500 truncate mt-0.5"><?= $this->e($name) ?></div><?php endif ?>
     <?php if (!empty($workdir)): ?><div class="select-none text-xs text-slate-500 truncate mt-0.5"><?= $this->e((string)$workdir) ?></div><?php endif ?>
-    <div class="select-none text-xs text-slate-400 mt-1 flex items-center gap-2"><span><?= $this->e($relativeTime) ?></span><span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span><?= $attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>' ?></div>
+    <div class="select-none text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+      <span><?= $this->e($relativeTime) ?></span>
+      <span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
+      <?= $attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>' ?>
+      <?php if ($contextUsedPercentage !== null): ?>
+        <span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
+        <span<?= $contextUsedPercentage >= 80 ? ' class="text-amber-400"' : '' ?>>ctx <?= (int)round($contextUsedPercentage) ?>%</span>
+      <?php endif ?>
+      <?php if ($gitWorktree !== null): ?>
+        <span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
+        <span class="truncate max-w-[8rem]" title="<?= $this->e($gitWorktree) ?>"><?= $this->e($gitWorktree) ?></span>
+      <?php endif ?>
+    </div>
     <div class="relative mt-1">
       <button type="button" class="select-none show-recent-btn rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5" data-session="<?= $this->e($name) ?>" data-loaded="0">Show last 3 messages</button>
       <div class="recent-messages hidden mt-1 flex flex-col gap-1 max-h-64 overflow-y-auto overscroll-contain"></div>
