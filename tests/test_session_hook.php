@@ -276,11 +276,82 @@ try {
     assert_equal('new-id', $rebound['claude_session_id'] ?? null, 'session_start.php: rebinds claude_session_id to the new session-id from stdin');
     assert_equal('/fixture/workdir', $rebound['workdir'] ?? null, 'session_start.php: preserves workdir across the rebind');
     assert_equal(1000, $rebound['spawned_at'] ?? null, 'session_start.php: preserves spawned_at across the rebind');
+    assert_equal(true, $rebound['spawned_by_csm'] ?? null, 'session_start.php: a CSM_SESSION_NAME session is recorded as spawned_by_csm=true');
 
     // --- malformed/empty stdin -> no-op, never crashes, sidecar untouched ---
 
     run_session_start_hook($sidecarName, null);
     assert_equal('new-id', SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
+
+    // --- adopted (non-CSM) sessions: no tmux pane at all -> no-op, no sidecar ever created ---
+
+    $adoptedName = 'my-hand-picked-tmux-session';
+    SidecarStore::delete_sidecar($adoptedName);
+
+    run_session_start_hook(null, ['session_id' => 'adopted-id-1']); // TMUX unset in the base env - no pane at all
+    assert_equal(null, SidecarStore::read_sidecar($adoptedName), 'session_start.php: no TMUX env at all -> no-op, never creates a sidecar (a bare/no-pane session can never get send-keys/capture-pane support regardless)');
+
+    // --- adopted sessions: real tmux pane, first time seen -> CREATES a
+    // brand new sidecar (unlike the CSM_SESSION_NAME path, which only ever
+    // rebinds an already-existing one) - keyed off the pane's own tmux
+    // session name (from `tmux display-message -p '#S'`, faked here - see
+    // fake_tmux_bin_dir()), not anything app-set. ---
+
+    $fakeTmuxDir = fake_tmux_bin_dir($adoptedName);
+
+    run_session_start_hook(null, ['session_id' => 'adopted-id-1', 'cwd' => '/home/andres/www/some-other-project'], [
+        'TMUX' => '/tmp/fake-tmux-socket,12345,0',
+        'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
+    ]);
+    $adopted = SidecarStore::read_sidecar($adoptedName);
+    assert_equal('adopted-id-1', $adopted['claude_session_id'] ?? null, 'session_start.php: an adopted session (real tmux pane, no CSM_SESSION_NAME) gets a brand new sidecar, first time seen');
+    assert_equal('/home/andres/www/some-other-project', $adopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir comes from the hook payload\'s own cwd field');
+    assert_equal(false, $adopted['spawned_by_csm'] ?? null, 'session_start.php: an adopted session is recorded as spawned_by_csm=false, distinguishing it from an app-spawned one');
+    assert_true(is_int($adopted['spawned_at'] ?? null), 'session_start.php: an adopted session gets a real spawned_at timestamp on first sight');
+
+    // --- adopted sessions: firing again for the SAME pane rebinds (like
+    // the CSM path), preserving the original workdir/spawned_at rather
+    // than treating every subsequent /clear-triggered fire as "first
+    // seen" again. ---
+
+    $firstSpawnedAt = $adopted['spawned_at'];
+    run_session_start_hook(null, ['session_id' => 'adopted-id-2', 'cwd' => '/should/be/ignored'], [
+        'TMUX' => '/tmp/fake-tmux-socket,12345,0',
+        'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
+    ]);
+    $reboundAdopted = SidecarStore::read_sidecar($adoptedName);
+    assert_equal('adopted-id-2', $reboundAdopted['claude_session_id'] ?? null, 'session_start.php: an adopted session rotating (e.g. /clear) rebinds claude_session_id the same as a CSM one would');
+    assert_equal('/home/andres/www/some-other-project', $reboundAdopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir is preserved across a rebind, not overwritten from the new payload');
+    assert_equal($firstSpawnedAt, $reboundAdopted['spawned_at'] ?? null, 'session_start.php: an adopted session\'s spawned_at is preserved across a rebind');
+
+    SidecarStore::delete_sidecar($adoptedName);
+    array_map('unlink', glob("{$fakeTmuxDir}/*") ?: []);
+    rmdir($fakeTmuxDir);
+
+    // --- adopted sessions: a path-traversal-shaped tmux session name is
+    // refused rather than trusted as a bare filename (SidecarStore keys a
+    // sidecar directly off this string - see sidecar_path()). ---
+
+    $trickyTmuxDir = fake_tmux_bin_dir('../../etc/passwd');
+    run_session_start_hook(null, ['session_id' => 'adopted-id-evil'], [
+        'TMUX' => '/tmp/fake-tmux-socket,12345,0',
+        'PATH' => $trickyTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
+    ]);
+    assert_equal(null, SidecarStore::read_sidecar('../../etc/passwd'), 'session_start.php: a tmux session name containing "/" is refused, never trusted as a sidecar filename');
+    array_map('unlink', glob("{$trickyTmuxDir}/*") ?: []);
+    rmdir($trickyTmuxDir);
+
+    // --- adopted sessions: tmux itself failing (e.g. no current session
+    // for that context) -> no-op, no crash, no sidecar ---
+
+    $failingTmuxDir = fake_tmux_bin_dir(null);
+    run_session_start_hook(null, ['session_id' => 'adopted-id-fail'], [
+        'TMUX' => '/tmp/fake-tmux-socket,12345,0',
+        'PATH' => $failingTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
+    ]);
+    assert_equal(null, SidecarStore::read_sidecar($adoptedName), 'session_start.php: tmux display-message itself failing -> no-op, never crashes');
+    array_map('unlink', glob("{$failingTmuxDir}/*") ?: []);
+    rmdir($failingTmuxDir);
 
     // --- pre_tool_use.php: no CSM_SESSION_NAME env -> no-op ---
 
@@ -329,11 +400,17 @@ test_exit();
  * as Claude Code itself would - $csmSessionName becomes its CSM_SESSION_NAME
  * env var (omitted entirely when null, mirroring a plain untracked claude
  * process), $payload is JSON-encoded to its stdin (raw '' when null, to
- * exercise the empty/malformed-input path).
+ * exercise the empty/malformed-input path). $extraEnv merges in on top of
+ * the base env - used by the tmux-adoption tests below to set TMUX (so the
+ * hook believes it's running inside a pane) and override PATH to a
+ * fixture directory containing a fake `tmux` executable (see
+ * fake_tmux_bin_dir()) instead of the real one, so a test can never touch
+ * the real tmux server.
  *
  * @param array<string, mixed>|null $payload
+ * @param array<string, string> $extraEnv
  */
-function run_session_start_hook(?string $csmSessionName, ?array $payload): void
+function run_session_start_hook(?string $csmSessionName, ?array $payload, array $extraEnv = []): void
 {
     $env = [
         'HOME_ROOT' => Config::home_root(),
@@ -344,6 +421,8 @@ function run_session_start_hook(?string $csmSessionName, ?array $payload): void
     if ($csmSessionName !== null) {
         $env['CSM_SESSION_NAME'] = $csmSessionName;
     }
+
+    $env = $extraEnv + $env;
 
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $process = proc_open(
@@ -365,6 +444,31 @@ function run_session_start_hook(?string $csmSessionName, ?array $payload): void
     fclose($pipes[1]);
     fclose($pipes[2]);
     proc_close($process);
+}
+
+/**
+ * A fake `tmux` executable (just enough to fool TmuxService::tmux_run()'s
+ * `['tmux', '-S', socket, 'display-message', '-p', '#S']` invocation) in
+ * its own fixture directory - $sessionNameOutput is echoed verbatim
+ * regardless of the real args passed, or nothing + a non-zero exit when
+ * null (simulating a real tmux failure, e.g. no current session). Putting
+ * this directory FIRST on PATH is what keeps the real system tmux (and so
+ * the real, possibly-live production tmux server) completely out of reach
+ * for these tests.
+ */
+function fake_tmux_bin_dir(?string $sessionNameOutput): string
+{
+    $dir = sys_get_temp_dir() . '/csm-test-fake-tmux-' . bin2hex(random_bytes(4));
+    mkdir($dir, 0700, true);
+
+    $script = $sessionNameOutput === null
+        ? "#!/bin/bash\nexit 1\n"
+        : "#!/bin/bash\necho " . escapeshellarg($sessionNameOutput) . "\n";
+
+    file_put_contents("{$dir}/tmux", $script);
+    chmod("{$dir}/tmux", 0700);
+
+    return $dir;
 }
 
 /**
