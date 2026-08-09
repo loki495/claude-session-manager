@@ -4,16 +4,6 @@ see the note above each moved/merged item for what changed and why.
 
 Bigger features needing research first (moderate-high surface area):
 
-- Push delivery: found live 2026-08-08 (journalctl, chasing the quota-
-  reset investigation) - two send failures today, "Size of payload must
-  not be greater than 4078 octets" (the Web Push/VAPID hard limit).
-  Almost certainly a blocked-prompt push (PushDeliveryService::
-  check_and_send_pushes()), whose prompt_context can carry a full Bash
-  command/diff, pushing the payload over the limit - a quota push's
-  payload is tiny by comparison, unlikely to be the cause. Needs a real
-  cap/truncation on whatever field is oversized before it's handed to
-  the push payload builder (NotificationContentBuilder), not just at
-  send time.
 - Mode CHANGES (accept edits / plan / manual / auto) aren't currently
   visible as discrete events in the transcript at all -
   render_mode_toggle_html() only shows the CURRENT mode, there's no
@@ -72,18 +62,6 @@ Larger architecture / consolidation work (bigger surface area):
   hook firing order/latency against a real session before building on an
   assumption about it, same as this finding).
 
-session.php transcript-rendering pass (three related items, same
-templates/rendering code - Andres's own framing 2026-08-08, worth
-scoping as one cohesive pass rather than three separate ones touching
-BlockedPromptView/TranscriptView repeatedly):
-
-(Both items below shipped 2026-08-08 - Claude-app-style bubbles/free-
-flowing assistant text, plus tool-call grouping with a single "N tool
-calls" toggle per run replacing the old fully-shown/fully-hidden global
-toggle. See TranscriptView::render_transcript_entries_html()/
-render_tool_group_html()/render_tool_pair_html() and their session.js
-mirrors.)
-
 Smaller polish (low effort, low risk):
 
 - session.php: don't show the "new content" divider bar (markNewContent()
@@ -94,20 +72,6 @@ Smaller polish (low effort, low risk):
   code/scrollable sections (e.g. the collapsible tool_use/tool_result
   blocks - BlockedPromptView::render_collapsible_block()/its session.js
   mirror) - copying currently means selecting text by hand.
-- Two related nav/render polish items (Andres, 2026-08-08): (1) detect
-  the iOS swipe-back gesture going from session.php to the dashboard and
-  show a loading blanket over the page during that transition, same
-  spirit as a real native-app transition rather than a bare flash of the
-  old page; (2) something like Alpine's x-cloak for transcript entries -
-  right now, an entry about to be hidden by a toggle can flash visible
-  before the hiding CSS rule actually applies, instead of never being
-  visible at all. Narrower scope than originally noted, since the
-  2026-08-08 tool-call-grouping rework above: regular tool call/output
-  entries no longer use a body-class toggle at all (native <details>,
-  closed by default, no flash-then-hide timing gap possible) - this now
-  only applies to the single remaining "Show subagent calls and outputs"
-  toggle (body.hide-subagent - see session.php's own <style> block).
-
 Exploratory / speculative / lower priority:
 
 - A search function to search within the contents of all sessions (from
