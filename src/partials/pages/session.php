@@ -56,7 +56,6 @@ $this->layout('layout', [
      off instead of fading (caught live: the ring vanished with no
      animation at all before this fix). */
   .new-content-highlight {
-    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.8), 0 0 8px 4px rgba(251, 191, 36, 0.4), 0 0 16px 8px rgba(251, 191, 36, 0.15);
     transition: box-shadow 1.2s ease-out;
   }
   .new-content-highlight.fading {
@@ -102,6 +101,7 @@ $this->layout('layout', [
   .new-content-highlight.entry-free-flowing::before {
     content: '';
     position: absolute;
+    margin: 5px;
     inset: -12px;
     border-radius: 0.625rem;
     box-shadow: 0 0 12px 0px rgba(251, 191, 36, 0.5), 0 0 24px 4px rgba(251, 191, 36, 0.2);
