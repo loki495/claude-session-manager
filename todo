@@ -83,22 +83,6 @@ BlockedPromptView/TranscriptView repeatedly):
   options, as today; subagents, plans, and tools can probably stay as
   they are now - boxed summary plus the existing expand/collapse
   toggles.
-- A blocked prompt's context longer than a short "Do you want to
-  proceed?"-style question (e.g. a real Bash command, a multi-line
-  diff/explanation) should render as its own separate entry in the
-  history, not inline inside the blocked-prompt card where it's harder to
-  read. Today prompt_context always renders inline via the same
-  render_collapsible_block() used for tool_use/tool_result blocks (see
-  BlockedPromptView::blocked_prompt_rich_html(), ~line 169) - a collapsed
-  one-liner inside the amber blocked-prompt card itself, never a
-  standalone card in the transcript flow the way a real tool_use entry
-  does. Needs a decision before implementing: the exact length/complexity
-  threshold for "longer than a short question" (compare to
-  collapsible_summary()'s existing TOOL_USE_SUMMARY_LINE_MAX=80 precedent
-  - could reuse that same cutoff, or need its own), and what "its own
-  entry" should actually look like (a real history-list entry styled like
-  a tool_use block, vs. just a bigger/less-cramped card still inside the
-  blocked-prompt section).
 - A middle ground for tool calls/outputs between fully shown (spammy) and
   fully hidden (Andres loses enough context to trust generic narration
   like "as expected" / "the mistake was..." without seeing what was

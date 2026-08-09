@@ -371,9 +371,14 @@ try {
         'GET /session.php: a non-trivial (multi-line) prompt_context still uses a real <details> wrapper'
     );
     assert_true(!str_contains($result['body'], 'Attach to answer it'), 'GET /session.php: no attach-tip fallback shown once real Approve/Deny buttons are present');
+    assert_contains('Awaiting approval', $result['body'], 'GET /session.php: prompt_context renders as its own standalone entry (BlockedPromptView::pending_context_entry_html()), not nested inline in the blocked-prompt card');
     assert_true(
-        strpos($result['body'], 'id="blocked-prompt-section"') < strpos($result['body'], 'rm -rf /tmp/canned-example'),
-        'GET /session.php: the pending command lives inside the blocked-prompt card, not a separate bubble above it'
+        strpos($result['body'], 'Awaiting approval') < strpos($result['body'], 'Waiting on input:'),
+        'GET /session.php: the pending-context entry renders BEFORE the "Waiting on input" card, as its own preceding entry rather than nested inside it'
+    );
+    assert_true(
+        strpos($result['body'], 'rm -rf /tmp/canned-example') < strpos($result['body'], 'Waiting on input:'),
+        'GET /session.php: the actual command text itself also comes before the card, confirming it moved out with the entry rather than just the label'
     );
     assert_contains('id="go-to-bottom-btn"', $result['body'], 'GET /session.php: floating go-to-bottom button present');
     assert_contains('id="sidebar-toggle-btn"', $result['body'], 'GET /session.php: sidebar toggle button present');

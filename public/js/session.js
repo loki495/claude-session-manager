@@ -1324,12 +1324,22 @@
 
     currentBlockedReason = detail.blocked_reason;
 
-    var html = '<div class="rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60">'
-      + '<p class="font-medium break-words">Waiting on input: ' + escapeHtml(detail.blocked_reason) + '</p>';
+    // The pending command/description gets its own entry BEFORE the card
+    // below, not nested inside it - mirrors BlockedPromptView::
+    // pending_context_entry_html() (PHP), same reasoning there (Andres's
+    // own explicit call, 2026-08-08: readability over it now reading like
+    // a real, already-happened tool_use entry).
+    var html = '';
 
     if (detail.prompt_context) {
-      html += '<div class="mt-2">' + renderCollapsibleBlock(detail.prompt_context, 'border-amber-700/40', 'text-amber-100', '') + '</div>';
+      html += '<div class="rounded-lg border border-amber-700/60 bg-amber-900/40 px-3 py-2 mb-2 lg:max-w-[75%] lg:self-start">'
+        + '<div class="select-none mb-1 flex items-center gap-2 text-xs text-slate-500"><span class="font-medium text-amber-300">Awaiting approval</span></div>'
+        + '<div class="flex flex-col gap-1.5">' + renderCollapsibleBlock(detail.prompt_context, 'border-amber-700/40', 'text-amber-100', '') + '</div>'
+        + '</div>';
     }
+
+    html += '<div class="rounded-lg px-3 py-2 text-xs bg-amber-900/40 text-amber-200 border border-amber-700/60">'
+      + '<p class="font-medium break-words">Waiting on input: ' + escapeHtml(detail.blocked_reason) + '</p>';
 
     if (detail.prompt_options && detail.prompt_options.length) {
       var optionsHtml = '';

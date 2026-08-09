@@ -158,27 +158,48 @@ class BlockedPromptView extends View
             return '';
         }
 
-        // One unified card, not a separate bubble stacked above it - a
-        // pending command styled like a normal history entry read as
-        // something that already happened, not the thing actually still
-        // waiting on an answer.
         $lastMessageHtml = $includeLastMessage
             ? self::last_message_preview_html($session['last_message'] ?? null, 'text-amber-300/80 italic mb-1')
             : '';
 
-        $promptContextHtml = !empty($session['prompt_context'])
-            ? self::render_collapsible_block((string)$session['prompt_context'], 'border-amber-700/40', 'text-amber-100', '')
-            : '';
+        // The pending command/description this prompt is asking about gets
+        // its own entry, immediately before the card below rather than
+        // nested inside it - Andres's own explicit call, 2026-08-08,
+        // prioritizing readability (matches how a real tool_use entry reads
+        // elsewhere in the transcript) over the tradeoff that it can now
+        // read as "something that already happened" the way a real past
+        // entry does, even though it's still only pending.
+        $pendingContextEntryHtml = self::pending_context_entry_html((string)($session['prompt_context'] ?? ''));
 
         $optionsHtml = !empty($session['prompt_options'])
             ? self::blocked_prompt_options_html($session, $csrfToken)
             : '';
 
-        return self::render('blocked-prompt/rich', [
+        return $pendingContextEntryHtml . self::render('blocked-prompt/rich', [
             'blockedReason' => (string)$session['blocked_reason'],
             'lastMessageHtml' => $lastMessageHtml,
-            'promptContextHtml' => $promptContextHtml,
             'optionsHtml' => $optionsHtml,
+        ]);
+    }
+
+    /**
+     * The standalone entry for pending_context_entry_html()'s caller - see
+     * blocked_prompt_rich_html()'s own doc comment above for why this is
+     * separate from the amber "waiting on input" card rather than nested
+     * inside it. Styled like a real tool_use entry (TranscriptView::
+     * render_transcript_entry()) - same border-radius/padding/max-width
+     * shape, amber instead of sky since this is still only pending, no
+     * timestamp since it isn't a real transcript line. Empty string when
+     * there's no context to show.
+     */
+    public static function pending_context_entry_html(string $promptContext): string
+    {
+        if ($promptContext === '') {
+            return '';
+        }
+
+        return self::render('blocked-prompt/pending-context-entry', [
+            'contentHtml' => self::render_collapsible_block($promptContext, 'border-amber-700/40', 'text-amber-100', ''),
         ]);
     }
 
