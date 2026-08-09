@@ -35,17 +35,6 @@ Bigger features needing research first (moderate-high surface area):
   only ever detected going forward from whenever a session was first
   opened, never backfilled into older history)?
 
-- Investigate: Andres reports a regression where pressing Enter while
-  composing a message (at least on mobile) sends it immediately instead
-  of inserting a newline - the opposite of this app's own deliberate
-  convention (plain Enter = newline, Shift+Enter = submit, see
-  session.js's composeTextarea keydown handler - chosen because
-  multi-line pastes/logs are common enough that submit-on-Enter kept
-  firing mid-paste). Check every textarea (compose bar, any others) for
-  where this might be happening and whether it's scoped to certain
-  conditions (mobile keyboard "Go"/"Send" IME action triggering a
-  different code path than a real Enter keydown, maybe).
-
 Larger architecture / consolidation work (bigger surface area):
 
 - Multi-socket tmux discovery: today the whole app is wired to exactly one

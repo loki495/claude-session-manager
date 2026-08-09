@@ -17,6 +17,35 @@ function shouldConfirmBeforeAnswer() {
   }
 }
 
+// --- physical Shift-key tracking: every Shift+Enter-submits handler in
+// this app (session.php's compose box and freetext prompt reply,
+// index.php's dashboard freetext prompt reply) needs to know Shift is
+// GENUINELY held, not just trust event.shiftKey on the Enter keydown
+// itself - found live 2026-08-08, Andres reported a second Enter press
+// on his phone sending instead of adding a newline (Enter should always
+// just insert a newline; only Shift+Enter submits, everywhere text gets
+// typed in this app). Best-guess cause: some mobile virtual keyboards
+// auto-capitalize the next letter after a newline and appear to leak
+// that as shiftKey: true on the following Enter's own keydown event,
+// even with no real Shift key involved at all. A virtual keyboard's own
+// on-screen "shift" toggle never dispatches a real, standalone Shift
+// keydown/keyup the way a physical key does, so this independently-
+// tracked flag naturally stays false on mobile (an actual Bluetooth-
+// paired keyboard's Shift key still works, same as desktop) - it only
+// ever becomes true from a real Shift keydown, which is exactly what
+// was missing from the false positive this guards against. ---
+var shiftKeyPhysicallyHeld = false;
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Shift') {
+    shiftKeyPhysicallyHeld = true;
+  }
+});
+document.addEventListener('keyup', function (e) {
+  if (e.key === 'Shift') {
+    shiftKeyPhysicallyHeld = false;
+  }
+});
+
 // Polling interval: user-selectable (dropdown in both pages' headers, 1/3/5/
 // 10/15s), persisted per-browser and shared across pages via this key so a
 // chosen interval carries over from one to the other.

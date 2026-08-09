@@ -1664,9 +1664,10 @@
 
     // Plain Enter inserts a newline (the browser's own default - no
     // handling needed here); only Shift+Enter submits, same convention as
-    // the compose box.
+    // the compose box. shiftKeyPhysicallyHeld cross-check - see its own
+    // doc comment in common.js.
     blockedSection.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && e.shiftKey && e.target.classList.contains('freetext-reply-textarea')) {
+      if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && e.target.classList.contains('freetext-reply-textarea')) {
         e.preventDefault();
         submitFreetextReply(e.target.closest('.freetext-reply'));
       }
@@ -2282,9 +2283,10 @@
     // handling needed here); only Shift+Enter submits. The opposite of the
     // usual chat-box convention, deliberately: multi-line messages are
     // common enough here (pasted logs/commands) that submit-on-Enter kept
-    // firing mid-paste/mid-thought.
+    // firing mid-paste/mid-thought. shiftKeyPhysicallyHeld cross-check -
+    // see its own doc comment in common.js.
     composeTextarea.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && e.shiftKey) {
+      if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld) {
         e.preventDefault();
         sendComposedMessage();
       }

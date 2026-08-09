@@ -185,8 +185,17 @@ document.addEventListener('click', function (e) {
   }
 });
 
+// Plain Enter inserts a newline everywhere text gets typed in this app -
+// only Shift+Enter submits (same convention as session.php's own compose
+// box/freetext reply). Used to be the opposite here specifically (plain
+// Enter submitted) - changed 2026-08-08 per Andres's own explicit call
+// for one consistent rule app-wide, while separately chasing a mobile
+// Shift+Enter false-positive (see shiftKeyPhysicallyHeld's own doc
+// comment in common.js) that this dashboard reply box was never
+// actually vulnerable to itself (it didn't require shiftKey at all
+// before), but the inconsistency was the actual thing being flagged.
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('freetext-reply-textarea')) {
+  if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && e.target.classList.contains('freetext-reply-textarea')) {
     e.preventDefault();
     submitFreetextReply(e.target.closest('.freetext-reply'));
   }
