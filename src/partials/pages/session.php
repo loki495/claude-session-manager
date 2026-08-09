@@ -14,15 +14,26 @@ $this->layout('layout', [
      html() in TranscriptView.php) - since 2026-08-08 those are always
      grouped into a collapsible "N tool calls" run instead, whose own
      <details> is its own show/hide affordance, scoped to just that run
-     rather than the whole session. */
-  body.hide-subagent .subagent-detail,
-  body.hide-subagent .subagent-use-block { display: none; }
-  /* An entry whose only block is a subagent call/report (marked at render
-     time, see entry-subagent-only in render_transcript_entry()/
-     renderEntry()) has nothing left to show once the rule above hides its
-     content - without this it's a superfluous empty labeled bubble (role
-     label + timestamp, no body). */
-  body.hide-subagent .entry-subagent-only { display: none; }
+     rather than the whole session.
+     Hidden by DEFAULT, revealed only once body.show-subagent is added -
+     the opposite of the naive "visible by default, hidden by a body.hide-
+     subagent class" version this replaced (x-cloak-style fix, found live
+     2026-08-08). The stored preference lives in localStorage, which PHP
+     can't see at render time - session.js only adds/removes this class
+     AFTER its own script runs, near the end of the page, well after first
+     paint. The old hide-* version could therefore only ever hide subagent
+     content a moment too late for anyone who'd actually turned the toggle
+     off: it rendered visible by default and js had to catch up, a real
+     flash of real content. Defaulting to hidden and revealing it once
+     script confirms the (usually "on") preference means the flash - if
+     any - is the far less jarring "briefly nothing, then it pops in" for
+     the common case, never "here's real content, oops, hide it". */
+  .subagent-detail,
+  .subagent-use-block,
+  .entry-subagent-only { display: none; }
+  body.show-subagent .subagent-detail,
+  body.show-subagent .subagent-use-block,
+  body.show-subagent .entry-subagent-only { display: block; }
   /* Marks where newly-polled entries start (see markNewContent() in the
      <script> below) - opacity transition only, no layout-affecting
      property, so the fade-out never causes a scroll jump right as the user

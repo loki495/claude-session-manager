@@ -159,8 +159,14 @@
     }
   }
 
+  // x-cloak-style: subagent content is hidden by DEFAULT in CSS (see
+  // session.php's own <style> block) and only revealed once this class is
+  // added, rather than starting visible and being hidden by a hide-
+  // subagent class - avoids a flash of real subagent content for anyone
+  // who's actually turned the toggle off, since this only ever runs after
+  // first paint (found live 2026-08-08).
   function applyShowSubagent(show) {
-    document.body.classList.toggle('hide-subagent', !show);
+    document.body.classList.toggle('show-subagent', show);
   }
 
   var showSubagentToggle = document.getElementById('show-subagent-toggle');
@@ -2012,8 +2018,9 @@
   //    that's no longer where new stuff starts. This also sidesteps a real
   //    bug the per-batch version this replaced had: if a batch's entries
   //    are ALL currently hidden (Andres toggles "Show subagent calls and
-  //    outputs" off - see body.hide-subagent in the <style> above - which
-  //    sets display:none on whole entries, not just a class), a
+  //    outputs" off, or just hasn't loaded yet - see the default-hidden
+  //    .entry-subagent-only rule in the <style> above - which sets
+  //    display:none on whole entries, not just a class), a
   //    display:none element can never intersect the
   //    viewport, so a fade condition requiring every element in a batch to
   //    be seen could never be satisfied - the divider got stuck forever,

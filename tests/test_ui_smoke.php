@@ -82,8 +82,8 @@ try {
     assert_contains('Claude Session Manager', $result['body'], 'GET /: page title present');
     assert_contains('2 active', $result['body'], 'GET /: session count from canned agent');
     assert_true(
-        preg_match('/<body class="[^"]*\boverscroll-none\b/', $result['body']) === 1,
-        'GET /: body has overscroll-none, so the whole page never rubber-bands/bounces past its own top/bottom (found live: this app had no overscroll-behavior anywhere, reading as a plain webpage rather than a tight, native-app-like one)'
+        preg_match('/<body class="[^"]*\boverscroll-y-none\b/', $result['body']) === 1,
+        'GET /: body has overscroll-y-none, so the page never rubber-bands/bounces past its own top/bottom (found live: this app had no overscroll-behavior anywhere, reading as a plain webpage rather than a tight, native-app-like one) - Y-axis only (not the both-axes overscroll-none this replaced, 2026-08-09), so X-axis overscroll-behavior stays free for the iOS edge-swipe-back gesture'
     );
     assert_contains('Fix the login redirect bug', $result['body'], 'GET /: canned pane title shown as the primary label');
     assert_contains('cc-20260101-1200', $result['body'], 'GET /: raw session name still shown (secondary, since a title is present)');
@@ -121,12 +121,15 @@ try {
     assert_contains('id="session-count-text"', $result['body'], 'GET /: session-count text is a targetable element (updated live by the poll)');
     assert_contains('id="sessions-container"', $result['body'], 'GET /: session list lives inside a targetable container (swapped in place by the poll)');
     assert_contains('id="bare-container"', $result['body'], 'GET /: bare-process list lives inside a targetable container (swapped in place by the poll)');
+    assert_contains('id="navigation-blanket"', $result['body'], 'GET /: the navigation-away loading blanket (shared layout.php) is present on the dashboard too, not just session.php');
     assert_true(
         preg_match('#<script src="(/js/common\.js\?v=\d+)"></script>\s*<script src="(/js/index\.js\?v=\d+)"></script>#', $result['body'], $indexScriptMatch) === 1,
         'GET /: loads common.js then index.js, both cache-busted with a ?v=<mtime> query string (App\Assets::versioned_url())'
     );
     $indexCommonJs = curl_request('GET', "{$baseUrl}{$indexScriptMatch[1]}");
     assert_equal(200, $indexCommonJs['status'], 'GET /js/common.js?v=...: 200 (served as a static file, no 404)');
+    assert_contains("addEventListener('pagehide'", $indexCommonJs['body'], 'GET /js/common.js: the navigation-blanket pagehide handler (covers the iOS swipe-back gesture, which has no click handler to hook) is shipped');
+    assert_contains("addEventListener('pageshow'", $indexCommonJs['body'], 'GET /js/common.js: the matching pageshow handler (un-hides the blanket again if the page was only bfcache-persisted, not really navigated away from) is shipped');
     $indexJs = curl_request('GET', "{$baseUrl}{$indexScriptMatch[2]}");
     assert_equal(200, $indexJs['status'], 'GET /js/index.js?v=...: 200 (served as a static file, no 404)');
 
@@ -298,6 +301,10 @@ try {
         preg_match('/id="header-title"[^>]*>\s*Fix the login redirect bug/', $result['body']) === 1,
         'GET /session.php: the session title also appears centered in the sticky top header'
     );
+    assert_true(
+        preg_match('/<body class="[^"]*\boverscroll-y-none\b/', $result['body']) === 1,
+        'GET /session.php: body has overscroll-y-none too (shared layout.php), Y-axis only so the iOS edge-swipe-back gesture is unaffected'
+    );
     assert_contains('demo-project', $result['body'], 'GET /session.php: canned workdir shown');
     assert_contains('Looking into it now.', $result['body'], 'GET /session.php: canned history entry rendered');
 
@@ -395,6 +402,7 @@ try {
         'GET /session.php: the actual command text itself also comes before the card, confirming it moved out with the entry rather than just the label'
     );
     assert_contains('id="go-to-bottom-btn"', $result['body'], 'GET /session.php: floating go-to-bottom button present');
+    assert_contains('id="navigation-blanket"', $result['body'], 'GET /session.php: the navigation-away loading blanket is present');
     assert_contains('id="sidebar-toggle-btn"', $result['body'], 'GET /session.php: sidebar toggle button present');
     assert_contains('id="sidebar-notify-dot"', $result['body'], 'GET /session.php: sidebar notification dot present');
     assert_contains('id="confirm-before-answer-toggle"', $result['body'], 'GET /session.php: confirm-before-answering setting checkbox present in the sidebar');
@@ -404,9 +412,19 @@ try {
     assert_contains('id="show-subagent-toggle" class="rounded border-slate-600 bg-slate-800" checked', $result['body'], 'GET /session.php: show-subagent checkbox is checked (shown) by default');
     assert_contains('class="tool-detail"', $result['body'], 'GET /session.php: a plain (non-subagent) tool_result block carries no subagent-only marker at all - it is never rendered standalone hideable any more, only ever inside a tool-group');
     assert_contains('class="tool-use-block"', $result['body'], 'GET /session.php: a plain (non-subagent) tool_use block carries no subagent-only marker either');
-    assert_contains('body.hide-subagent .subagent-detail', $result['body'], 'GET /session.php: the single hide-subagent CSS rule targets subagent tool_result blocks');
-    assert_contains('body.hide-subagent .subagent-use-block', $result['body'], 'GET /session.php: the same hide-subagent rule also targets subagent tool_use blocks');
-    assert_contains('body.hide-subagent .entry-subagent-only', $result['body'], 'GET /session.php: a second hide-subagent rule hides whole entries left with nothing but a hidden subagent block');
+    // x-cloak-style (found live 2026-08-08): hidden by DEFAULT, only
+    // revealed once body.show-subagent is added - the opposite of a naive
+    // hide-on-toggle-off class, so there's no window where subagent
+    // content renders visible before session.js's own script has even run
+    // to hide it for anyone who's actually turned the toggle off.
+    assert_contains(
+        ".subagent-detail,\n  .subagent-use-block,\n  .entry-subagent-only { display: none; }",
+        $result['body'],
+        'GET /session.php: subagent blocks/entries are hidden by default in plain CSS, not gated behind a body class'
+    );
+    assert_contains('body.show-subagent .subagent-detail', $result['body'], 'GET /session.php: the single show-subagent CSS rule reveals subagent tool_result blocks');
+    assert_contains('body.show-subagent .subagent-use-block', $result['body'], 'GET /session.php: the same show-subagent rule also reveals subagent tool_use blocks');
+    assert_contains('body.show-subagent .entry-subagent-only', $result['body'], 'GET /session.php: a second show-subagent rule reveals whole entries left with nothing but a subagent block');
     assert_contains('.new-content-divider.fading', $result['body'], 'GET /session.php: the new-content divider fade rule is shipped');
     assert_contains('.new-content-highlight.fading', $result['body'], 'GET /session.php: the new-content highlight fade rule is shipped (two-class pattern, not a plain classList.remove, so `transition` survives the fade)');
     assert_true(
@@ -483,7 +501,7 @@ try {
     );
     assert_true(
         strpos($subagentCallMatch[0], 'subagent-use-block') !== false,
-        'GET /session.php: the subagent call entry\'s tool_use block also carries the subagent-use-block marker (what the single hide-subagent toggle actually targets)'
+        'GET /session.php: the subagent call entry\'s tool_use block also carries the subagent-use-block marker (what the single show-subagent toggle actually targets)'
     );
     assert_true(
         isset($subagentCallMatch[1]) && strpos($subagentCallMatch[1], 'entry-subagent-only') !== false,

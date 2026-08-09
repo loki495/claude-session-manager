@@ -188,3 +188,35 @@ function watchFixedFooterHeight(footerEl, onHeightChange) {
     onHeightChange(footerEl.offsetHeight);
   }).observe(footerEl);
 }
+
+// --- navigation-away loading blanket: covers the iOS edge-swipe-back
+// gesture (Andres, 2026-08-08) - going from session.php to the dashboard
+// via that gesture left the old page's content sitting frozen on screen
+// for however long the browser actually took to swap in the next page,
+// unlike a real native-app transition. There's no click handler to hook
+// for a swipe gesture the way there is for a normal link tap, so this
+// listens for the one event that fires regardless of WHAT triggered the
+// navigation - swipe-back, the browser's own back button, a plain link
+// tap, all of it. pagehide fires right as the current page is being torn
+// down for that navigation, whether it succeeds or not; showing the
+// blanket immediately there means it's already covering the screen by the
+// time anything visibly changes. ---
+var navigationBlanket = document.getElementById('navigation-blanket');
+
+if (navigationBlanket) {
+  window.addEventListener('pagehide', function () {
+    navigationBlanket.classList.remove('hidden');
+  });
+
+  // pagehide ALSO fires when the page is merely being tucked into the
+  // bfcache (backgrounding the browser/switching apps can trigger this on
+  // iOS, not just a real navigation) - persisted=true on the matching
+  // pageshow is what tells the two apart. Without hiding it back here,
+  // the blanket would stay stuck over a page the user never actually
+  // left, with no real navigation ever coming along to replace it.
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) {
+      navigationBlanket.classList.add('hidden');
+    }
+  });
+}
