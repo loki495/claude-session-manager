@@ -148,12 +148,12 @@ class NotificationContentBuilder
             case 'Write':
                 $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
 
-                return $path !== null ? "Write {$path}" : 'Write a file';
+                return $path !== null ? self::push_truncate("Write {$path}") : 'Write a file';
 
             case 'Edit':
                 $path = is_string($toolInput['file_path'] ?? null) ? $toolInput['file_path'] : null;
 
-                return $path !== null ? "Edit {$path}" : 'Edit a file';
+                return $path !== null ? self::push_truncate("Edit {$path}") : 'Edit a file';
 
             // Without this, ExitPlanMode fell through to the generic
             // default below - "Run ExitPlanMode", a literal tool name
@@ -184,8 +184,22 @@ class NotificationContentBuilder
      * permission prompt (see push_permission_body()), or the real question
      * text for an AskUserQuestion prompt / anything else without a matched
      * pending tool (the trust dialog, a stale/missing PreToolUse record) -
-     * unchanged from before, since blocked_reason is already the right thing
-     * to show for those.
+     * blocked_reason is already the right thing to show for those.
+     *
+     * push_truncate()'d here too (found live 2026-08-08, journalctl: two
+     * real send failures, "Size of payload must not be greater than 4078
+     * octets", the Web Push/VAPID hard limit) - unlike every other body
+     * branch in this file, this fallback used to return blocked_reason
+     * completely unbounded. blocked_reason is normally just the short
+     * question line (see SessionService::build_session_entry()'s own
+     * 'blocked_reason' => $prompt['question'] ?? null), but a verbose
+     * AskUserQuestion question, or pane-scraped text for a stale/missing
+     * PreToolUse record with no cleanly-parsed question at all, can run
+     * long enough on its own to be the one field that pushes the whole
+     * JSON-encoded {title, body, url} payload over the limit - fixed at
+     * the source here, not by truncating the assembled payload as a whole
+     * at send time (which could cut a multi-byte UTF-8 character in half,
+     * or land inside the JSON structure itself rather than just the text).
      *
      * @param array{blocked_reason?:mixed, prompt_tool_name?:mixed, prompt_tool_input?:mixed} $session
      */
@@ -198,7 +212,7 @@ class NotificationContentBuilder
             return self::push_permission_body($toolName, $toolInput);
         }
 
-        return (string)($session['blocked_reason'] ?? 'Waiting on input');
+        return self::push_truncate((string)($session['blocked_reason'] ?? 'Waiting on input'));
     }
 
     /**

@@ -236,6 +236,39 @@ try {
         'push_blocked_body: a completely empty session still returns something, not a crash'
     );
 
+    // Found live 2026-08-08 (journalctl): two real push send failures,
+    // "Size of payload must not be greater than 4078 octets" - unlike
+    // every other body branch, this fallback used to return blocked_reason
+    // completely unbounded (a verbose AskUserQuestion question, or raw
+    // pane-scraped text for a stale/missing PreToolUse record, can run
+    // long enough on its own to blow the whole payload's limit).
+    $longQuestion = str_repeat('b', 200);
+    assert_equal(
+        141,
+        mb_strlen(NotificationContentBuilder::push_blocked_body(['blocked_reason' => $longQuestion, 'prompt_tool_name' => null, 'prompt_tool_input' => null])),
+        'push_blocked_body: a long blocked_reason (no matched tool) is truncated the same as every other push body - the actual cause of the 2026-08-08 oversized-payload send failures'
+    );
+    assert_equal(
+        141,
+        mb_strlen(NotificationContentBuilder::push_blocked_body(['blocked_reason' => $longQuestion, 'prompt_tool_name' => 'AskUserQuestion', 'prompt_tool_input' => ['questions' => []]])),
+        'push_blocked_body: a long AskUserQuestion question is truncated too'
+    );
+
+    // Write/Edit file paths get the same defensive truncation as every
+    // other body branch, even though a path alone is unlikely to reach the
+    // real limit on its own - consistency with the rest of this file.
+    $longPath = '/tmp/' . str_repeat('c', 200) . '.txt';
+    assert_equal(
+        141,
+        mb_strlen(NotificationContentBuilder::push_permission_body('Write', ['file_path' => $longPath])),
+        'push_permission_body: a very long Write file_path is truncated too'
+    );
+    assert_equal(
+        141,
+        mb_strlen(NotificationContentBuilder::push_permission_body('Edit', ['file_path' => $longPath])),
+        'push_permission_body: a very long Edit file_path is truncated too'
+    );
+
     // --- NotificationContentBuilder::push_blocked_title(): leads with WHAT KIND of prompt this is -
     // no "Claude" wording (iOS already attributes the notification to
     // this app via the icon and its own OS-level "from <manifest name>"
