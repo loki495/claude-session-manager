@@ -62,23 +62,26 @@ services:
     ports:
       # Bind explicitly to a LAN interface IP, never 0.0.0.0. See README.
       - "${BIND_ADDR:-127.0.0.1}:${APP_PORT:-8091}:80"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.csm.rule=Host(`csm.dev.local.test`)"
-      - "traefik.http.routers.csm.entrypoints=web"
-      # HTTPS - a secure context is a hard requirement for Service
-      # Workers/Web Push (see the README's "Web Push notifications"
-      # section), not optional. Self-signed (Traefik's own auto-generated
-      # default cert, no certResolver configured on this router) - the
-      # phone needs to trust it once, see the README.
-      - "traefik.http.routers.csm-secure.rule=Host(`csm.dev.local.test`)"
-      - "traefik.http.routers.csm-secure.entrypoints=websecure"
-      - "traefik.http.routers.csm-secure.tls=true"
-      - "traefik.http.routers.csm-secure.service=csm"
-      - "traefik.http.services.csm.loadbalancer.server.port=80"
-    networks:
-      - web
-
-networks:
-  web:
-    external: true
+    # Optional: if you front this with your own reverse proxy (for a
+    # friendlier hostname, and/or HTTPS - a hard requirement for Web Push,
+    # see the README's "Web Push notifications" section), add its labels/
+    # network here. Deliberately not wired up by default - it'd otherwise
+    # require an external Docker network and reverse proxy that don't
+    # exist on a fresh clone, and the README's own security guidance is to
+    # prefer the direct BIND_ADDR:APP_PORT route over routing through a
+    # shared reverse proxy anyway, unless you've specifically confirmed
+    # that proxy is ALSO LAN-only. A Traefik example, for reference:
+    #   labels:
+    #     - "traefik.enable=true"
+    #     - "traefik.http.routers.csm.rule=Host(`csm.example.lan`)"
+    #     - "traefik.http.routers.csm.entrypoints=web"
+    #     - "traefik.http.routers.csm-secure.rule=Host(`csm.example.lan`)"
+    #     - "traefik.http.routers.csm-secure.entrypoints=websecure"
+    #     - "traefik.http.routers.csm-secure.tls=true"
+    #     - "traefik.http.routers.csm-secure.service=csm"
+    #     - "traefik.http.services.csm.loadbalancer.server.port=80"
+    #   networks:
+    #     - web
+    # networks:
+    #   web:
+    #     external: true

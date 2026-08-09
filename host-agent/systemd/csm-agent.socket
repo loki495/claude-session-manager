@@ -4,7 +4,7 @@ Description=Claude Session Manager host agent socket
 [Socket]
 ListenStream=%t/csm-agent.sock
 SocketMode=0660
-SocketGroup=andres
+SocketGroup=@SOCKET_GROUP@
 Accept=yes
 
 [Install]

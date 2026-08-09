@@ -1,7 +1,8 @@
 {
     "name": "loki495/claude-session-manager",
-    "description": "Personal Claude Code session manager (host-agent + web frontend)",
+    "description": "A self-hosted web UI for managing tmux sessions running Claude Code - see blocked prompts, answer them, send messages, view transcripts, all from a phone or any browser on your LAN.",
     "type": "project",
+    "license": "MIT",
     "require": {
         "minishlink/web-push": "^9.0",
         "league/plates": "^3.6"

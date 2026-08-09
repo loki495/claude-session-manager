@@ -31,9 +31,15 @@ class PushDeliveryService
         return Config::csm_config('VAPID_PRIVATE_KEY', '');
     }
 
+    /**
+     * Required by the Web Push spec itself (a mailto: address or an HTTPS
+     * URL push services can use to contact you about your VAPID usage) -
+     * no default here, set it explicitly in .env alongside the VAPID
+     * keypair when enabling push notifications (see README).
+     */
     public static function vapid_subject(): string
     {
-        return Config::csm_config('VAPID_SUBJECT', 'mailto:dasc495@gmail.com');
+        return Config::csm_config('VAPID_SUBJECT', '');
     }
 
     /**
