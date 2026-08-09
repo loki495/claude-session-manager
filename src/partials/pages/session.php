@@ -6,25 +6,23 @@ $this->layout('layout', [
 ?>
 <?php $this->start('style') ?>
 <style>
-  /* Toggled via the "Show tool outputs" sidebar setting - a body-level
-     class + CSS rule so it applies uniformly to blocks rendered later by the
-     poll too, without needing to walk/re-tag the DOM on every render. */
-  body.hide-tool-details .tool-detail { display: none; }
-  /* An entry whose ONLY blocks are tool_result (marked at render time, see
-     entry-tool-result-only in render_transcript_entry()/renderEntry()) has
-     nothing left to show once the rule above hides its content - without
-     this it's a superfluous empty "User" bubble (role label + timestamp,
-     no body). */
-  body.hide-tool-details .entry-tool-result-only { display: none; }
-  /* Toggled via the separate "Show tool calls" sidebar setting - tool_use
-     blocks (the call itself, e.g. "Bash(...)") are unaffected by the
-     hide-tool-details rule above, which only ever targets tool_result (the
-     output), so this needs its own class + rule pair, same pattern. */
-  body.hide-tool-calls .tool-use-block { display: none; }
-  /* Same reasoning as entry-tool-result-only above, mirrored for entries
-     whose ONLY blocks are tool_use (marked at render time, see
-     entry-tool-use-only in render_transcript_entry()/renderEntry()). */
-  body.hide-tool-calls .entry-tool-use-only { display: none; }
+  /* Toggled via the single "Show subagent calls and outputs" sidebar
+     setting - a body-level class + CSS rule so it applies uniformly to
+     blocks rendered later by the poll too, without needing to walk/re-tag
+     the DOM on every render. Regular (non-subagent) tool_use/tool_result
+     entries don't use this at all any more (see render_transcript_entries_
+     html() in TranscriptView.php) - since 2026-08-08 those are always
+     grouped into a collapsible "N tool calls" run instead, whose own
+     <details> is its own show/hide affordance, scoped to just that run
+     rather than the whole session. */
+  body.hide-subagent .subagent-detail,
+  body.hide-subagent .subagent-use-block { display: none; }
+  /* An entry whose only block is a subagent call/report (marked at render
+     time, see entry-subagent-only in render_transcript_entry()/
+     renderEntry()) has nothing left to show once the rule above hides its
+     content - without this it's a superfluous empty labeled bubble (role
+     label + timestamp, no body). */
+  body.hide-subagent .entry-subagent-only { display: none; }
   /* Marks where newly-polled entries start (see markNewContent() in the
      <script> below) - opacity transition only, no layout-affecting
      property, so the fade-out never causes a scroll jump right as the user
@@ -52,6 +50,55 @@ $this->layout('layout', [
   }
   .new-content-highlight.fading {
     box-shadow: 0 0 0 1px rgba(251, 191, 36, 0), 0 0 8px 4px rgba(251, 191, 36, 0), 0 0 16px 8px rgba(251, 191, 36, 0);
+  }
+  /* A free-flowing assistant entry (see entry_wrapper_class()/entry-free-
+     flowing) has no padding of its own, so the plain .new-content-highlight
+     ring above sits flush against the text with no room to breathe (found
+     live 2026-08-08).
+     Two things were tried and rejected before this, both confirmed live
+     against the real running app:
+     - Widening box-shadow's spread: doesn't work AT ALL - a shadow's
+       visible edge always starts exactly at the box's own border edge no
+       matter how large its spread is; spread only changes how far OUT it
+       reaches, not whether it touches. Confirmed live: widening it just
+       made the ring thicker, still flush against the text.
+     - outline + outline-offset: DOES create real separation (outline never
+       affects box size/layout, unlike padding - confirmed live that a flex
+       `gap`-based sibling distance was unchanged by it, unlike the
+       equivalent padding+negative-margin trick, which visibly ate into
+       that gap). But a crisp offset outline reads as a hard rectangular
+       BOX suddenly appearing around the text (confirmed live via
+       screenshot) - defeating the entire point of "free-flowing, no
+       border/box" in the first place.
+     What actually works: a ::before pseudo-element, inset OUTSIDE the real
+     text via a negative `inset`, carrying the soft blurred box-shadow
+     layers itself. Since the pseudo-element's own phantom box already
+     starts several pixels away from the text, ITS box-shadow reads as a
+     soft glow with genuine breathing room around the real text -
+     `position: absolute` pulls it completely out of normal flow, so (like
+     outline) it has zero effect on the real entry's size or its flex `gap`
+     spacing to neighbors either. A real inset (-12px, bigger than the
+     first attempt's -6px) plus near-zero spread (relying on blur radius
+     alone for the glow's spatial extent, not spread's hard-edged band) is
+     what actually reads as a diffuse ambient halo rather than a
+     soft-edged-but-still-rectangular box - confirmed live via a zoomed
+     screenshot crop, after an initial smaller-inset/higher-spread attempt
+     still looked too close to a box at normal viewing size on a real
+     phone. */
+  .new-content-highlight.entry-free-flowing {
+    position: relative;
+  }
+  .new-content-highlight.entry-free-flowing::before {
+    content: '';
+    position: absolute;
+    inset: -12px;
+    border-radius: 0.625rem;
+    box-shadow: 0 0 12px 0px rgba(251, 191, 36, 0.5), 0 0 24px 4px rgba(251, 191, 36, 0.2);
+    transition: box-shadow 1.2s ease-out;
+    pointer-events: none;
+  }
+  .new-content-highlight.entry-free-flowing.fading::before {
+    box-shadow: 0 0 12px 0px rgba(251, 191, 36, 0), 0 0 24px 4px rgba(251, 191, 36, 0);
   }
 </style>
 <?php $this->stop() ?>
@@ -104,9 +151,7 @@ $this->layout('layout', [
           Nothing recorded yet.
         </p>
       <?php else: ?>
-        <?php foreach ($entries as $entry): ?>
-          <?= \App\Views\TranscriptView::render_transcript_entry($entry, $sessionName) ?>
-        <?php endforeach; ?>
+        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $sessionName) ?>
       <?php endif; ?>
     </div>
 

@@ -135,11 +135,7 @@ class SessionController extends Controller
             return;
         }
 
-        $html = '';
-
-        foreach (($history['entries'] ?? []) as $entry) {
-            $html .= TranscriptView::render_transcript_entry($entry, $claudeSessionId, true);
-        }
+        $html = TranscriptView::render_transcript_entries_html($history['entries'] ?? [], $claudeSessionId, true);
 
         echo json_encode([
             'ok' => true,

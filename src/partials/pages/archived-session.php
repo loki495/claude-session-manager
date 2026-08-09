@@ -47,9 +47,7 @@ $this->layout('layout', [
         Load older messages
       </button>
       <div id="history-list" class="flex flex-col gap-2">
-        <?php foreach ($entries as $entry): ?>
-          <?= \App\Views\TranscriptView::render_transcript_entry($entry, $claudeSessionId, true) ?>
-        <?php endforeach; ?>
+        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $claudeSessionId, true) ?>
       </div>
     <?php endif; ?>
   <?php endif; ?>

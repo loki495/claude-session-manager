@@ -15,12 +15,8 @@
       Confirm before sending prompt answers
     </label>
     <label class="flex items-center gap-2 text-sm text-slate-300">
-      <input type="checkbox" id="show-tool-details-toggle" class="rounded border-slate-600 bg-slate-800">
-      Show tool outputs
-    </label>
-    <label class="flex items-center gap-2 text-sm text-slate-300">
-      <input type="checkbox" id="show-tool-calls-toggle" class="rounded border-slate-600 bg-slate-800" checked>
-      Show tool calls
+      <input type="checkbox" id="show-subagent-toggle" class="rounded border-slate-600 bg-slate-800" checked>
+      Show subagent calls and outputs
     </label>
   </div>
   <?php if ($found): ?>

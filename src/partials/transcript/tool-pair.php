@@ -1,0 +1,1 @@
+<div class="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2"><?php if ($timestamp !== ''): ?><div class="select-none mb-1 text-xs text-slate-500"><?= $this->e($timestamp) ?></div><?php endif ?><div class="flex flex-col gap-1.5"><?= $callHtml ?><div class="tool-pair-result-slot"><?= $resultHtml ?></div></div></div>

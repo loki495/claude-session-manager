@@ -64,6 +64,15 @@ function canned_session_history_entries(): array
         // Plan: ..." boilerplate.
         ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:35Z', 'blocks' => [['kind' => 'plan', 'text' => "# Refactor the login flow\n\nSome real detail here."]], 'line' => 9],
         ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:40Z', 'blocks' => [['kind' => 'tool_result', 'text' => 'Plan approved - starting work', 'plan_status' => 'approved']], 'line' => 10],
+        // Two clean, contiguous call+result pairs (no image/attachment on
+        // either result) - added 2026-08-08 to exercise a real multi-call
+        // tool-group: TranscriptView::render_transcript_entries_html()
+        // should collapse all four of these into ONE "2 tool calls" group,
+        // pairing each call with its own immediately-following result.
+        ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:45Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'Read(app/Http/Kernel.php)']], 'line' => 11],
+        ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:00:50Z', 'blocks' => [['kind' => 'tool_result', 'text' => "<?php\n\nclass Kernel {}\n"]], 'line' => 12],
+        ['type' => 'assistant', 'role' => 'assistant', 'timestamp' => '2026-01-01T12:00:55Z', 'blocks' => [['kind' => 'tool_use', 'text' => 'Read(routes/web.php)']], 'line' => 13],
+        ['type' => 'user', 'role' => 'user', 'timestamp' => '2026-01-01T12:01:00Z', 'blocks' => [['kind' => 'tool_result', 'text' => "<?php\n\nRoute::get('/', fn () => 'ok');\n"]], 'line' => 14],
     ];
 }
 

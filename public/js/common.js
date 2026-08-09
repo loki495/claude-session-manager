@@ -84,12 +84,38 @@ function escapeHtml(text) {
 var fullscreenTextModal = document.getElementById('fullscreen-text-modal');
 var fullscreenTextModalContent = document.getElementById('fullscreen-text-modal-content');
 var fullscreenTextModalClose = document.getElementById('fullscreen-text-modal-close');
+var fullscreenTextModalWrapToggle = document.getElementById('fullscreen-text-modal-wrap-toggle');
 
 if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClose) {
   var bodyOverflowBeforeModal = '';
+  // Persisted across sessions/tabs, same convention as every other
+  // sidebar-style toggle in this app (see SHOW_TOOL_DETAILS_KEY etc in
+  // session.js) - defaults to off (horizontal-scroll, today's original
+  // behavior) when unset.
+  var FULLSCREEN_TEXT_WRAP_KEY = 'csm-fullscreen-text-wrap';
+
+  function fullscreenTextWrapEnabled() {
+    try {
+      return window.localStorage.getItem(FULLSCREEN_TEXT_WRAP_KEY) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function applyFullscreenTextWrap(wrap) {
+    fullscreenTextModalContent.classList.toggle('whitespace-pre', !wrap);
+    fullscreenTextModalContent.classList.toggle('whitespace-pre-wrap', wrap);
+    fullscreenTextModalContent.classList.toggle('break-words', wrap);
+
+    if (fullscreenTextModalWrapToggle) {
+      fullscreenTextModalWrapToggle.textContent = wrap ? 'Wrap: On' : 'Wrap: Off';
+      fullscreenTextModalWrapToggle.setAttribute('aria-pressed', wrap ? 'true' : 'false');
+    }
+  }
 
   function openFullscreenTextModal(text) {
     fullscreenTextModalContent.textContent = text;
+    applyFullscreenTextWrap(fullscreenTextWrapEnabled());
     fullscreenTextModal.classList.remove('hidden');
     // Prevents the page behind the modal from also scrolling on iOS
     // Safari (the modal's own <pre> captures touch-scroll fine on its
@@ -114,6 +140,18 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
       if (pre) {
         openFullscreenTextModal(pre.textContent);
       }
+
+      return;
+    }
+
+    if (e.target === fullscreenTextModalWrapToggle) {
+      var nextWrap = !fullscreenTextWrapEnabled();
+
+      try {
+        window.localStorage.setItem(FULLSCREEN_TEXT_WRAP_KEY, nextWrap ? '1' : '0');
+      } catch (ignored) {}
+
+      applyFullscreenTextWrap(nextWrap);
 
       return;
     }

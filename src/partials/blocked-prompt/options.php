@@ -9,13 +9,13 @@
         // isn't enough: a flex item's width is still its own shrink-to-fit content size unless something
         // caps it, so overflow-wrap never gets a narrower box to actually wrap within - max-w-full is
         // what forces that cap, matching the button's flex-wrap row. ?>
-        <button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full" data-option="<?= (int)$opt['number'] ?>"><?= (int)$opt['number'] ?>. <?= $this->e((string)$opt['label']) ?></button>
+        <button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full text-left" data-option="<?= (int)$opt['number'] ?>"><?= (int)$opt['number'] ?>. <?= $this->e((string)$opt['label']) ?></button>
       <?php else: ?>
         <form method="post" action="/answer_prompt.php" data-confirm-label="<?= $this->e((string)$opt['label']) ?>">
           <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
           <input type="hidden" name="session" value="<?= $this->e($sessionName) ?>">
           <input type="hidden" name="option" value="<?= (int)$opt['number'] ?>">
-          <button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full"><?= (int)$opt['number'] ?>. <?= $this->e((string)$opt['label']) ?></button>
+          <button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full text-left"><?= (int)$opt['number'] ?>. <?= $this->e((string)$opt['label']) ?></button>
         </form>
       <?php endif ?>
     <?php endforeach ?>

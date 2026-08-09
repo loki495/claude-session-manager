@@ -1,0 +1,1 @@
+<details class="tool-group rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2 lg:max-w-[75%] lg:self-start"><summary class="select-none cursor-pointer text-xs font-medium text-slate-400"><?= $this->e($summaryLabel) ?></summary><div class="tool-group-members flex flex-col gap-2 mt-2"><?= $membersHtml ?></div></details>

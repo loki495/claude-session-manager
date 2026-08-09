@@ -317,15 +317,25 @@ try {
         preg_match('/id="compose-bar"[^>]*>\s*<div class="[^"]*\bmax-w-2xl lg:max-w-4xl\b/', $result['body']) === 1,
         'GET /session.php: the compose bar widens to match the content column on desktop too, so it stays visually aligned with the transcript above it'
     );
+    // User entries are filled bubbles (rounded-2xl, own border/bg) - see
+    // TranscriptView::entry_wrapper_class(). Assistant text entries are
+    // free-flowing instead (no border/bg/max-width) - Claude-app-style,
+    // added 2026-08-08 - so they're identified by that literal prefix
+    // rather than the "rounded-lg border" anchor used for boxed kinds.
     assert_true(
-        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Fix the login redirect bug/s', $result['body'], $userEntryMatch) === 1
+        preg_match('/<div class="rounded-2xl border ([^"]*)">(?:(?!<div class="rounded-(?:lg|2xl) border).)*?Fix the login redirect bug/s', $result['body'], $userEntryMatch) === 1
             && str_contains($userEntryMatch[1], 'lg:self-end') && str_contains($userEntryMatch[1], 'lg:max-w-[75%]'),
-        'GET /session.php: a real user-typed entry aligns right on desktop (lg:self-end), capped to 75% width so alignment reads as a real chat bubble, not a full-width block'
+        'GET /session.php: a real user-typed entry is a filled bubble aligned right on desktop (lg:self-end), capped to 75% width so alignment reads as a real chat bubble, not a full-width block'
     );
     assert_true(
-        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Looking into it now\./s', $result['body'], $assistantEntryMatch) === 1
-            && str_contains($assistantEntryMatch[1], 'lg:self-start'),
-        'GET /session.php: a non-user (assistant) entry aligns left on desktop (lg:self-start), opposite of a user message'
+        preg_match('/<div class="(entry-free-flowing mt-2 lg:max-w-full lg:self-start[^"]*)">(?:(?!<div class="(?:rounded-(?:lg|2xl) border|entry-free-flowing)).)*?Looking into it now\./s', $result['body']) === 1,
+        'GET /session.php: a plain assistant text entry is free-flowing (no border/background, lg:max-w-full) and aligns left on desktop (lg:self-start), opposite of a user bubble'
+    );
+    assert_contains('.new-content-highlight.entry-free-flowing', $result['body'], 'GET /session.php: the new-content glow gets a special-cased override for free-flowing (unpadded) assistant entries, so it does not hug the text');
+    assert_contains('.new-content-highlight.entry-free-flowing::before', $result['body'], 'GET /session.php: the free-flowing glow override uses a ::before pseudo-element inset outside the real text (not box-shadow spread or outline directly on the entry, both tried and rejected live - see the CSS comment) so it reads as a soft glow with a real gap, not a hard box');
+    assert_true(
+        !str_contains($result['body'], 'font-medium text-emerald-300">Assistant<'),
+        'GET /session.php: a plain assistant text entry has no "Assistant" role-label span - the free-flowing treatment plus timestamp already say enough, added 2026-08-08'
     );
     assert_true(
         preg_match('/<p class="[^"]*\btext-sm lg:text-base\b[^"]*">Looking into it now\./', $result['body']) === 1,
@@ -357,6 +367,10 @@ try {
     assert_contains('2. No', $result['body'], 'GET /session.php: second option button rendered');
     assert_contains('class="reveal-freetext-btn', $result['body'], 'GET /session.php: the "Type something." option renders as a reveal button, not an immediate-submit form');
     assert_true(
+        preg_match('/<button type="submit" class="[^"]*\btext-left\b[^"]*">1\. Yes/', $result['body']) === 1,
+        'GET /session.php: an option button has text-left - a <button> defaults to text-align:center, invisible for a short label but centers each wrapped line of a long one (found live from a real phone screenshot 2026-08-08, e.g. a long "don\'t ask again for: <path>" option)'
+    );
+    assert_true(
         preg_match('/<form[^>]*action="\/answer_prompt\.php"[^>]*>[^<]*<input[^>]*name="option"[^>]*value="3"/', $result['body']) !== 1,
         'GET /session.php: the "Type something." option is not also rendered as a plain submitting form'
     );
@@ -386,15 +400,13 @@ try {
     assert_contains('id="confirm-before-answer-toggle"', $result['body'], 'GET /session.php: confirm-before-answering setting checkbox present in the sidebar');
     assert_contains('id="poll-interval-select"', $result['body'], 'GET /session.php: polling-interval dropdown present in the sticky header');
     assert_contains('value="3000" selected', $result['body'], 'GET /session.php: polling-interval dropdown defaults to 3s');
-    assert_contains('id="show-tool-details-toggle"', $result['body'], 'GET /session.php: show-tool-details setting checkbox present in the sidebar');
-    assert_contains('class="tool-detail"', $result['body'], 'GET /session.php: tool_result blocks are tagged hideable by the show/hide toggle');
-    assert_contains('class="tool-use-block"', $result['body'], 'GET /session.php: tool_use blocks get their own class, kept separate from tool-detail');
-    assert_contains('body.hide-tool-details .tool-detail', $result['body'], 'GET /session.php: the hide-tool-details CSS rule only targets tool_result (tool_use is a separate toggle)');
-    assert_contains('body.hide-tool-details .entry-tool-result-only', $result['body'], 'GET /session.php: a second hide-tool-details rule hides whole entries left with nothing but a hidden tool_result');
-    assert_contains('id="show-tool-calls-toggle"', $result['body'], 'GET /session.php: show-tool-calls setting checkbox present in the sidebar');
-    assert_contains('id="show-tool-calls-toggle" class="rounded border-slate-600 bg-slate-800" checked', $result['body'], 'GET /session.php: show-tool-calls checkbox is checked (shown) by default');
-    assert_contains('body.hide-tool-calls .tool-use-block', $result['body'], 'GET /session.php: the hide-tool-calls CSS rule targets tool_use blocks');
-    assert_contains('body.hide-tool-calls .entry-tool-use-only', $result['body'], 'GET /session.php: a second hide-tool-calls rule hides whole entries left with nothing but a hidden tool_use');
+    assert_contains('id="show-subagent-toggle"', $result['body'], 'GET /session.php: the single show-subagent setting checkbox is present in the sidebar (merged from two separate call/output checkboxes, 2026-08-08)');
+    assert_contains('id="show-subagent-toggle" class="rounded border-slate-600 bg-slate-800" checked', $result['body'], 'GET /session.php: show-subagent checkbox is checked (shown) by default');
+    assert_contains('class="tool-detail"', $result['body'], 'GET /session.php: a plain (non-subagent) tool_result block carries no subagent-only marker at all - it is never rendered standalone hideable any more, only ever inside a tool-group');
+    assert_contains('class="tool-use-block"', $result['body'], 'GET /session.php: a plain (non-subagent) tool_use block carries no subagent-only marker either');
+    assert_contains('body.hide-subagent .subagent-detail', $result['body'], 'GET /session.php: the single hide-subagent CSS rule targets subagent tool_result blocks');
+    assert_contains('body.hide-subagent .subagent-use-block', $result['body'], 'GET /session.php: the same hide-subagent rule also targets subagent tool_use blocks');
+    assert_contains('body.hide-subagent .entry-subagent-only', $result['body'], 'GET /session.php: a second hide-subagent rule hides whole entries left with nothing but a hidden subagent block');
     assert_contains('.new-content-divider.fading', $result['body'], 'GET /session.php: the new-content divider fade rule is shipped');
     assert_contains('.new-content-highlight.fading', $result['body'], 'GET /session.php: the new-content highlight fade rule is shipped (two-class pattern, not a plain classList.remove, so `transition` survives the fade)');
     assert_true(
@@ -409,9 +421,58 @@ try {
     assert_contains('function markNewContent(', $sessionJs['body'], 'GET /js/session.js: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
     assert_contains('function resetHistoryForRotatedTranscript(', $sessionJs['body'], 'GET /js/session.js: resetHistoryForRotatedTranscript() (clears the rendered history on /clear, /compact, --resume, --fork-session) is shipped');
     assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
-    assert_contains('>Tool output<', $result['body'], 'GET /session.php: the canned tool_result entry ("done") is labeled "Tool output", not "User"');
-    assert_contains('>Tool call<', $result['body'], 'GET /session.php: the canned tool_use entry ("Bash(pwd)") is labeled "Tool call", not "Assistant"');
-    assert_contains('>Subagent call<', $result['body'], 'GET /session.php: the canned Agent tool_use entry is labeled "Subagent call", not "Tool call"');
+    // --- tool-call grouping (TranscriptView::render_transcript_entries_
+    // html()/render_tool_group_html()/render_tool_pair_html(), added
+    // 2026-08-08): a run of consecutive groupable tool_use/tool_result
+    // entries collapses into one <details class="tool-group"> with a "N
+    // tool calls" summary, each call paired with its own result under one
+    // card - no more standalone "Tool call"/"Tool output" labeled entries
+    // for these. The canned "Bash(pwd)" tool_use (line 4) has no groupable
+    // tool_result right after it (line 5 carries an image and is excluded
+    // from grouping - see below), so it renders as its own group of
+    // exactly one call. ---
+    assert_true(
+        !str_contains($result['body'], '>Tool call<'),
+        'GET /session.php: a grouped tool call no longer gets a standalone "Tool call" role label - it is merged into its tool-group pair instead'
+    );
+    assert_true(
+        preg_match('/<details class="tool-group[^"]*"><summary[^>]*>1 tool call<\/summary>.*?Bash\(pwd\).*?<\/details>/s', $result['body']) === 1,
+        'GET /session.php: the canned "Bash(pwd)" tool call collapses into its own "1 tool call" group'
+    );
+    assert_true(
+        preg_match('/Bash\(pwd\).*?<div class="tool-pair-result-slot"><\/div>/s', $result['body']) === 1,
+        'GET /session.php: that group\'s one pair has an EMPTY result slot - there is no groupable tool_result immediately following it in this fixture'
+    );
+    // --- the multi-call group (lines 11-14, added 2026-08-08 specifically
+    // to exercise real pairing/counting): two clean, contiguous call+result
+    // pairs with no image/attachment on either result - both calls count
+    // toward ONE "2 tool calls" group, each still paired with its own real
+    // result (not left with an empty slot like the lone Bash(pwd) case
+    // above). ---
+    assert_true(
+        preg_match('/<details class="tool-group[^"]*"><summary[^>]*>2 tool calls<\/summary>/', $result['body'], $multiCallGroupMatch, PREG_OFFSET_CAPTURE) === 1,
+        'GET /session.php: the two clean Read() call+result pairs collapse into ONE "2 tool calls" group'
+    );
+    // Both results are multi-line, so each renders as its own expandable
+    // <details> (render_collapsible_block()'s non-trivial branch) NESTED
+    // inside the outer tool-group <details> - a plain non-greedy regex
+    // capture up to the first </details> would stop at that INNER one, not
+    // the group's own closing tag, so this checks ordering via strpos
+    // instead of trying to bound the group's content with regex.
+    $multiCallGroupPos = $multiCallGroupMatch[0][1] ?? null;
+    assert_true(
+        $multiCallGroupPos !== null
+            && strpos($result['body'], 'Read(app/Http/Kernel.php)', $multiCallGroupPos) > $multiCallGroupPos
+            && strpos($result['body'], 'class Kernel {}', $multiCallGroupPos) > $multiCallGroupPos
+            && strpos($result['body'], 'Read(routes/web.php)', $multiCallGroupPos) > $multiCallGroupPos
+            && strpos($result['body'], 'Route::get', $multiCallGroupPos) > $multiCallGroupPos,
+        'GET /session.php: both calls AND both their real results appear after that one group\'s summary, not split across two separate groups'
+    );
+    assert_true(
+        substr_count($result['body'], '<details class="tool-group') === 2,
+        'GET /session.php: exactly two tool-groups total render for this fixture - the lone "Bash(pwd)" one and the "2 tool calls" one - nothing over- or under-grouped'
+    );
+    assert_contains('>Subagent call<', $result['body'], 'GET /session.php: the canned Agent tool_use entry is labeled "Subagent call", not "Tool call" - subagent entries are NOT swept into tool-group grouping');
     assert_contains('>Subagent report<', $result['body'], 'GET /session.php: the canned Agent tool_result entry is labeled "Subagent report", not "Tool output"');
     assert_contains('general-purpose: Investigate the login bug', $result['body'], 'GET /session.php: the subagent call summary shows subagent_type + description, not a raw param dump');
     assert_contains('Found it: the redirect URL was hardcoded.', $result['body'], 'GET /session.php: the subagent report shows its real output');
@@ -421,32 +482,39 @@ try {
         'GET /session.php: the subagent call entry uses the fuchsia color, distinct from a plain tool call'
     );
     assert_true(
+        strpos($subagentCallMatch[0], 'subagent-use-block') !== false,
+        'GET /session.php: the subagent call entry\'s tool_use block also carries the subagent-use-block marker (what the single hide-subagent toggle actually targets)'
+    );
+    assert_true(
+        isset($subagentCallMatch[1]) && strpos($subagentCallMatch[1], 'entry-subagent-only') !== false,
+        'GET /session.php: the subagent call entry IS marked entry-subagent-only - it has no other content, so hiding subagent entries must hide the whole entry too'
+    );
+    assert_true(
         preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?redirect URL was hardcoded/s', $result['body'], $subagentResultMatch) === 1
             && str_contains($subagentResultMatch[1], 'border-fuchsia-800/60'),
         'GET /session.php: the subagent report entry uses the fuchsia color too'
     );
     assert_true(
-        preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Bash\(pwd\)/s', $result['body'], $toolUseEntryMatch) === 1
-            && strpos($toolUseEntryMatch[1], 'entry-tool-result-only') === false,
-        'GET /session.php: the canned tool_use entry ("Bash(pwd)") is NOT marked entry-tool-result-only - that marker is only for tool_result entries'
+        strpos($subagentResultMatch[0], 'subagent-detail') !== false,
+        'GET /session.php: the subagent report entry\'s tool_result block also carries the subagent-detail marker'
     );
     assert_true(
-        isset($toolUseEntryMatch[1]) && strpos($toolUseEntryMatch[1], 'entry-tool-use-only') !== false,
-        'GET /session.php: the canned tool_use entry ("Bash(pwd)") IS marked entry-tool-use-only - it has no other content, so hiding tool calls must hide the whole entry too'
+        isset($subagentResultMatch[1]) && strpos($subagentResultMatch[1], 'entry-subagent-only') !== false,
+        'GET /session.php: the subagent report entry is marked entry-subagent-only too'
     );
-    // The canned "done" tool_result entry carries an image (a screenshot,
-    // in practice) - found live: it was still getting entry-tool-result-only
-    // (and so vanishing entirely under "hide tool details") even after
-    // images were made to always show, since that marker didn't originally
-    // account for an attached image at all.
+    // The canned "done" tool_result entry (line 5) carries an image (a
+    // screenshot, in practice) - excluded from grouping entirely (an
+    // attachment/image must always stay visible on its own, never folded
+    // into a collapsed-by-default group), so it still renders standalone
+    // with its original "Tool output" label, same as before 2026-08-08.
     assert_true(
         preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?<img src="data:image\/png;base64,' . preg_quote(CANNED_TEST_IMAGE_BASE64, '/') . '"[^>]*class="transcript-image/s', $result['body'], $imageEntryMatch) === 1
-            && strpos($imageEntryMatch[1], 'entry-tool-result-only') === false,
-        'GET /session.php: a tool_result entry carrying an image is NOT marked entry-tool-result-only - the image must always stay visible, so the whole entry must never be hidden'
+            && str_contains($imageEntryMatch[0], '>Tool output<'),
+        'GET /session.php: a tool_result entry carrying an image renders standalone with its "Tool output" label, NOT swept into a tool-group'
     );
     assert_true(
-        isset($imageEntryMatch[1]) && strpos($imageEntryMatch[1], 'entry-tool-use-only') === false,
-        'GET /session.php: a tool_result entry carrying an image is NOT marked entry-tool-use-only either - it is not a tool_use entry at all'
+        isset($imageEntryMatch[1]) && strpos($imageEntryMatch[1], 'entry-subagent-only') === false,
+        'GET /session.php: a tool_result entry carrying an image is not a subagent entry, so it never gets entry-subagent-only either'
     );
     // The canned SendUserFile-style tool_result (line 8) carries two
     // attachments - real file metadata threaded from the outer
@@ -471,8 +539,8 @@ try {
     assert_contains('screenshot.png', $result['body'], 'GET /session.php: the image attachment\'s real filename is shown too, as its own link below the thumbnail');
     assert_true(
         preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Sent 2 file\(s\) to the user\./s', $result['body'], $attachmentEntryMatch) === 1
-            && strpos($attachmentEntryMatch[1], 'entry-tool-result-only') === false,
-        'GET /session.php: a tool_result entry carrying file attachments is NOT marked entry-tool-result-only either - same "always visible" exemption as an inline image, generalized to any shared file'
+            && str_contains($attachmentEntryMatch[0], '>Tool output<'),
+        'GET /session.php: a tool_result entry carrying file attachments also renders standalone with its "Tool output" label, same "always visible, never grouped" exemption as an inline image'
     );
     $attachmentResult = curl_request('GET', "{$baseUrl}{$attachmentUrl}", [], $cookieJar);
     assert_equal(200, $attachmentResult['status'], 'GET /session_attachment.php: 200 for a real, matching session/line/file_uuid');
@@ -502,8 +570,8 @@ try {
         'GET /session.php: the plan-presented entry uses the amber color, distinct from a plain tool call'
     );
     assert_true(
-        isset($planPresentedMatch[1]) && strpos($planPresentedMatch[1], 'entry-tool-use-only') === false,
-        'GET /session.php: the plan-presented entry is NOT marked entry-tool-use-only - a plan must always stay visible regardless of the "Show tool calls" toggle'
+        isset($planPresentedMatch[1]) && strpos($planPresentedMatch[1], 'entry-subagent-only') === false,
+        'GET /session.php: the plan-presented entry is not a subagent entry, so it never gets entry-subagent-only - it must always stay visible regardless of the subagent toggle, and is never swept into a tool-group either'
     );
     assert_true(
         preg_match('/<div class="rounded-lg border ([^"]*)">(?:(?!<div class="rounded-lg border).)*?Plan approved - starting work/s', $result['body'], $planApprovedMatch) === 1
@@ -511,8 +579,8 @@ try {
         'GET /session.php: the plan-approved entry uses the same amber color as the plan-presented one, told apart by label alone'
     );
     assert_true(
-        isset($planApprovedMatch[1]) && strpos($planApprovedMatch[1], 'entry-tool-result-only') === false,
-        'GET /session.php: the plan-approved entry is NOT marked entry-tool-result-only - always visible regardless of the "Show tool outputs" toggle'
+        isset($planApprovedMatch[1]) && strpos($planApprovedMatch[1], 'entry-subagent-only') === false,
+        'GET /session.php: the plan-approved entry is not a subagent entry either - always visible, never grouped'
     );
 
     assert_contains('id="sidebar-list"', $result['body'], 'GET /session.php: sidebar (other sessions) drawer present');
@@ -584,7 +652,7 @@ try {
     assert_equal(200, $result['status'], 'GET /session_history.php: 200');
     $historyBody = json_decode($result['body'], true);
     assert_true(is_array($historyBody) && ($historyBody['ok'] ?? false), 'GET /session_history.php: response decodes as ok=true JSON');
-    assert_equal(9, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
+    assert_equal(13, count($historyBody['entries'] ?? []), 'GET /session_history.php: canned entries passed through');
 
     // --- session_history.php: &after= (the regular-poll path) reaches the
     // agent action - proves the plumbing (controller -> agent_call ->
@@ -595,7 +663,7 @@ try {
     assert_equal(200, $afterResult['status'], 'GET /session_history.php?after=5: 200');
     $afterBody = json_decode($afterResult['body'], true);
     assert_true(is_array($afterBody) && ($afterBody['ok'] ?? false), 'GET /session_history.php?after=5: response decodes as ok=true JSON');
-    assert_equal([6, 7, 8, 9, 10], array_column($afterBody['entries'] ?? [], 'line'), 'GET /session_history.php?after=5: only entries past line 5 come back, proving &after= reached the agent action');
+    assert_equal([6, 7, 8, 9, 10, 11, 12, 13, 14], array_column($afterBody['entries'] ?? [], 'line'), 'GET /session_history.php?after=5: only entries past line 5 come back, proving &after= reached the agent action');
 
     // --- session.php: compose bar present for a real session ---
     $result = curl_request('GET', "{$baseUrl}/session.php?session=cc-20260101-1200");
@@ -928,6 +996,10 @@ try {
     $archivedHistoryFragmentBody = json_decode($archivedResult['body'], true);
     assert_true(is_array($archivedHistoryFragmentBody) && ($archivedHistoryFragmentBody['ok'] ?? false), 'GET /archived_session_history_fragment.php: response decodes as ok=true JSON');
     assert_contains('Fix the login redirect bug', $archivedHistoryFragmentBody['html'] ?? '', 'GET /archived_session_history_fragment.php: html carries the canned history entry, already rendered');
+    assert_true(
+        preg_match('/<details class="tool-group[^"]*"><summary[^>]*>2 tool calls<\/summary>/', $archivedHistoryFragmentBody['html'] ?? '') === 1,
+        'GET /archived_session_history_fragment.php: this server-rendered fragment also groups tool calls (render_transcript_entries_html(), not the single-entry render_transcript_entry()) - same as session.php\'s initial render and archived_session.php\'s own'
+    );
 
     $archivedResult = curl_request('GET', "{$baseUrl}/archived_session_history_fragment.php?claude_session_id=00000000-0000-4000-8000-000000000000");
     $archivedHistoryFragmentMissingBody = json_decode($archivedResult['body'], true);

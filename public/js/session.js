@@ -135,74 +135,46 @@
     });
   }
 
-  // Setting: whether tool_use/tool_result blocks show in the transcript at
+  // Setting: whether subagent call/report blocks show in the transcript at
   // all - a body-level class + CSS rule (see <style> in <head>) so it
-  // applies to blocks the poll renders later too, without re-walking the DOM.
-  // Per-session (keyed by sessionName, same pattern as COMPOSE_DRAFT_KEY
-  // below) - a global key meant one session's "hide tool output" choice
-  // silently applied to every other session too, which read as broken
-  // when a different session's own output just wasn't showing.
-  var SHOW_TOOL_DETAILS_KEY = 'csm-show-tool-details-' + sessionName;
+  // applies to blocks the poll renders later too, without re-walking the
+  // DOM. Per-session (keyed by sessionName, same pattern as COMPOSE_DRAFT_KEY
+  // below) - a global key meant one session's "hide subagent output" choice
+  // silently applied to every other session too, which read as broken when
+  // a different session's own output just wasn't showing. Regular
+  // (non-subagent) tool calls/outputs don't use this any more - since
+  // 2026-08-08 those are always grouped into a collapsible "N tool calls"
+  // run instead (see groupToolCalls() below), whose own <details> is its
+  // own show/hide affordance. The two separate call/output toggles this
+  // used to be also merged into this one, same date - a subagent call and
+  // its own report are little enough traffic that splitting them wasn't
+  // worth the extra checkbox.
+  var SHOW_SUBAGENT_KEY = 'csm-show-subagent-' + sessionName;
 
-  function shouldShowToolDetails() {
+  function shouldShowSubagent() {
     try {
-      return window.localStorage.getItem(SHOW_TOOL_DETAILS_KEY) !== '0';
+      return window.localStorage.getItem(SHOW_SUBAGENT_KEY) !== '0';
     } catch (e) {
       return true;
     }
   }
 
-  function applyShowToolDetails(show) {
-    document.body.classList.toggle('hide-tool-details', !show);
+  function applyShowSubagent(show) {
+    document.body.classList.toggle('hide-subagent', !show);
   }
 
-  var showToolDetailsToggle = document.getElementById('show-tool-details-toggle');
+  var showSubagentToggle = document.getElementById('show-subagent-toggle');
 
-  if (showToolDetailsToggle) {
-    var showToolDetails = shouldShowToolDetails();
-    showToolDetailsToggle.checked = showToolDetails;
-    applyShowToolDetails(showToolDetails);
+  if (showSubagentToggle) {
+    var showSubagent = shouldShowSubagent();
+    showSubagentToggle.checked = showSubagent;
+    applyShowSubagent(showSubagent);
 
-    showToolDetailsToggle.addEventListener('change', function () {
-      applyShowToolDetails(showToolDetailsToggle.checked);
+    showSubagentToggle.addEventListener('change', function () {
+      applyShowSubagent(showSubagentToggle.checked);
 
       try {
-        window.localStorage.setItem(SHOW_TOOL_DETAILS_KEY, showToolDetailsToggle.checked ? '1' : '0');
-      } catch (e) {}
-    });
-  }
-
-  // Setting: whether tool_use blocks (the tool CALL itself - "Bash(...)",
-  // "Write(...)", etc.) show in the transcript at all - separate from
-  // SHOW_TOOL_DETAILS_KEY above, which only ever affects tool_result
-  // blocks (the output). Same body-level-class + CSS-rule pattern, and
-  // same per-session reasoning.
-  var SHOW_TOOL_CALLS_KEY = 'csm-show-tool-calls-' + sessionName;
-
-  function shouldShowToolCalls() {
-    try {
-      return window.localStorage.getItem(SHOW_TOOL_CALLS_KEY) !== '0';
-    } catch (e) {
-      return true;
-    }
-  }
-
-  function applyShowToolCalls(show) {
-    document.body.classList.toggle('hide-tool-calls', !show);
-  }
-
-  var showToolCallsToggle = document.getElementById('show-tool-calls-toggle');
-
-  if (showToolCallsToggle) {
-    var showToolCalls = shouldShowToolCalls();
-    showToolCallsToggle.checked = showToolCalls;
-    applyShowToolCalls(showToolCalls);
-
-    showToolCallsToggle.addEventListener('change', function () {
-      applyShowToolCalls(showToolCallsToggle.checked);
-
-      try {
-        window.localStorage.setItem(SHOW_TOOL_CALLS_KEY, showToolCallsToggle.checked ? '1' : '0');
+        window.localStorage.setItem(SHOW_SUBAGENT_KEY, showSubagentToggle.checked ? '1' : '0');
       } catch (e) {}
     });
   }
@@ -807,7 +779,14 @@
     return '<div class="mt-1.5 flex flex-wrap items-start gap-2">' + itemsHtml + '</div>';
   }
 
-  function renderBlock(block, line) {
+  // Mirrors TranscriptView::render_transcript_block() (PHP) - isSubagent
+  // picks the extra CSS class (subagent-use-block/subagent-detail) that the
+  // single "Show subagent calls and outputs" toggle targets; a regular
+  // (non-subagent) tool_use/tool_result block carries no such marker at
+  // all, since it's never rendered standalone any more (see
+  // groupToolCalls() below) - it's always inside a collapsible tool-group
+  // instead, whose own <details> is the only show/hide affordance it needs.
+  function renderBlock(block, line, isSubagent) {
     var text = escapeHtml(block.text);
     var imageHtml = block.image ? renderImageHtml(block.image) : '';
     var attachmentsHtml = renderAttachmentsHtml(block.attachments, line);
@@ -822,17 +801,17 @@
       case 'plan':
         return '<div class="rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2"><p class="whitespace-pre-wrap break-words text-sm lg:text-base text-amber-100">' + text + '</p></div>';
       case 'tool_use':
-        // Collapsed by default regardless of the show/hide-tool-details
+        // Collapsed by default regardless of the show/hide-subagent
         // toggle - it used to force-open when details were hidden (on the
         // theory that there'd be no result to click into for confirmation),
         // but that's backwards from what's wanted: collapsed either way.
-        return '<div class="tool-use-block">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
+        return '<div class="tool-use-block' + (isSubagent ? ' subagent-use-block' : '') + '">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
       case 'tool_result':
         // The image/attachments are SIBLINGS of .tool-detail, not nested
-        // inside it - shown regardless of the show/hide-tool-details
-        // toggle, since a shared file is often the whole point of having
-        // run the tool in the first place.
-        return '<div class="tool-detail">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml + attachmentsHtml;
+        // inside it - shown regardless of the show/hide-subagent toggle,
+        // since a shared file is often the whole point of having run the
+        // tool in the first place.
+        return '<div class="tool-detail' + (isSubagent ? ' subagent-detail' : '') + '">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml + attachmentsHtml;
       case 'image':
         return imageHtml || (text ? '<p class="break-words text-xs text-slate-600">' + text + '</p>' : '');
       default:
@@ -922,8 +901,11 @@
     var colorKind = entryColorKind(entry);
     // See TranscriptView::entry_color_kind()'s label comment (PHP) - a
     // tool_use/tool_result entry is labeled "Tool", not its literal
-    // user/assistant role, to match how it's actually colored.
-    var roleLabel = colorKind === 'tool_use' ? 'Tool call'
+    // user/assistant role, to match how it's actually colored. A plain
+    // assistant entry gets no label at all (see the wrapperClass comment
+    // below) - the free-flowing treatment already says "this is Claude".
+    var roleLabel = colorKind === 'assistant' ? ''
+      : colorKind === 'tool_use' ? 'Tool call'
       : colorKind === 'tool_result' ? 'Tool output'
       : colorKind === 'subagent_call' ? 'Subagent call'
       : colorKind === 'subagent_result' ? 'Subagent report'
@@ -933,41 +915,259 @@
       : (ROLE_LABELS[entry.role] || (entry.role ? escapeHtml(entry.role) : 'System'));
     var parsedMs = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
     var timestamp = !isNaN(parsedMs) ? escapeHtml(relativeTimeLabel(Math.floor(parsedMs / 1000))) : '';
-    var blocksHtml = (entry.blocks || []).map(function (b) { return renderBlock(b, entry.line); }).join('');
+    var isSubagent = colorKind === 'subagent_call' || colorKind === 'subagent_result';
+    var blocksHtml = (entry.blocks || []).map(function (b) { return renderBlock(b, entry.line, isSubagent); }).join('');
     var colors = entryColorClasses(colorKind);
     // Hides the WHOLE entry (not just the now-hidden tool_result/tool_use
-    // block) once the matching toggle turns off - see the PHP comment in
-    // render_transcript_entry() for why, including why an entry carrying
-    // an image or a file attachment is excluded either way, regardless of
-    // who it came from.
+    // block) once the single "Show subagent calls and outputs" toggle
+    // turns off - see the PHP comment in render_transcript_entry() for why,
+    // including why an entry carrying an image or a file attachment is
+    // excluded either way, regardless of who it came from. A plain
+    // (non-subagent) tool_use/tool_result entry never gets this marker at
+    // all any more - see groupToolCalls() below.
     var hasAttachment = (entry.blocks || []).some(function (b) { return !!b.image || (b.attachments && b.attachments.length > 0); });
-    var extraClass = '';
+    var extraClass = (!hasAttachment && isSubagent) ? ' entry-subagent-only' : '';
 
-    if (!hasAttachment) {
-      if (colorKind === 'tool_result' || colorKind === 'subagent_result') {
-        extraClass = ' entry-tool-result-only';
-      } else if (colorKind === 'tool_use' || colorKind === 'subagent_call') {
-        extraClass = ' entry-tool-use-only';
-      }
+    // Mirrors TranscriptView::entry_wrapper_class() (PHP) - a real user
+    // message is a filled bubble (right-aligned, desktop-only, same as
+    // before); a plain assistant reply is free-flowing text (no border/
+    // background/max-width), even when it also carries tool_use blocks,
+    // since those keep their own independent border regardless of the
+    // entry wrapper around them - plus a bit of extra top margin, since
+    // there's no border/bg left to visually separate it from whatever's
+    // above. Every other kind keeps the boxed-card treatment unchanged.
+    var wrapperClass;
+
+    if (colorKind === 'assistant') {
+      wrapperClass = 'entry-free-flowing mt-2 lg:max-w-full lg:self-start' + extraClass;
+    } else {
+      var isBubble = colorKind === 'user';
+      var rounding = isBubble ? 'rounded-2xl' : 'rounded-lg';
+      wrapperClass = rounding + ' border ' + colors.border + ' ' + colors.bg + ' px-3 py-2' + extraClass + ' lg:max-w-[75%] ' + (isBubble ? 'lg:self-end' : 'lg:self-start');
     }
 
-    // Desktop-only (lg:) - a real user-typed message aligns right,
-    // everything else aligns left, typical desktop chat UI convention.
-    // Mobile is untouched (single column, unchanged) - see
-    // TranscriptView::render_transcript_entry() (PHP) for the SSR
-    // counterpart of this same rule.
-    var alignClass = colorKind === 'user' ? 'lg:self-end' : 'lg:self-start';
-
     var div = document.createElement('div');
-    div.className = 'rounded-lg border ' + colors.border + ' ' + colors.bg + ' px-3 py-2' + extraClass + ' lg:max-w-[75%] ' + alignClass;
+    div.className = wrapperClass;
     div.innerHTML = '<div class="select-none mb-1 flex items-center gap-2 text-xs text-slate-500">'
-      + '<span class="font-medium ' + colors.label + '">' + roleLabel + '</span>'
+      + (roleLabel ? '<span class="font-medium ' + colors.label + '">' + roleLabel + '</span>' : '')
       + (timestamp ? '<span>' + timestamp + '</span>' : '')
       + '</div>'
       + '<div class="flex flex-col gap-1.5">' + blocksHtml + '</div>';
 
     return div;
   }
+
+  // --- tool-call grouping: mirrors TranscriptView::render_transcript_
+  // entries_html()/render_tool_group_html()/render_tool_pair_html() (PHP) -
+  // a run of consecutive groupable tool_use/tool_result entries collapses
+  // into one "N tool calls" <details>, each call paired with its own
+  // result under one card. Unlike the PHP side (which only ever renders
+  // one full batch at once - initial page load, or one "load older" fetch,
+  // so a purely batch-local pass is enough), this also has to handle the
+  // LIVE poll tail - a call and its own result routinely land in two
+  // separate poll cycles (the tool takes real time to run), so
+  // tailGroupState persists across pollHistory() calls and lets a new
+  // result upgrade an already-rendered, already-in-the-DOM call-only pair
+  // in place instead of appending a second card for what's really one
+  // logical tool call. loadMore() and the initial fallback poll use their
+  // own fresh, throwaway state instead (createGroupState()) - a batch of
+  // OLDER entries being prepended above everything already shown must
+  // never merge into (or be merged into) whatever's already on screen. ---
+
+  function entryIsGroupableToolCall(entry) {
+    var colorKind = entryColorKind(entry);
+
+    if (colorKind !== 'tool_use' && colorKind !== 'tool_result') {
+      return false;
+    }
+
+    return !(entry.blocks || []).some(function (b) { return !!b.image || (b.attachments && b.attachments.length > 0); });
+  }
+
+  function entryBlocksHtml(entry, isSubagent) {
+    return (entry.blocks || []).map(function (b) { return renderBlock(b, entry.line, isSubagent); }).join('');
+  }
+
+  function toolPairTimestamp(entry) {
+    var parsedMs = entry && entry.timestamp ? Date.parse(entry.timestamp) : NaN;
+    return !isNaN(parsedMs) ? escapeHtml(relativeTimeLabel(Math.floor(parsedMs / 1000))) : '';
+  }
+
+  // Mirrors TranscriptView::render_tool_pair_html() (PHP) - the result half
+  // is always wrapped in its own .tool-pair-result-slot, even when empty (a
+  // call with no result yet), so a later-arriving result can upgrade it in
+  // place via upgradeToolPairWithResult() below instead of appending a
+  // second card.
+  function renderToolPair(callEntry, resultEntry) {
+    var timestamp = toolPairTimestamp(callEntry || resultEntry);
+    var callHtml = callEntry ? entryBlocksHtml(callEntry, false) : '';
+    var resultHtml = resultEntry ? entryBlocksHtml(resultEntry, false) : '';
+
+    var div = document.createElement('div');
+    div.className = 'rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2';
+    div.innerHTML = (timestamp ? '<div class="select-none mb-1 text-xs text-slate-500">' + timestamp + '</div>' : '')
+      + '<div class="flex flex-col gap-1.5">' + callHtml + '<div class="tool-pair-result-slot"></div></div>';
+
+    var slot = div.querySelector('.tool-pair-result-slot');
+
+    if (slot) {
+      slot.innerHTML = resultHtml;
+    }
+
+    return div;
+  }
+
+  function upgradeToolPairWithResult(pairEl, resultEntry) {
+    var slot = pairEl.querySelector('.tool-pair-result-slot');
+
+    if (slot) {
+      slot.innerHTML = entryBlocksHtml(resultEntry, false);
+    }
+  }
+
+  // Mirrors TranscriptView's transcript/tool-group.php partial.
+  function createToolGroupElement() {
+    var details = document.createElement('details');
+    details.className = 'tool-group rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2 lg:max-w-[75%] lg:self-start';
+    details.innerHTML = '<summary class="select-none cursor-pointer text-xs font-medium text-slate-400"></summary>'
+      + '<div class="tool-group-members flex flex-col gap-2 mt-2"></div>';
+
+    return details;
+  }
+
+  function createGroupState() {
+    return { element: null, membersContainer: null, pendingCallEntry: null, pendingCallPairEl: null, callCount: 0 };
+  }
+
+  function updateGroupSummary(state) {
+    state.element.querySelector('summary').textContent = state.callCount === 1 ? '1 tool call' : (state.callCount + ' tool calls');
+  }
+
+  function closeGroup(state) {
+    state.element = null;
+    state.membersContainer = null;
+    state.pendingCallEntry = null;
+    state.pendingCallPairEl = null;
+    state.callCount = 0;
+  }
+
+  // Appends one groupable entry into `state`'s currently-open group
+  // (creating it in `container` - a DocumentFragment for a one-shot batch,
+  // or the live `list` for the poll tail - the first time this state opens
+  // a group). Returns the group element, for the caller's own new-content
+  // bookkeeping (markNewContent()) - always the SAME element across
+  // however many entries extend it, so callers naturally dedupe by
+  // identity rather than double-counting.
+  function appendGroupableEntry(state, container, entry) {
+    if (!state.element) {
+      state.element = createToolGroupElement();
+      state.membersContainer = state.element.querySelector('.tool-group-members');
+      container.appendChild(state.element);
+    }
+
+    var colorKind = entryColorKind(entry);
+
+    if (colorKind === 'tool_use') {
+      // A previous call that never got its own result (rare - e.g. Claude
+      // was interrupted mid-tool) stays exactly as it rendered; this new
+      // call starts its own fresh pending slot rather than waiting on it.
+      state.pendingCallEntry = entry;
+      state.callCount++;
+      updateGroupSummary(state);
+      state.pendingCallPairEl = renderToolPair(entry, null);
+      state.membersContainer.appendChild(state.pendingCallPairEl);
+
+      return state.element;
+    }
+
+    if (state.pendingCallEntry && state.pendingCallPairEl) {
+      upgradeToolPairWithResult(state.pendingCallPairEl, entry);
+      state.pendingCallEntry = null;
+      state.pendingCallPairEl = null;
+
+      return state.element;
+    }
+
+    // An orphaned result with no pending call in THIS group/state -
+    // shouldn't normally happen, but a pagination boundary or a dropped
+    // call could in principle leave one.
+    state.membersContainer.appendChild(renderToolPair(null, entry));
+
+    return state.element;
+  }
+
+  // Renders a batch of entries into `container` (a DocumentFragment for a
+  // one-shot batch, or the live `list` for the poll tail), grouping
+  // consecutive groupable tool_use/tool_result entries via `state` (see the
+  // block comment above). Returns the distinct top-level nodes touched
+  // (created OR extended) in this call, for the caller's own new-content
+  // highlighting.
+  function renderEntriesGrouped(entries, state, container) {
+    var touched = [];
+
+    entries.forEach(function (entry) {
+      if (entryIsGroupableToolCall(entry)) {
+        var groupEl = appendGroupableEntry(state, container, entry);
+
+        if (touched.indexOf(groupEl) === -1) {
+          touched.push(groupEl);
+        }
+
+        return;
+      }
+
+      closeGroup(state);
+      var el = renderEntry(entry);
+      container.appendChild(el);
+      touched.push(el);
+    });
+
+    return touched;
+  }
+
+  // Persists across pollHistory() calls (unlike loadMore()'s own throwaway
+  // createGroupState()) - see the block comment above for why the live
+  // poll tail specifically needs this.
+  var tailGroupState = createGroupState();
+
+  // Seeds tailGroupState from whatever the server already rendered, if the
+  // page loaded (or was refreshed) mid-tool-run - i.e. the transcript's
+  // last entry so far is itself part of a still-open tool-group (see
+  // TranscriptView::render_transcript_entries_html(), PHP). Without this,
+  // a page load/refresh landing mid-run would leave tailGroupState at its
+  // fresh createGroupState() default (believing nothing is open), so the
+  // next poll's continuation of that same run would start a brand new
+  // second <details> right after the server-rendered one instead of
+  // extending it - same run, split across two group cards for no reason
+  // other than "the page happened to load in the middle of it".
+  (function seedTailGroupStateFromServerRender() {
+    var lastEl = list ? list.lastElementChild : null;
+
+    if (!lastEl || !lastEl.classList.contains('tool-group')) {
+      return;
+    }
+
+    var membersContainer = lastEl.querySelector('.tool-group-members');
+    var pairs = membersContainer ? membersContainer.children : [];
+
+    if (!membersContainer || pairs.length === 0) {
+      return;
+    }
+
+    var lastPair = pairs[pairs.length - 1];
+    var resultSlot = lastPair.querySelector('.tool-pair-result-slot');
+    // An empty slot on the LAST pair means the server rendered a call with
+    // no result yet (the tool was still running as of that render) - the
+    // one case where a follow-up poll's result needs to upgrade this exact
+    // element rather than start a new pair.
+    var hasPendingCall = !!resultSlot && resultSlot.children.length === 0 && resultSlot.textContent === '';
+
+    tailGroupState.element = lastEl;
+    tailGroupState.membersContainer = membersContainer;
+    tailGroupState.callCount = pairs.length;
+    tailGroupState.pendingCallEntry = hasPendingCall ? lastPair : null; // only ever checked for truthiness, see appendGroupableEntry()
+    tailGroupState.pendingCallPairEl = hasPendingCall ? lastPair : null;
+  })();
 
   // --- optimistic history entries: rendered with renderEntry() itself (so
   // a pending compose message/prompt answer looks exactly like the real
@@ -1086,6 +1286,11 @@
     pendingNote.textContent = 'Sending…';
     el.querySelector('.mb-1').appendChild(pendingNote);
 
+    // A real user message always breaks any still-open tool-group at the
+    // tail (see tailGroupState) - otherwise a later-arriving tool result
+    // would try to extend a group that's no longer actually at the tail of
+    // the list, inserting itself above a message the user already sent.
+    closeGroup(tailGroupState);
     list.appendChild(el);
     pendingEntries.push(el);
     maybeAutoScroll(wasNearBottom);
@@ -1363,7 +1568,7 @@
           // option label has no length limit imposed by the tool itself,
           // and break-words alone doesn't help without max-w-full capping
           // the flex item's width first).
-          optionsHtml += '<button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full" data-option="' + opt.number + '">'
+          optionsHtml += '<button type="button" class="reveal-freetext-btn rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full text-left" data-option="' + opt.number + '">'
             + opt.number + '. ' + label
             + '</button>';
           return;
@@ -1373,7 +1578,7 @@
           + '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">'
           + '<input type="hidden" name="session" value="' + escapeHtml(sessionName) + '">'
           + '<input type="hidden" name="option" value="' + opt.number + '">'
-          + '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full">'
+          + '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full text-left">'
           + opt.number + '. ' + label
           + '</button></form>';
       });
@@ -1701,8 +1906,12 @@
           return;
         }
 
+        // A fresh, throwaway group state (not tailGroupState, which tracks
+        // the LIVE poll tail) - a batch of OLDER entries being prepended
+        // above everything already shown must never merge into (or be
+        // merged into) whatever's already rendered there.
         var fragment = document.createDocumentFragment();
-        (data.entries || []).forEach(function (entry) { fragment.appendChild(renderEntry(entry)); });
+        renderEntriesGrouped(data.entries || [], createGroupState(), fragment);
         list.insertBefore(fragment, list.firstChild);
 
         if (data.has_more && data.next_before !== null) {
@@ -1802,10 +2011,10 @@
   //    stuff starts here" landmark, and once a newer batch has arrived,
   //    that's no longer where new stuff starts. This also sidesteps a real
   //    bug the per-batch version this replaced had: if a batch's entries
-  //    are ALL currently hidden (Andres toggles "Show tool calls"/"Show
-  //    tool outputs" off - see body.hide-tool-calls/.hide-tool-details in
-  //    the <style> above - which sets display:none on whole entries, not
-  //    just a class), a display:none element can never intersect the
+  //    are ALL currently hidden (Andres toggles "Show subagent calls and
+  //    outputs" off - see body.hide-subagent in the <style> above - which
+  //    sets display:none on whole entries, not just a class), a
+  //    display:none element can never intersect the
   //    viewport, so a fade condition requiring every element in a batch to
   //    be seen could never be satisfied - the divider got stuck forever,
   //    and a poll landing while it was still stuck (very likely, since it
@@ -1849,18 +2058,26 @@
     });
   });
 
+  // $beforeNode may be null - a poll cycle that only extended an already-
+  // open tool-group (see tailGroupState) rather than inserting anything
+  // brand new at the tail has no natural "new stuff starts here" position
+  // to anchor a divider to (the growth happened mid-list, at the group's
+  // own position, not at the bottom) - $entryElements (the group itself)
+  // still gets highlighted either way, just no divider that poll cycle.
   function markNewContent(beforeNode, entryElements) {
-    if (currentDivider && currentDivider.parentNode) {
-      currentDivider.parentNode.removeChild(currentDivider);
-    }
+    if (beforeNode) {
+      if (currentDivider && currentDivider.parentNode) {
+        currentDivider.parentNode.removeChild(currentDivider);
+      }
 
-    var divider = document.createElement('div');
-    divider.className = 'select-none new-content-divider flex items-center gap-2 my-1 text-xs text-indigo-400';
-    divider.innerHTML = '<span class="flex-1 border-t border-indigo-500/50"></span>'
-      + '<span>New</span>'
-      + '<span class="flex-1 border-t border-indigo-500/50"></span>';
-    list.insertBefore(divider, beforeNode);
-    currentDivider = divider;
+      var divider = document.createElement('div');
+      divider.className = 'select-none new-content-divider flex items-center gap-2 my-1 text-xs text-indigo-400';
+      divider.innerHTML = '<span class="flex-1 border-t border-indigo-500/50"></span>'
+        + '<span>New</span>'
+        + '<span class="flex-1 border-t border-indigo-500/50"></span>';
+      list.insertBefore(divider, beforeNode);
+      currentDivider = divider;
+    }
 
     entryElements.forEach(function (el) { el.classList.add('new-content-highlight'); });
 
@@ -1869,6 +2086,10 @@
     }
 
     entryElements.forEach(function (el) { newEntryObserver.observe(el); });
+
+    if (!beforeNode) {
+      return; // no divider this cycle - nothing to fade-and-remove later
+    }
 
     var dividerObserver = new IntersectionObserver(function (observerEntries) {
       observerEntries.forEach(function (observerEntry) {
@@ -1933,19 +2154,17 @@
         removeHistoryEmptyNote();
         reconcilePendingEntries(fresh);
 
+        // tailGroupState persists across poll cycles (unlike loadMore()'s
+        // own throwaway state) - see the block comment on it for why: a
+        // call and its own result routinely land in separate poll cycles,
+        // and this is what lets a later result upgrade an already-rendered
+        // group member in place instead of appending a second card.
         var fragment = document.createDocumentFragment();
-        var newEntryElements = [];
-        fresh.forEach(function (entry) {
-          var el = renderEntry(entry);
-          newEntryElements.push(el);
-          fragment.appendChild(el);
-          newestLine = entry.line;
-        });
-        var firstNewEntry = fragment.firstChild;
+        var touchedElements = renderEntriesGrouped(fresh, tailGroupState, fragment);
+        fresh.forEach(function (entry) { newestLine = entry.line; });
+        var firstNewNode = fragment.firstChild;
         list.appendChild(fragment);
-        if (firstNewEntry) {
-          markNewContent(firstNewEntry, newEntryElements);
-        }
+        markNewContent(firstNewNode, touchedElements);
         maybeAutoScroll(wasNearBottom);
       })
       .catch(function () {});
