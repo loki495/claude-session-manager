@@ -50,11 +50,27 @@ class TmuxService
      * alive check, which runs before any sidecar has been written, so
      * list_tracked_tmux_sessions() below (sidecar-gated) can't answer it yet.
      *
+     * 'activity' is sourced from #{window_activity}, NOT tmux's own
+     * #{session_activity} - found live 2026-08-08 on this app's own
+     * actual session (dogfooding: Andres noticed a live, actively-working
+     * session's dashboard row looked stale/"detached"), confirmed via
+     * tmux's own man page and a live A/B check: #{session_activity}
+     * ("Time of session last activity") does NOT reliably update from
+     * real, continuous pane output the way you'd expect - it stayed
+     * frozen at this session's own spawn time for 8+ real hours of heavy
+     * use, while #{window_activity} ("Time of window last activity") on
+     * the SAME session updated correctly in real time, seconds after
+     * being checked. Every session this app tracks is single-window (see
+     * create_cc_session()), so the active window IS the session for this
+     * purpose - #{window_activity} resolves to it directly even from a
+     * list-sessions format string (verified live), no per-window query
+     * needed.
+     *
      * @return array<int, array{name:string, activity:int, attached:bool}>
      */
     public static function list_all_tmux_sessions(): array
     {
-        $result = self::tmux_run(['list-sessions', '-F', '#{session_name}|#{session_activity}|#{session_attached}']);
+        $result = self::tmux_run(['list-sessions', '-F', '#{session_name}|#{window_activity}|#{session_attached}']);
 
         if ($result['exit'] !== 0) {
             return [];

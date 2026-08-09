@@ -378,6 +378,30 @@ try {
     assert_true(array_key_exists('title', $session ?? []), 'list: title key present');
     assert_true(preg_match($uuidPattern, (string)($session['claude_session_id'] ?? '')) === 1, 'list: claude_session_id recorded via sidecar, uuid-shaped');
 
+    // --- TmuxService::list_all_tmux_sessions()'s 'activity' field: sourced
+    // from #{window_activity}, not tmux's own #{session_activity} - found
+    // live 2026-08-08 on this app's own real session (a live, actively-
+    // working session's dashboard row looked stale/"detached" - Andres
+    // noticed while dogfooding). #{session_activity} does NOT reliably
+    // advance from real, continuous pane output (confirmed live: stayed
+    // frozen at spawn time for 8+ real hours of heavy use on the actual
+    // session that surfaced this), while #{window_activity} does. This
+    // needs a REAL tmux session (the bug is real tmux behavior, not
+    // something a fake tmux binary could ever exhibit) - reuses $name
+    // from the create block above, real fake_claude (behaves like `cat`)
+    // pane, real send-keys. ---
+    $activityBeforeSend = $session['activity'] ?? null;
+    sleep(2); // ensure the next timestamp is actually distinguishable
+    if ($name !== null) {
+        TmuxService::tmux_run(['send-keys', '-t', $name, 'activity freshness probe', 'Enter']);
+    }
+    usleep(300000);
+    $sessionAfterSend = $name !== null ? find_session($name) : null;
+    assert_true(
+        $sessionAfterSend !== null && $activityBeforeSend !== null && ($sessionAfterSend['activity'] ?? 0) > $activityBeforeSend,
+        'list: activity timestamp actually advances after real pane output, not frozen at session-creation time'
+    );
+
     // --- SessionService::session_detail(): the same re-derived-from-a-live-scan data as one
     // list() row, plus has_transcript - fake_claude never actually writes a
     // real ~/.claude/projects transcript, so has_transcript is expected
