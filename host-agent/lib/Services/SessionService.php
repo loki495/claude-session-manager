@@ -772,23 +772,37 @@ class SessionService
             return ['ok' => false, 'message' => 'Rejected: that option is not currently offered by this prompt'];
         }
 
-        // Sent as two separate keys, not one send-keys call - verified live that
-        // for an AskUserQuestion-style prompt, the digit only moves the on-screen
-        // cursor (it doesn't auto-confirm), so an Enter sent in the same instant
-        // can race ahead and confirm whatever was *previously* highlighted
-        // instead. See TMUX_KEY_STEP_DELAY_USEC.
         $digitResult = TmuxService::tmux_run(['send-keys', '-t', $name, (string)$option]);
 
         if ($digitResult['exit'] !== 0) {
             return ['ok' => false, 'message' => "Failed to send response: " . trim($digitResult['stderr'])];
         }
 
-        usleep(self::TMUX_KEY_STEP_DELAY_USEC);
+        // A single-question prompt needs a separate Enter - verified live
+        // that the digit there only moves the on-screen cursor, it doesn't
+        // auto-confirm, so an Enter sent in the same instant can race ahead
+        // and confirm whatever was *previously* highlighted instead.
+        //
+        // A multi-question AskUserQuestion tab is the opposite: verified
+        // live 2026-08-09 (Andres reported answering a question "skipped"
+        // the next one) against a real, disposable test session - the
+        // digit there ALREADY selects, confirms, AND auto-advances to the
+        // next tab (or submits, on the final Submit/Cancel tab) entirely on
+        // its own. Sending an Enter afterward regardless (this app's old
+        // behavior) lands on whatever's now showing NEXT and confirms
+        // ITS currently-highlighted default option too - silently
+        // answering the following question with its default instead of
+        // whatever the human actually meant to pick for it, then
+        // advancing an extra tab on top. Skipping the trailing Enter here
+        // is what actually matches this shape's real interaction model.
+        if (empty($prompt['multi_question'])) {
+            usleep(self::TMUX_KEY_STEP_DELAY_USEC);
 
-        $enterResult = TmuxService::tmux_run(['send-keys', '-t', $name, 'Enter']);
+            $enterResult = TmuxService::tmux_run(['send-keys', '-t', $name, 'Enter']);
 
-        if ($enterResult['exit'] !== 0) {
-            return ['ok' => false, 'message' => "Failed to send response: " . trim($enterResult['stderr'])];
+            if ($enterResult['exit'] !== 0) {
+                return ['ok' => false, 'message' => "Failed to send response: " . trim($enterResult['stderr'])];
+            }
         }
 
         // The pending-tool file (see PendingToolStore::read_pending_tool()) only ever describes

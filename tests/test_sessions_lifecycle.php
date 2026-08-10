@@ -1052,6 +1052,39 @@ try {
     $navigated = SessionService::navigate_prompt($promptTestSession, 'right');
     assert_true($navigated['ok'] ?? false, 'navigate_prompt: ok=true for a live multi-question prompt');
 
+    // --- SessionService::answer_prompt(): for a MULTI-QUESTION prompt specifically,
+    // sends ONLY the digit - no trailing Enter (found live 2026-08-09,
+    // Andres reported answering a question "skipped" the next one; verified
+    // against a real, disposable claude session: the digit alone already
+    // selects+confirms+auto-advances on this prompt shape, so this app's
+    // old always-send-Enter behavior landed that extra Enter on whatever
+    // was showing NEXT and silently confirmed ITS current default too -
+    // one real answer, two tabs advanced). Reuses the same canonical-mode-
+    // cat fixture reasoning as the navigate_prompt comment above: a plain
+    // digit byte with no following Enter never completes a line, so
+    // cat's own read() never sees it and never echoes it back - the pane
+    // staying UNCHANGED after answer_prompt() is exactly the signal that
+    // no Enter followed it (a regression back to always-Enter would flush
+    // the digit and change the pane, same as the single-question case
+    // earlier in this file already proves FOR that shape). ---
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, "←  ☐ Color  ☐ Animal  ✔ Submit  →", 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'Pick one', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '❯ 1. A', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '  2. B', 'Enter']);
+    usleep(300000);
+    $paneBeforeMultiAnswer = TmuxService::tmux_capture_pane($promptTestSession);
+
+    $multiAnswered = SessionService::answer_prompt($promptTestSession, 1);
+    assert_true($multiAnswered['ok'] ?? false, 'answer_prompt: ok=true for a currently-offered option on a multi-question prompt');
+    usleep(300000);
+
+    $paneAfterMultiAnswer = TmuxService::tmux_capture_pane($promptTestSession);
+    assert_equal(
+        $paneBeforeMultiAnswer,
+        $paneAfterMultiAnswer,
+        'answer_prompt: for a multi-question prompt, the pane is UNCHANGED after answering - the digit alone never completes a line without a following Enter, proving none was sent'
+    );
+
     // --- SessionService::set_mode(): jumps straight to a chosen mode by working out how
     // many Shift+Tab ("BTab") presses that is from the current mode, read
     // live from the pane. Each press is itself an escape sequence (not a
