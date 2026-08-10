@@ -438,6 +438,13 @@ try {
     assert_equal(200, $sessionJs['status'], 'GET /js/session.js?v=...: 200 (served as a static file, no 404)');
     assert_contains('function markNewContent(', $sessionJs['body'], 'GET /js/session.js: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
     assert_contains('function resetHistoryForRotatedTranscript(', $sessionJs['body'], 'GET /js/session.js: resetHistoryForRotatedTranscript() (clears the rendered history on /clear, /compact, --resume, --fork-session) is shipped');
+    // found live 2026-08-09: renderStaticInfo() rebuilt the session-info card's
+    // innerHTML on every title/name/workdir/attached change but never read
+    // context_used_percentage/git_worktree out of the poll payload at all, so
+    // the context-used% shown by the initial PHP render silently vanished on
+    // the first such poll and never came back without a full page reload.
+    assert_contains('detail.context_used_percentage', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads context_used_percentage from the poll payload, not just the initial PHP render');
+    assert_contains('detail.git_worktree', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads git_worktree from the poll payload, not just the initial PHP render');
     assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
     // --- tool-call grouping (TranscriptView::render_transcript_entries_
     // html()/render_tool_group_html()/render_tool_pair_html(), added

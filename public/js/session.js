@@ -1359,18 +1359,29 @@
   // alongside renderEntry()/renderBlock() as the JS-side counterpart of
   // the same PHP renderer, both feeding this one visibility-gated poll.
   //
-  // Only rebuilds the block when title/name/workdir/attached actually
-  // change - same reasoning as renderBlockedSection()'s skip-if-unchanged
-  // key, here for a lower-stakes reason (no focus/scroll to protect, just
-  // an in-progress text selection inside the box - e.g. copying the
-  // session name or workdir path - that a full innerHTML replacement
-  // would silently clear on every poll for no reason, since none of this
-  // actually changes poll to poll in the common case). The relative-time
-  // label is genuinely time-varying though (its DISPLAYED text can change
-  // even with no new poll data at all), so it's always updated via its
-  // own stable id rather than being covered by the skip.
+  // Only rebuilds the block when title/name/workdir/attached/context-used%/
+  // worktree actually change - same reasoning as renderBlockedSection()'s
+  // skip-if-unchanged key, here for a lower-stakes reason (no focus/scroll
+  // to protect, just an in-progress text selection inside the box - e.g.
+  // copying the session name or workdir path - that a full innerHTML
+  // replacement would silently clear on every poll for no reason, since
+  // none of this actually changes poll to poll in the common case). The
+  // relative-time label is genuinely time-varying though (its DISPLAYED
+  // text can change even with no new poll data at all), so it's always
+  // updated via its own stable id rather than being covered by the skip.
+  //
+  // found live 2026-08-09: context_used_percentage/git_worktree were read
+  // out of `detail` by the PHP initial render but never by this JS mirror
+  // at all - so the percentage only ever showed up until the FIRST poll
+  // that changed title/name/workdir/attached, at which point this
+  // function's own innerHTML rebuild (missing those two spans entirely)
+  // permanently erased it until a full page reload. Both are now part of
+  // the rebuild key too, so a value showing up/changing/disappearing on
+  // its own also triggers a rebuild, not just the other four fields.
   function renderStaticInfo(detail) {
-    var key = JSON.stringify([detail.title || null, detail.name, detail.workdir || null, !!detail.attached]);
+    var contextUsedPercentage = typeof detail.context_used_percentage === 'number' ? detail.context_used_percentage : null;
+    var gitWorktree = detail.git_worktree || null;
+    var key = JSON.stringify([detail.title || null, detail.name, detail.workdir || null, !!detail.attached, contextUsedPercentage, gitWorktree]);
 
     if (key !== lastRenderedStaticInfoKey) {
       lastRenderedStaticInfoKey = key;
@@ -1382,11 +1393,22 @@
         html += '<div class="text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(detail.workdir) + '</div>';
       }
 
-      html += '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2">'
+      html += '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">'
         + '<span id="static-info-activity"></span>'
         + '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
-        + (detail.attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>')
-        + '</div>';
+        + (detail.attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>');
+
+      if (contextUsedPercentage !== null) {
+        html += '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
+          + '<span' + (contextUsedPercentage >= 80 ? ' class="text-amber-400"' : '') + '>context ' + Math.round(contextUsedPercentage) + '% used</span>';
+      }
+
+      if (gitWorktree) {
+        html += '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
+          + '<span>worktree: ' + escapeHtml(gitWorktree) + '</span>';
+      }
+
+      html += '</div>';
 
       infoBox.innerHTML = html;
 
