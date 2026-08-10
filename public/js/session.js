@@ -1663,14 +1663,22 @@
     }
   }
 
-  // Dims the blocked-prompt card and disables everything in it, right after
-  // an answer is submitted (and reapplied by renderBlockedSection() above if
-  // a poll rebuilds the same still-pending prompt before confirmation
-  // arrives). revertBlockedSectionAnswerPending() undoes this on a failed
-  // send; a successful one needs no explicit revert - the card either gets
-  // replaced (new/no prompt) or re-dimmed by the check above on the next
-  // rebuild, either way never left stale.
-  function markBlockedSectionAnswerPending() {
+  // Dims the blocked-prompt card and disables everything in it while some
+  // action against it is in flight - originally just for answering (right
+  // after submit, and reapplied by renderBlockedSection() above if a poll
+  // rebuilds the same still-pending prompt before confirmation arrives),
+  // extended 2026-08-09 to the nav-prompt-btn Prev/Next handler further
+  // down too - Andres reported those had no visual feedback at all while a
+  // tab switch was in flight beyond the clicked button itself going inert.
+  // $noteText distinguishes which: "Answered - waiting to confirm…" vs
+  // "Loading the next/previous question…". revertBlockedSectionPending()
+  // undoes this on a failed send/nav; a successful answer needs no
+  // explicit revert - the card either gets replaced (new/no prompt) or
+  // re-dimmed by the check above on the next rebuild, either way never
+  // left stale (a successful nav DOES revert itself - see its own handler
+  // - since unlike answering, nothing else is guaranteed to naturally
+  // replace or re-dim this same card afterward).
+  function markBlockedSectionPending(noteText) {
     var card = blockedSection.firstElementChild;
 
     if (card) {
@@ -1679,7 +1687,7 @@
       if (!card.querySelector('.answer-pending-note')) {
         var note = document.createElement('p');
         note.className = 'select-none answer-pending-note mt-2 text-amber-300/70 italic';
-        note.textContent = 'Answered - waiting to confirm…';
+        note.textContent = noteText;
         card.appendChild(note);
       }
     }
@@ -1687,7 +1695,11 @@
     blockedSection.querySelectorAll('button, textarea').forEach(function (el) { el.disabled = true; });
   }
 
-  function revertBlockedSectionAnswerPending() {
+  function markBlockedSectionAnswerPending() {
+    markBlockedSectionPending('Answered - waiting to confirm…');
+  }
+
+  function revertBlockedSectionPending() {
     var card = blockedSection.firstElementChild;
 
     if (card) {
@@ -1748,7 +1760,7 @@
             answerPendingReason = null;
             answerPendingHistoryEl = null;
             removePendingEntry(pendingEl);
-            revertBlockedSectionAnswerPending();
+            revertBlockedSectionPending();
           }
         })
         .catch(function () {
@@ -1756,7 +1768,7 @@
           answerPendingReason = null;
           answerPendingHistoryEl = null;
           removePendingEntry(pendingEl);
-          revertBlockedSectionAnswerPending();
+          revertBlockedSectionPending();
         });
     });
   }
@@ -1807,7 +1819,7 @@
             answerPendingReason = null;
             answerPendingHistoryEl = null;
             removePendingEntry(pendingEl);
-            revertBlockedSectionAnswerPending();
+            revertBlockedSectionPending();
           }
         })
         .catch(function () {
@@ -1817,7 +1829,7 @@
           answerPendingReason = null;
           answerPendingHistoryEl = null;
           removePendingEntry(pendingEl);
-          revertBlockedSectionAnswerPending();
+          revertBlockedSectionPending();
         });
     }
 
@@ -1847,7 +1859,12 @@
 
       if (navBtn) {
         var navWrapper = navBtn.closest('.prompt-options-wrapper');
-        navBtn.disabled = true;
+        // Dims the whole card and disables everything in it (same
+        // treatment as answering - see markBlockedSectionPending()) while
+        // the switch is in flight - found live 2026-08-09: the only
+        // feedback before this was the clicked arrow itself going inert,
+        // easy to miss and tap again.
+        markBlockedSectionPending(navBtn.dataset.direction === 'left' ? 'Loading the previous question…' : 'Loading the next question…');
 
         fetch('/session_navigate.php', {
           method: 'POST',
@@ -1861,23 +1878,35 @@
         })
           .then(function (r) { return parseJsonResponse(r, 'navigate-prompt'); })
           .then(function (data) {
-            navBtn.disabled = false;
-
             if (!data || !data.ok) {
+              revertBlockedSectionPending();
               alert((data && data.message) || 'Failed to navigate to the other question.');
               return;
             }
+
+            // Unlike a successful answer (which either gets replaced by a
+            // new/no prompt, or re-dimmed by renderBlockedSection()'s own
+            // answerPendingReason check on the next rebuild), nothing else
+            // tracks a nav as "pending" - reverting explicitly here is
+            // what actually un-sticks the dimming once this resolves,
+            // rather than leaving the card dimmed indefinitely.
+            revertBlockedSectionPending();
 
             // The pane state has moved to the other tab, but this card
             // still shows the one just left - forces the very next poll
             // to actually rebuild instead of skipping as "unchanged" (see
             // the key comparison above), so the new tab's question/options
             // show up on the next cycle rather than waiting for something
-            // else to invalidate the cache first.
+            // else to invalidate the cache first. Same 300ms-delayed extra
+            // poll as the answer-submit handler above, for the same reason
+            // (the request only waits for the keys to be sent, not for
+            // Claude Code to actually redraw past them) - without it, the
+            // new tab could sit un-refreshed for up to a full poll interval.
             lastRenderedBlockedKey = undefined;
+            setTimeout(pollOnce, 300);
           })
           .catch(function () {
-            navBtn.disabled = false;
+            revertBlockedSectionPending();
             alert('Network error - could not navigate to the other question.');
           });
       }
