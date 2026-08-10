@@ -269,6 +269,89 @@ assert_equal(
 );
 assert_equal(true, $multiQuestionParsed['multi_question'] ?? null, 'parse_blocking_prompt: real multi-question prompt - tab bar detected');
 
+// --- PromptParser::parse_blocking_prompt(): a real, live capture of a multi-question
+// AskUserQuestion's own "Submit" review tab (found live 2026-08-09: Andres
+// reported what looked like a redundant second confirmation on this exact
+// screen - see this app's session.php, the "Awaiting approval" pending-
+// context card immediately followed by a "Waiting on input" card asking
+// what read as the same thing again). The nearest-● scan alone finds only
+// the LAST answered question's own bullet, silently dropping every
+// earlier one (and the "Review your answers"/tab-bar lines) from context -
+// this is what made a complete two-question review look like a single,
+// already-answered, oddly-repeated mini-prompt instead. ---
+$realSubmitReview = " One quiet line in the AI-tooling section linking to the repo.\n"
+    . "\n"
+    . str_repeat('─', 40) . "\n"
+    . "←  ☒ Visibility  ☒ Repo name  ✔ Submit  →\n"
+    . "\n"
+    . "Review your answers\n"
+    . "\n"
+    . " ● Repo visibility — your phone number and personal email live in the content fragments (header.md). A public repo gets indexed/cached fast, which is hard to undo.\n"
+    . "   → Public, but redact contact info from the repo\n"
+    . " ● What should the GitHub repo be named?\n"
+    . "   → resume\n"
+    . "\n"
+    . "Ready to submit your answers?\n"
+    . "\n"
+    . "❯ 1. Submit answers\n"
+    . "  2. Cancel\n";
+$submitReviewParsed = PromptParser::parse_blocking_prompt($realSubmitReview);
+assert_equal('Ready to submit your answers?', $submitReviewParsed['question'] ?? null, 'parse_blocking_prompt: Submit review tab - question is the final "ready to submit" line');
+assert_true(str_contains($submitReviewParsed['context'] ?? '', 'Review your answers'), 'parse_blocking_prompt: Submit review tab - context includes the "Review your answers" header, not just the last bullet');
+assert_true(str_contains($submitReviewParsed['context'] ?? '', 'Repo visibility'), 'parse_blocking_prompt: Submit review tab - context includes the FIRST answered question\'s own bullet');
+assert_true(str_contains($submitReviewParsed['context'] ?? '', 'Public, but redact contact info from the repo'), 'parse_blocking_prompt: Submit review tab - context includes the first question\'s real answer');
+assert_true(str_contains($submitReviewParsed['context'] ?? '', 'What should the GitHub repo be named?'), 'parse_blocking_prompt: Submit review tab - context still includes the last question\'s own bullet too');
+assert_true(str_contains($submitReviewParsed['context'] ?? '', "→ resume"), 'parse_blocking_prompt: Submit review tab - context still includes the last question\'s real answer too');
+assert_equal(true, $submitReviewParsed['multi_question'] ?? null, 'parse_blocking_prompt: Submit review tab - still detected as multi_question (tab bar pulled into context alongside "Review your answers"), so Prev/Next navigation back to an earlier question stays available');
+assert_equal(
+    [['number' => 1, 'label' => 'Submit answers'], ['number' => 2, 'label' => 'Cancel']],
+    $submitReviewParsed['options'] ?? null,
+    'parse_blocking_prompt: Submit review tab - both real options extracted'
+);
+
+// --- PromptParser::parse_blocking_prompt(): a real, live capture of a
+// RESHOWN single-question tab of a multi-question AskUserQuestion (found
+// live 2026-08-09, same investigation as the Submit-review-tab case above -
+// navigating back to an earlier tab has no tool-invocation marker of its
+// own at all, unlike a fresh permission prompt). The nearest-● scan used
+// to walk straight through the decorative separator above the tab bar and
+// land on the PRECEDING, unrelated assistant message's own "● " bullet -
+// Claude Code prefixes plain assistant TEXT with "● " too, not just tool
+// invocations - sweeping a whole unrelated earlier paragraph into context.
+// A first attempt at fixing this (stop the scan at ANY decorative
+// separator) overcorrected and broke the long-command-preview case above,
+// since a genuine tool invocation ALSO uses one internally, between its
+// own marker and its own detail box - the real fix only stops at a
+// separator once a multi-question tab bar has already been seen below
+// it. ---
+$realReshowTab = " On the \"built with AI, including the toolchain\" question: I'd do it — lightly. It's not cheeky if it's true and verifiable, and yours is: the resume already has a dedicated AI-tooling section\n"
+    . "citing specific things you built (subagents, hooks, claude-session-manager). A one-line link to this actual repo as another concrete example is proof, not a claim.\n"
+    . "\n"
+    . "One real concern before I create/push a public repo: your phone number and personal email are in the content fragments. A public GitHub repo gets scraped/cached essentially immediately and that's\n"
+    . "hard to fully undo. Let me get that sorted with you before I touch GitHub.\n"
+    . str_repeat('─', 40) . "\n"
+    . "←  ☒ Visibility  ☒ Repo name  ✔ Submit  →\n"
+    . "\n"
+    . "Repo visibility — your phone number and personal email live in the content fragments (header.md). A public repo gets indexed/cached fast, which is hard to undo.\n"
+    . "\n"
+    . "❯ 1. Public, but redact contact info from the repo\n"
+    . "     Keep phone/email out of the committed fragments, inject real values only at build time.\n"
+    . "  2. Public as-is\n"
+    . "  3. Private repo\n"
+    . "  4. Type something.\n";
+$reshowParsed = PromptParser::parse_blocking_prompt($realReshowTab);
+assert_true(
+    !str_contains($reshowParsed['context'] ?? '', 'built with AI'),
+    'parse_blocking_prompt: a reshown tab\'s context does NOT include the unrelated PRECEDING assistant message - it has no marker of its own, and the scan must not cross the separator above the tab bar to go find one'
+);
+assert_true(
+    !str_contains($reshowParsed['context'] ?? '', 'public GitHub repo gets scraped'),
+    'parse_blocking_prompt: a reshown tab\'s context does not include ANY of that preceding paragraph, not just its first line'
+);
+assert_true(str_contains($reshowParsed['context'] ?? '', '←  ☒ Visibility'), 'parse_blocking_prompt: a reshown tab\'s context DOES include its own tab bar');
+assert_true(str_contains($reshowParsed['context'] ?? '', 'Repo visibility —'), 'parse_blocking_prompt: a reshown tab\'s context DOES include its own question');
+assert_equal(true, $reshowParsed['multi_question'] ?? null, 'parse_blocking_prompt: a reshown tab is still correctly detected as multi_question');
+
 // --- PromptParser::parse_current_mode(): reads Claude Code's own bottom status line -
 // mode names and cycle order confirmed live against a real running
 // session (Shift+Tab cycles manual -> accept edits -> plan -> auto). ---

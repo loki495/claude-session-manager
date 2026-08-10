@@ -148,16 +148,106 @@ class PromptParser
         // window: it's exactly as tall as the real content, whether that's 3
         // lines or 300. Only falls back to BLOCKING_PROMPT_CONTEXT_WINDOW for
         // prompt shapes with no such marker (the trust dialog).
+        //
+        // The scan never crosses a decorative separator line looking for
+        // one, PROVIDED a multi-question tab bar ("←  ☐ Color  ☐ Animal
+        // ✔ Submit  →") was already seen between the choice list and that
+        // separator (found live 2026-08-09) - Claude Code prefixes a plain
+        // assistant TEXT message with "● " too, not just a tool invocation,
+        // and a decorative rule directly above a reshown tab bar is exactly
+        // the boundary Claude Code itself draws between that unrelated
+        // preceding prose and the fresh prompt (verified against a real
+        // capture: a reshown AskUserQuestion tab has no tool-invocation
+        // marker of its own at all). Gated on the tab bar specifically,
+        // not on ANY separator, because a genuine tool invocation ALSO
+        // uses one internally, between its own "● ToolName(...)" marker
+        // and its own detail box (e.g. "Bash command") - stopping there
+        // too would cut a real permission prompt's context off right
+        // before reaching its own marker (caught live by this file's own
+        // long-command-preview test regressing when a first attempt at
+        // this fix stopped at ANY separator unconditionally).
         $markerIndex = null;
+        $separatorIndex = null;
+        $sawTabBarBelow = false;
 
         for ($i = $choiceIndex - 1; $i >= 0; $i--) {
             if (preg_match('/^\s*●/u', $lines[$i]) === 1) {
                 $markerIndex = $i;
                 break;
             }
+
+            if (self::is_decorative_pane_line($lines[$i])) {
+                if ($sawTabBarBelow) {
+                    $separatorIndex = $i;
+                    break;
+                }
+
+                continue;
+            }
+
+            if (str_contains($lines[$i], '←') && str_contains($lines[$i], '→')) {
+                $sawTabBarBelow = true;
+            }
         }
 
-        $start = $markerIndex !== null ? $markerIndex : max(0, $choiceIndex - self::BLOCKING_PROMPT_CONTEXT_WINDOW);
+        // A multi-question AskUserQuestion's "Submit" review tab recaps
+        // EVERY answered question, each as its own "● " bullet (verified
+        // live against a real capture: "Repo visibility ..." / "What
+        // should the GitHub repo be named?", each followed by its own
+        // indented "→ <answer>" line) - the nearest-● scan just above only
+        // ever finds the LAST one, so context ended up missing every
+        // earlier question's own bullet, and the tab's own "Review your
+        // answers" header, entirely (found live 2026-08-09: Andres
+        // reported what looked like a redundant second confirmation - it
+        // was actually this incomplete capture of a multi-answer review
+        // screen, showing only its final bullet + "Ready to submit your
+        // answers?", which read as its own separate already-answered
+        // question rather than part of the same review). Walk further up
+        // past consecutive ●-bullet/→-answer/blank lines - the shape of
+        // this tab specifically - and use "Review your answers" as the
+        // real top of the block if found among them, extending one step
+        // further to the tab bar itself ("←  ☒ Visibility  ☒ Repo name
+        // ✔ Submit  →", verified live) when it's right above that header -
+        // the multi_question detection below only ever looks WITHIN this
+        // same context window, so without this the Submit tab specifically
+        // would silently lose its own Prev/Next question navigation.
+        if ($markerIndex !== null) {
+            $reviewIndex = null;
+            $sawReviewHeader = false;
+
+            for ($i = $markerIndex - 1; $i >= 0; $i--) {
+                if (str_contains($lines[$i], 'Review your answers')) {
+                    $sawReviewHeader = true;
+                    $reviewIndex = $i;
+
+                    continue;
+                }
+
+                if ($sawReviewHeader && str_contains($lines[$i], '←') && str_contains($lines[$i], '→')) {
+                    $reviewIndex = $i;
+
+                    break;
+                }
+
+                if (preg_match('/^\s*(●|→)/u', $lines[$i]) === 1 || trim($lines[$i]) === '') {
+                    continue;
+                }
+
+                break;
+            }
+
+            if ($reviewIndex !== null) {
+                $markerIndex = $reviewIndex;
+            }
+        }
+
+        // The fixed-window fallback must never reach past a decorative
+        // separator either, same reasoning as the marker scan above - a
+        // window that's wider than the gap to the boundary would otherwise
+        // still sweep in unrelated preceding content the marker scan itself
+        // was just kept out of.
+        $windowFloor = $separatorIndex !== null ? $separatorIndex + 1 : 0;
+        $start = $markerIndex !== null ? $markerIndex : max($windowFloor, $choiceIndex - self::BLOCKING_PROMPT_CONTEXT_WINDOW);
         $contextLines = array_map('rtrim', array_slice($lines, $start, $choiceIndex - $start));
         $contextLines = array_values(array_filter($contextLines, fn(string $l) => !self::is_decorative_pane_line($l)));
 
