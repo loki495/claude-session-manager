@@ -130,6 +130,21 @@ $this->layout('layout', [
       <?= \App\Views\TranscriptView::render_session_static_info_html($detail) ?>
     </div>
 
+    <?php if ($jumpLine !== null): ?>
+      <!-- Landed here from a search result (see sidebar.php's search box/
+           session.js) - the page above this loads a window ENDING at
+           jumpLine, via session_history's existing `before` cursor, rather
+           than the usual latest-tail page. "Back to latest" is a plain
+           link (full navigation), not a JS action - simplest way back to
+           the normal view, and matches this app's existing classic-link
+           pattern for anything that isn't a repeated, high-frequency
+           action (see CLAUDE.md's own AJAX-vs-redirect distinction). -->
+      <div class="select-none mb-4 rounded-lg border border-sky-800/40 bg-sky-950/20 px-3 py-2 flex items-center justify-between gap-2 text-xs text-sky-300">
+        <span>Showing a search result</span>
+        <a href="/session.php?session=<?= urlencode($sessionName) ?>" class="text-sky-400 active:text-sky-200 font-medium">Back to latest &rarr;</a>
+      </div>
+    <?php endif; ?>
+
     <h2 class="select-none text-sm font-medium text-slate-400 mb-2">History</h2>
 
     <!-- #history-list and #load-more-btn are ALWAYS rendered (never
@@ -188,7 +203,7 @@ $this->layout('layout', [
 <?php include __DIR__ . '/../compose-bar.php'; ?>
 
 <script>
-window.CSM_BOOTSTRAP = <?= json_encode(['session' => $sessionName, 'csrfToken' => $csrfToken, 'newestLine' => $newestLine, 'claudeSessionId' => $detail['claude_session_id'] ?? null]) ?>;
+window.CSM_BOOTSTRAP = <?= json_encode(['session' => $sessionName, 'csrfToken' => $csrfToken, 'newestLine' => $newestLine, 'claudeSessionId' => $detail['claude_session_id'] ?? null, 'jumpLine' => $jumpLine]) ?>;
 </script>
 <script src="<?= \App\Assets::versioned_url('/js/common.js') ?>"></script>
 <script src="<?= \App\Assets::versioned_url('/js/session.js') ?>"></script>

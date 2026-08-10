@@ -259,6 +259,29 @@ class DashboardController extends Controller
     }
 
     /**
+     * GET-only JSON endpoint backing the dashboard's search box - content
+     * search across every known transcript (live and archived alike), not
+     * just the archived list's own client-side title/name filter (see
+     * SessionService::search_transcripts()'s own doc comment for why this
+     * has to be server-side). Read-only, same as archivedFragment() above,
+     * but deliberately NOT part of any regular poll - only ever fired by
+     * the search box's own debounced input handler (see index.js).
+     */
+    public function search(): void
+    {
+        $this->start_readonly_json();
+
+        $query = trim((string)($_GET['q'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call([
+            'action' => 'search_transcripts',
+            'query' => $query,
+            'max_sessions' => 30,
+            'max_matches_per_session' => 3,
+        ]));
+    }
+
+    /**
      * POST-only JSON endpoint for a bare-process row's "Take over" button
      * (unify-claude-sessions plan's phase 6) - AJAX, not the classic
      * redirect+flash pattern the rest of handleAction() uses, since the

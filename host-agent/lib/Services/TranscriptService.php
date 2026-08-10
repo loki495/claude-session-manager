@@ -200,7 +200,7 @@ class TranscriptService
      * reading one) so SessionService can apply the exact same title
      * cascade it already uses for live sessions.
      *
-     * @return array<int, array{claude_session_id:string, cwd:?string, ai_title:?string, last_activity:int}>
+     * @return array<int, array{claude_session_id:string, cwd:?string, ai_title:?string, last_activity:int, path:string}>
      */
     public static function list_all_transcripts(): array
     {
@@ -215,10 +215,111 @@ class TranscriptService
                 'cwd' => self::find_first_cwd($path),
                 'ai_title' => self::find_latest_ai_title($path),
                 'last_activity' => $mtime !== false ? $mtime : 0,
+                'path' => $path,
             ];
         }
 
         return $result;
+    }
+
+    /**
+     * How much of a match's rendered block text to show around the first
+     * occurrence of the query, on each side - a search "result" needs just
+     * enough surrounding words to recognize the moment, not the whole
+     * message (that's what clicking through to it is for).
+     */
+    private const SEARCH_SNIPPET_CONTEXT_CHARS = 60;
+
+    /**
+     * Full-text search of one transcript file, newest match first (a
+     * search is almost always "where did I last talk about X", not "where
+     * did this first come up"). Two-stage matching per candidate line -
+     * cheap stripos() against the RAW json line first (skips json_decode +
+     * parse_transcript_line() entirely for the overwhelming majority of
+     * lines in a real transcript, which won't match at all - verified live
+     * against a real 50MB/~10k-line session, see AI_TITLE_TAIL_SCAN_BYTES's
+     * own doc comment), then a second stripos() against the PARSED block
+     * text once a line clears the first check - a raw-line hit can land
+     * inside metadata this app never renders as content at all (a
+     * tool_use_id, an internal path/param never surfaced as block text),
+     * which would otherwise produce a "match" with nothing findable to
+     * highlight once the user actually clicks through to it.
+     *
+     * $exitPlanModeToolUseIds is only computed once a raw-line candidate is
+     * actually found (find_exit_plan_mode_tool_use_ids() itself has to walk
+     * the whole file) - a query with zero raw hits anywhere in the file
+     * never pays for it at all.
+     *
+     * @return array<int, array{line:int, snippet:string, role:?string, kind:string}>
+     */
+    public static function search_transcript_file(string $path, string $query, int $maxMatches): array
+    {
+        $trimmedQuery = trim($query);
+
+        if ($trimmedQuery === '') {
+            return [];
+        }
+
+        $lines = @file($path, FILE_IGNORE_NEW_LINES);
+
+        if ($lines === false) {
+            return [];
+        }
+
+        $exitPlanModeToolUseIds = null;
+        $matches = [];
+
+        for ($i = count($lines) - 1; $i >= 0 && count($matches) < $maxMatches; $i--) {
+            if (stripos($lines[$i], $trimmedQuery) === false) {
+                continue;
+            }
+
+            $exitPlanModeToolUseIds ??= self::find_exit_plan_mode_tool_use_ids($lines);
+            $parsed = self::parse_transcript_line($lines[$i], $exitPlanModeToolUseIds);
+
+            if ($parsed === null) {
+                continue;
+            }
+
+            $blockText = implode(' ', array_map(static fn(array $b): string => $b['text'], $parsed['blocks']));
+
+            if (stripos($blockText, $trimmedQuery) === false) {
+                continue;
+            }
+
+            $matches[] = [
+                'line' => $i + 1,
+                'snippet' => self::build_search_snippet($blockText, $trimmedQuery),
+                'role' => $parsed['role'],
+                'kind' => $parsed['blocks'][0]['kind'],
+            ];
+        }
+
+        return $matches;
+    }
+
+    /**
+     * A one-line, whitespace-collapsed preview centered on the query's
+     * first occurrence - mirrors collapsible_summary()'s "just enough to
+     * recognize it" goal (BlockedPromptView), but centered on the match
+     * instead of always the start, since the interesting part of a long
+     * message is wherever the query actually landed, not necessarily its
+     * first line.
+     */
+    private static function build_search_snippet(string $text, string $query): string
+    {
+        $collapsed = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+        $matchPos = mb_stripos($collapsed, $query);
+
+        if ($matchPos === false) {
+            $matchPos = 0;
+        }
+
+        $start = max(0, $matchPos - self::SEARCH_SNIPPET_CONTEXT_CHARS);
+        $end = min(mb_strlen($collapsed), $matchPos + mb_strlen($query) + self::SEARCH_SNIPPET_CONTEXT_CHARS);
+        $snippet = mb_substr($collapsed, $start, $end - $start);
+
+        return ($start > 0 ? '… ' : '') . $snippet . ($end < mb_strlen($collapsed) ? ' …' : '');
     }
 
     /**

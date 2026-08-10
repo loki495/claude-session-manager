@@ -39,7 +39,25 @@ class SessionController extends Controller
         $pushResult = AgentClient::agent_call(['action' => 'push_public_key']);
         $vapidPublicKey = (string)($pushResult['public_key'] ?? '');
 
-        $history = $found ? AgentClient::agent_call(['action' => 'session_history', 'session' => $sessionName, 'before' => null, 'limit' => 30]) : ['ok' => false];
+        // A search result's "jump to this line" link (see session_search.php/
+        // session.js) - loads the page ENDING at that line instead of the
+        // usual latest-tail page, by reusing session_history's existing
+        // `before` cursor (before = jumpLine + 1 means "the page whose last
+        // entry is jumpLine itself") rather than inventing a second loading
+        // path. Older messages above it still page normally via the
+        // existing "Load older messages" button; newer-than-jumpLine
+        // messages are deliberately NOT backfilled here - the live poll's
+        // own forward (`after`) fetch picks them back up as ordinary "new
+        // content" on its very next tick, so there's nothing extra to wire.
+        $jumpLine = isset($_GET['jump_line']) ? (int)$_GET['jump_line'] : null;
+        $jumpLine = $jumpLine !== null && $jumpLine > 0 ? $jumpLine : null;
+
+        $history = $found ? AgentClient::agent_call([
+            'action' => 'session_history',
+            'session' => $sessionName,
+            'before' => $jumpLine !== null ? $jumpLine + 1 : null,
+            'limit' => 30,
+        ]) : ['ok' => false];
         $historyOk = (bool)($history['ok'] ?? false);
         $entries = $historyOk ? ($history['entries'] ?? []) : [];
         $nextBefore = $historyOk ? ($history['next_before'] ?? null) : null;
@@ -58,6 +76,7 @@ class SessionController extends Controller
             'nextBefore' => $nextBefore,
             'hasMore' => $hasMore,
             'newestLine' => $newestLine,
+            'jumpLine' => $jumpLine,
         ]);
     }
 
@@ -88,7 +107,20 @@ class SessionController extends Controller
         $detail = AgentClient::agent_call(['action' => 'archived_session_detail', 'claude_session_id' => $claudeSessionId]);
         $found = (bool)($detail['ok'] ?? false);
 
-        $history = $found ? AgentClient::agent_call(['action' => 'archived_session_history', 'claude_session_id' => $claudeSessionId, 'before' => null, 'limit' => 30]) : ['ok' => false];
+        // See show()'s own jump_line handling above - same reasoning, minus
+        // the "the live poll backfills anything newer" note, since an
+        // archived view has no live poll at all. Anything newer than the
+        // jump point simply isn't shown until the reader clicks "Back to
+        // latest" (see the archived-session page's own jump banner).
+        $jumpLine = isset($_GET['jump_line']) ? (int)$_GET['jump_line'] : null;
+        $jumpLine = $jumpLine !== null && $jumpLine > 0 ? $jumpLine : null;
+
+        $history = $found ? AgentClient::agent_call([
+            'action' => 'archived_session_history',
+            'claude_session_id' => $claudeSessionId,
+            'before' => $jumpLine !== null ? $jumpLine + 1 : null,
+            'limit' => 30,
+        ]) : ['ok' => false];
         $historyOk = (bool)($history['ok'] ?? false);
         $entries = $historyOk ? ($history['entries'] ?? []) : [];
         $nextBefore = $historyOk ? ($history['next_before'] ?? null) : null;
@@ -103,6 +135,7 @@ class SessionController extends Controller
             'entries' => $entries,
             'nextBefore' => $nextBefore,
             'hasMore' => $hasMore,
+            'jumpLine' => $jumpLine,
         ]);
     }
 
@@ -209,6 +242,43 @@ class SessionController extends Controller
             'before' => isset($_GET['before']) ? (int)$_GET['before'] : null,
             'limit' => isset($_GET['limit']) ? (int)$_GET['limit'] : 30,
             'after' => isset($_GET['after']) ? (int)$_GET['after'] : null,
+        ]));
+    }
+
+    /**
+     * GET-only JSON endpoint backing session.php's sidebar search box -
+     * searches this session's ENTIRE transcript server-side (see
+     * SessionService::session_transcript_search()'s own doc comment for
+     * why this can't just filter the DOM the way the archived list's
+     * title/name filter does: older messages paginated away via "Load
+     * older messages" aren't in the DOM at all). Read-only, same
+     * no-CSRF-needed reasoning as detail() above.
+     */
+    public function search(): void
+    {
+        $this->start_readonly_json();
+
+        echo json_encode(AgentClient::agent_call([
+            'action' => 'session_transcript_search',
+            'session' => (string)($_GET['session'] ?? ''),
+            'query' => trim((string)($_GET['q'] ?? '')),
+            'max_matches' => 20,
+        ]));
+    }
+
+    /**
+     * The archived-session-view counterpart to search() above - same
+     * search, keyed by claude_session_id instead of a live tmux name.
+     */
+    public function archivedSearch(): void
+    {
+        $this->start_readonly_json();
+
+        echo json_encode(AgentClient::agent_call([
+            'action' => 'archived_session_transcript_search',
+            'claude_session_id' => (string)($_GET['claude_session_id'] ?? ''),
+            'query' => trim((string)($_GET['q'] ?? '')),
+            'max_matches' => 20,
         ]));
     }
 

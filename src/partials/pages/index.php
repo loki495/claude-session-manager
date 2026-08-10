@@ -25,6 +25,14 @@ $this->layout('layout', [
     </select>
   </header>
 
+  <?php if ($agentReachable): ?>
+    <div class="select-none mb-4">
+      <input type="search" id="dashboard-search-input" placeholder="Search all sessions&hellip;" autocomplete="off"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500">
+      <div id="dashboard-search-results" class="mt-2 flex flex-col gap-2"></div>
+    </div>
+  <?php endif; ?>
+
   <?php if (!$agentReachable): ?>
     <div class="select-none mb-4 rounded-lg px-4 py-3 text-sm bg-red-900/50 text-red-200 border border-red-700">
       <p class="font-medium">Cannot reach the host agent.</p>

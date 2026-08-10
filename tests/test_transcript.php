@@ -423,6 +423,86 @@ touch($fakeHome . '/.claude/projects/-another-project/' . $uuid2 . '.jsonl', tim
 $sortedArchived = SessionService::list_archived_sessions([]);
 assert_equal([$uuid2, $uuid], array_column($sortedArchived, 'claude_session_id'), 'list_archived_sessions: sorted most-recently-active (mtime) first');
 
+// --- TranscriptService::search_transcript_file(): full-text search across
+// a transcript's real message content, newest match first. Line 1 is a
+// deliberate false-positive trap - "pineapple" only appears inside a
+// tool_use's own id (never surfaced as rendered block text), proving the
+// two-stage stripos check (raw line, then parsed block text) actually
+// filters it out rather than reporting a match with nothing findable to
+// highlight once clicked through to. ---
+$searchUuid = '33333333-3333-4333-8333-333333333333';
+$searchFile = $fakeHome . '/.claude/projects/-some-project/' . $searchUuid . '.jsonl';
+file_put_contents($searchFile, implode("\n", [
+    json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'tool_use', 'id' => 'tool_pineapple_1', 'name' => 'Bash', 'input' => ['command' => 'ls']]]]]),
+    json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'I love pineapple pizza']]]]),
+    json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => 'Pineapple is a fruit, technically a berry']]]]),
+    json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => str_repeat('x', 100) . ' pineapple ' . str_repeat('y', 100)]]]]),
+]) . "\n");
+
+$matches = TranscriptService::search_transcript_file($searchFile, 'pineapple', 10);
+assert_equal(3, count($matches), 'search_transcript_file: 3 real matches - the raw-only hit inside a tool_use id (line 1, never rendered as block text) is filtered out');
+assert_equal([4, 3, 2], array_column($matches, 'line'), 'search_transcript_file: newest match first');
+assert_equal('user', $matches[0]['role'] ?? null, 'search_transcript_file: role is carried through from parse_transcript_line');
+assert_equal('text', $matches[0]['kind'] ?? null, 'search_transcript_file: kind is carried through from the matched block');
+assert_true(str_starts_with($matches[0]['snippet'], '… '), 'search_transcript_file: a match with a long prefix before it gets a leading ellipsis');
+assert_true(str_ends_with($matches[0]['snippet'], ' …'), 'search_transcript_file: a match with a long suffix after it gets a trailing ellipsis');
+assert_true(str_contains($matches[0]['snippet'], 'pineapple'), 'search_transcript_file: the snippet actually contains the match');
+assert_equal('Pineapple is a fruit, technically a berry', $matches[1]['snippet'] ?? null, 'search_transcript_file: a short match (fits within the context window) gets no ellipsis, whole text as-is');
+assert_equal('I love pineapple pizza', $matches[2]['snippet'] ?? null, 'search_transcript_file: matching is case-insensitive relative to the query - "pineapple" (lowercase query) matches "Pineapple" (line 3) too, proven by that match being included above');
+
+$caseInsensitiveMatches = TranscriptService::search_transcript_file($searchFile, 'PINEAPPLE', 10);
+assert_equal(3, count($caseInsensitiveMatches), 'search_transcript_file: an uppercase query still matches lowercase content');
+
+$cappedMatches = TranscriptService::search_transcript_file($searchFile, 'pineapple', 1);
+assert_equal([4], array_column($cappedMatches, 'line'), 'search_transcript_file: maxMatches caps the result count, keeping the newest');
+
+assert_equal([], TranscriptService::search_transcript_file($searchFile, '', 10), 'search_transcript_file: an empty/whitespace-only query returns no matches, not every line');
+assert_equal([], TranscriptService::search_transcript_file($searchFile, '   ', 10), 'search_transcript_file: a whitespace-only query is trimmed to empty, same as above');
+assert_equal([], TranscriptService::search_transcript_file('/does/not/exist.jsonl', 'pineapple', 10), 'search_transcript_file: a missing file returns an empty array, not a crash');
+assert_equal([], TranscriptService::search_transcript_file($searchFile, 'mango', 10), 'search_transcript_file: a query with no matches anywhere returns an empty array');
+
+// --- SessionService::archived_session_transcript_search(): the archived-
+// view search box's own data source - keyed straight by claude_session_id,
+// same as archived_session_detail()/archived_session_history() above. ---
+$archivedSearch = SessionService::archived_session_transcript_search($searchUuid, 'pineapple', 20);
+assert_true($archivedSearch['ok'] ?? false, 'archived_session_transcript_search: ok=true for a known transcript');
+assert_equal(3, count($archivedSearch['matches'] ?? []), 'archived_session_transcript_search: matches passed straight through from search_transcript_file()');
+
+$archivedSearchNoMatch = SessionService::archived_session_transcript_search($searchUuid, 'mango', 20);
+assert_true($archivedSearchNoMatch['ok'] ?? false, 'archived_session_transcript_search: ok=true even with zero matches - "no results" is not an error');
+assert_equal([], $archivedSearchNoMatch['matches'] ?? null, 'archived_session_transcript_search: empty matches array for a query that hits nothing');
+
+$archivedSearchMissing = SessionService::archived_session_transcript_search('00000000-0000-4000-8000-000000000000', 'pineapple', 20);
+assert_equal(false, $archivedSearchMissing['ok'] ?? null, 'archived_session_transcript_search: ok=false for a well-formed but unknown claude_session_id, not a crash');
+
+// --- SessionService::search_transcripts(): the dashboard-wide search box's
+// data source - every known transcript, live or archived. Uses the same
+// $fakeHome fixture tree list_all_transcripts() already reads from above,
+// so this naturally covers $uuid/$uuid2/$searchUuid all at once. No live
+// tmux session is tracked in this test process, so every result's own
+// session_name comes back null (nothing to mark "live" against) - the
+// live-vs-archived branch itself is exercised at the HTTP layer instead
+// (test_ui_smoke.php's canned agent), where a tracked session is cheap to
+// fake without a real tmux server. ---
+$dashboardSearch = SessionService::search_transcripts('pineapple', 30, 3);
+assert_true($dashboardSearch['ok'] ?? false, 'search_transcripts: ok=true');
+assert_equal(1, count($dashboardSearch['results'] ?? []), 'search_transcripts: only the transcript that actually matches is included - $uuid/$uuid2 have no "pineapple" in them');
+assert_equal($searchUuid, $dashboardSearch['results'][0]['claude_session_id'] ?? null, 'search_transcripts: the matching transcript is identified by claude_session_id');
+assert_true(
+    array_key_exists('session_name', $dashboardSearch['results'][0]) && $dashboardSearch['results'][0]['session_name'] === null,
+    'search_transcripts: session_name is null when nothing currently tracks this claude_session_id live'
+);
+assert_equal(3, count($dashboardSearch['results'][0]['matches'] ?? []), 'search_transcripts: per-session matches capped at max_matches_per_session (3 requested, 3 real matches exist)');
+
+$dashboardSearchCappedPerSession = SessionService::search_transcripts('pineapple', 30, 1);
+assert_equal(1, count($dashboardSearchCappedPerSession['results'][0]['matches'] ?? []), 'search_transcripts: max_matches_per_session is respected per result too, not just the overall session count');
+
+$dashboardSearchEmpty = SessionService::search_transcripts('', 30, 3);
+assert_equal([], $dashboardSearchEmpty['results'] ?? null, 'search_transcripts: an empty query returns no results rather than every known transcript');
+
+$dashboardSearchNoMatch = SessionService::search_transcripts('mango', 30, 3);
+assert_equal([], $dashboardSearchNoMatch['results'] ?? null, 'search_transcripts: a query that matches nothing returns an empty results array, not an error');
+
 // --- SessionService::archived_session_detail()/archived_session_history():
 // the read-only archived-session view's own data sources - keyed straight
 // by claude_session_id, no sidecar/tmux-name lookup at all (a dormant

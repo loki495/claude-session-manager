@@ -53,6 +53,27 @@ function dispatch_action(array $request): array
                 isset($request['after']) ? (int)$request['after'] : null
             );
 
+        case 'search_transcripts':
+            return SessionService::search_transcripts(
+                (string)($request['query'] ?? ''),
+                isset($request['max_sessions']) ? (int)$request['max_sessions'] : 30,
+                isset($request['max_matches_per_session']) ? (int)$request['max_matches_per_session'] : 3
+            );
+
+        case 'session_transcript_search':
+            return SessionService::session_transcript_search(
+                (string)($request['session'] ?? ''),
+                (string)($request['query'] ?? ''),
+                isset($request['max_matches']) ? (int)$request['max_matches'] : 20
+            );
+
+        case 'archived_session_transcript_search':
+            return SessionService::archived_session_transcript_search(
+                (string)($request['claude_session_id'] ?? ''),
+                (string)($request['query'] ?? ''),
+                isset($request['max_matches']) ? (int)$request['max_matches'] : 20
+            );
+
         case 'session_attachment':
             return SessionService::session_attachment(
                 (string)($request['session'] ?? ''),

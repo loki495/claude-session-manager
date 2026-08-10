@@ -29,6 +29,21 @@ $this->layout('layout', [
       <div class="text-xs text-slate-400 mt-1">Last active <?= $this->e(\App\Views\SessionRowView::relative_time((int)($detail['last_activity'] ?? 0))) ?></div>
     </div>
 
+    <div class="select-none mb-4">
+      <input type="search" id="session-search-input" placeholder="Search this conversation&hellip;" autocomplete="off"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500">
+      <div id="session-search-results" class="mt-2 flex flex-col gap-1.5 text-sm"></div>
+    </div>
+
+    <?php if ($jumpLine !== null): ?>
+      <!-- See session.php's own jump_line banner for the full reasoning -
+           same idea, minus any live-poll follow-up (there is none here). -->
+      <div class="select-none mb-4 rounded-lg border border-sky-800/40 bg-sky-950/20 px-3 py-2 flex items-center justify-between gap-2 text-xs text-sky-300">
+        <span>Showing a search result</span>
+        <a href="/archived_session.php?claude_session_id=<?= urlencode($claudeSessionId) ?>" class="text-sky-400 active:text-sky-200 font-medium">Back to latest &rarr;</a>
+      </div>
+    <?php endif; ?>
+
     <h2 class="select-none text-sm font-medium text-slate-400 mb-2">History (read-only)</h2>
 
     <?php if (!$historyOk): ?>
@@ -54,5 +69,8 @@ $this->layout('layout', [
 
 </div>
 
+<script>
+window.CSM_ARCHIVED_BOOTSTRAP = <?= json_encode(['claudeSessionId' => $claudeSessionId, 'jumpLine' => $jumpLine]) ?>;
+</script>
 <script src="<?= \App\Assets::versioned_url('/js/common.js') ?>"></script>
 <script src="<?= \App\Assets::versioned_url('/js/archived-session.js') ?>"></script>

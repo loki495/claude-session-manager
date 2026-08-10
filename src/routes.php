@@ -28,6 +28,7 @@ $router->get('/take_over_bare.php', [DashboardController::class, 'takeOverBare']
 $router->post('/take_over_bare.php', [DashboardController::class, 'takeOverBare']);
 $router->get('/take_over_bare_confirm.php', [DashboardController::class, 'takeOverBareConfirm']);
 $router->post('/take_over_bare_confirm.php', [DashboardController::class, 'takeOverBareConfirm']);
+$router->get('/search_sessions.php', [DashboardController::class, 'search']);
 
 // Reads `session` from either GET or POST with no method check at all.
 $router->get('/session.php', [SessionController::class, 'show']);
@@ -37,12 +38,14 @@ $router->get('/session_detail.php', [SessionController::class, 'detail']);
 $router->get('/session_plan_files.php', [SessionController::class, 'planFiles']);
 $router->get('/session_history.php', [SessionController::class, 'history']);
 $router->get('/session_attachment.php', [SessionController::class, 'attachment']);
+$router->get('/session_search.php', [SessionController::class, 'search']);
 
 // Reads `claude_session_id` from either GET or POST, same as session.php's own `session` param.
 $router->get('/archived_session.php', [SessionController::class, 'showArchived']);
 $router->post('/archived_session.php', [SessionController::class, 'showArchived']);
 $router->get('/archived_session_history_fragment.php', [SessionController::class, 'archivedHistoryFragment']);
 $router->get('/archived_session_attachment.php', [SessionController::class, 'archivedAttachment']);
+$router->get('/archived_session_search.php', [SessionController::class, 'archivedSearch']);
 
 $router->get('/session_send.php', [SessionController::class, 'send']);
 $router->post('/session_send.php', [SessionController::class, 'send']);

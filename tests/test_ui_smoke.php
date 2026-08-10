@@ -448,7 +448,7 @@ try {
     // the first such poll and never came back without a full page reload.
     assert_contains('detail.context_used_percentage', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads context_used_percentage from the poll payload, not just the initial PHP render');
     assert_contains('detail.git_worktree', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads git_worktree from the poll payload, not just the initial PHP render');
-    assert_contains('class="copy-block"><p class="copy-source whitespace-pre-wrap', $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button on plain text entries');
+    assert_contains("class=\"copy-block\" data-line=\"' + line + '\"><p class=\"copy-source whitespace-pre-wrap", $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button (and data-line, for search-result jump/highlight) on plain text entries');
     assert_contains("closest('summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
     assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
     // --- tool-call grouping (TranscriptView::render_transcript_entries_
@@ -939,6 +939,63 @@ try {
     $planFilesUnknownResult = curl_request('GET', "{$baseUrl}/session_plan_files.php?session=cc-not-a-real-session");
     $planFilesUnknownBody = json_decode($planFilesUnknownResult['body'], true);
     assert_equal(false, $planFilesUnknownBody['ok'] ?? null, 'GET /session_plan_files.php: ok=false for an unrecognized session, not a crash');
+
+    // --- search_sessions.php: dashboard-wide content search, GET-only JSON, read-only (no CSRF needed) ---
+    $searchResult = curl_request('GET', "{$baseUrl}/search_sessions.php?q=redirect");
+    assert_equal(200, $searchResult['status'], 'GET /search_sessions.php: 200');
+    $searchBody = json_decode($searchResult['body'], true);
+    assert_true(is_array($searchBody) && ($searchBody['ok'] ?? false), 'GET /search_sessions.php: response decodes as ok=true JSON');
+    assert_equal(2, count($searchBody['results'] ?? []), 'GET /search_sessions.php: both the live and archived canned matches come through');
+    assert_equal('cc-20260101-1200', $searchBody['results'][0]['session_name'] ?? null, 'GET /search_sessions.php: a live result carries its tmux session_name');
+    assert_true(array_key_exists('session_name', $searchBody['results'][1] ?? []) && $searchBody['results'][1]['session_name'] === null, 'GET /search_sessions.php: an archived result\'s session_name is null - that\'s what tells the client to link to archived_session.php instead of session.php');
+
+    $searchNoMatchResult = curl_request('GET', "{$baseUrl}/search_sessions.php?q=nothing-matches-this");
+    $searchNoMatchBody = json_decode($searchNoMatchResult['body'], true);
+    assert_equal(true, $searchNoMatchBody['ok'] ?? null, 'GET /search_sessions.php: ok=true even for a query with no matches - empty results is not an error');
+    assert_equal([], $searchNoMatchBody['results'] ?? null, 'GET /search_sessions.php: empty results array for no matches');
+
+    // --- session_search.php: per-(live)session content search ---
+    $sessionSearchResult = curl_request('GET', "{$baseUrl}/session_search.php?session=" . urlencode('cc-20260101-1200') . "&q=redirect");
+    assert_equal(200, $sessionSearchResult['status'], 'GET /session_search.php: 200');
+    $sessionSearchBody = json_decode($sessionSearchResult['body'], true);
+    assert_true(is_array($sessionSearchBody) && ($sessionSearchBody['ok'] ?? false), 'GET /session_search.php: response decodes as ok=true JSON');
+    assert_equal(1, count($sessionSearchBody['matches'] ?? []), 'GET /session_search.php: canned match passed through');
+    assert_equal(2, $sessionSearchBody['matches'][0]['line'] ?? null, 'GET /session_search.php: match line number passed through - what the client\'s jump_line link uses');
+
+    $sessionSearchUnknownResult = curl_request('GET', "{$baseUrl}/session_search.php?session=cc-not-a-real-session&q=redirect");
+    $sessionSearchUnknownBody = json_decode($sessionSearchUnknownResult['body'], true);
+    assert_equal(false, $sessionSearchUnknownBody['ok'] ?? null, 'GET /session_search.php: ok=false for an unrecognized session, not a crash');
+
+    // --- archived_session_search.php: per-(archived)session content search ---
+    $archivedSearchResult = curl_request('GET', "{$baseUrl}/archived_session_search.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&q=widget");
+    assert_equal(200, $archivedSearchResult['status'], 'GET /archived_session_search.php: 200');
+    $archivedSearchBody = json_decode($archivedSearchResult['body'], true);
+    assert_true(is_array($archivedSearchBody) && ($archivedSearchBody['ok'] ?? false), 'GET /archived_session_search.php: response decodes as ok=true JSON');
+    assert_equal(1, count($archivedSearchBody['matches'] ?? []), 'GET /archived_session_search.php: canned match passed through');
+
+    $archivedSearchUnknownResult = curl_request('GET', "{$baseUrl}/archived_session_search.php?claude_session_id=00000000-0000-4000-8000-000000000000&q=widget");
+    $archivedSearchUnknownBody = json_decode($archivedSearchUnknownResult['body'], true);
+    assert_equal(false, $archivedSearchUnknownBody['ok'] ?? null, 'GET /archived_session_search.php: ok=false for an unrecognized claude_session_id, not a crash');
+
+    // --- session.php/archived_session.php: jump_line renders the "showing a
+    // search result" banner and loads history ending at that line (see
+    // SessionController::show()/showArchived()'s own jump_line handling) ---
+    $jumpResult = curl_request('GET', "{$baseUrl}/session.php?session=" . urlencode('cc-20260101-1200') . "&jump_line=4");
+    assert_equal(200, $jumpResult['status'], 'GET /session.php?jump_line=4: 200');
+    assert_contains('Showing a search result', $jumpResult['body'], 'GET /session.php?jump_line=4: renders the jump banner');
+    assert_contains('Back to latest', $jumpResult['body'], 'GET /session.php?jump_line=4: banner offers a way back to the normal (non-jumped) view');
+    assert_contains('"jumpLine":4', $jumpResult['body'], 'GET /session.php?jump_line=4: jumpLine is threaded into CSM_BOOTSTRAP for session.js\'s own scroll/highlight');
+
+    $noJumpResult = curl_request('GET', "{$baseUrl}/session.php?session=" . urlencode('cc-20260101-1200'));
+    assert_true(!str_contains($noJumpResult['body'], 'Showing a search result'), 'GET /session.php (no jump_line): the jump banner is NOT shown on an ordinary visit');
+    assert_contains('"jumpLine":null', $noJumpResult['body'], 'GET /session.php (no jump_line): jumpLine is null in CSM_BOOTSTRAP when not jumping');
+
+    $archivedJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&jump_line=3");
+    assert_equal(200, $archivedJumpResult['status'], 'GET /archived_session.php?jump_line=3: 200');
+    assert_contains('Showing a search result', $archivedJumpResult['body'], 'GET /archived_session.php?jump_line=3: renders the jump banner');
+
+    $archivedNoJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+    assert_true(!str_contains($archivedNoJumpResult['body'], 'Showing a search result'), 'GET /archived_session.php (no jump_line): the jump banner is NOT shown on an ordinary visit');
 
     // --- delete_uploaded_file.php: GET not allowed, CSRF enforced, canned agent accepts/rejects by filename ---
     $result = curl_request('GET', "{$baseUrl}/delete_uploaded_file.php");

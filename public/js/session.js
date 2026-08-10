@@ -803,25 +803,25 @@
     // page horizontally instead of wrapping.
     switch (block.kind) {
       case 'text':
-        return '<div class="copy-block"><p class="copy-source whitespace-pre-wrap break-words text-sm lg:text-base text-slate-100">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-500 active:text-slate-300 mt-0.5">Copy</button></div>';
+        return '<div class="copy-block" data-line="' + line + '"><p class="copy-source whitespace-pre-wrap break-words text-sm lg:text-base text-slate-100">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-500 active:text-slate-300 mt-0.5">Copy</button></div>';
       case 'plan':
-        return '<div class="copy-block rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2"><p class="copy-source whitespace-pre-wrap break-words text-sm lg:text-base text-amber-100">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-amber-700 active:text-amber-500 mt-1">Copy</button></div>';
+        return '<div class="copy-block rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2" data-line="' + line + '"><p class="copy-source whitespace-pre-wrap break-words text-sm lg:text-base text-amber-100">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-amber-700 active:text-amber-500 mt-1">Copy</button></div>';
       case 'tool_use':
         // Collapsed by default regardless of the show/hide-subagent
         // toggle - it used to force-open when details were hidden (on the
         // theory that there'd be no result to click into for confirmation),
         // but that's backwards from what's wanted: collapsed either way.
-        return '<div class="tool-use-block' + (isSubagent ? ' subagent-use-block' : '') + '">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
+        return '<div class="tool-use-block' + (isSubagent ? ' subagent-use-block' : '') + '" data-line="' + line + '">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
       case 'tool_result':
         // The image/attachments are SIBLINGS of .tool-detail, not nested
         // inside it - shown regardless of the show/hide-subagent toggle,
         // since a shared file is often the whole point of having run the
         // tool in the first place.
-        return '<div class="tool-detail' + (isSubagent ? ' subagent-detail' : '') + '">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml + attachmentsHtml;
+        return '<div class="tool-detail' + (isSubagent ? ' subagent-detail' : '') + '" data-line="' + line + '">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml + attachmentsHtml;
       case 'image':
-        return imageHtml || (text ? '<div class="copy-block"><p class="copy-source break-words text-xs text-slate-600">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-700 active:text-slate-500">Copy</button></div>' : '');
+        return imageHtml || (text ? '<div class="copy-block" data-line="' + line + '"><p class="copy-source break-words text-xs text-slate-600">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-700 active:text-slate-500">Copy</button></div>' : '');
       default:
-        return text ? '<div class="copy-block"><p class="copy-source break-words text-xs text-slate-600">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-700 active:text-slate-500">Copy</button></div>' : '';
+        return text ? '<div class="copy-block" data-line="' + line + '"><p class="copy-source break-words text-xs text-slate-600">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-700 active:text-slate-500">Copy</button></div>' : '';
     }
   }
 
@@ -2850,12 +2850,119 @@
   // newest thing on the page, landing at the bottom actually shows it.
   restorePendingMessageFromStorage();
 
-  // Land at the bottom on open - the current/latest activity (and any
-  // pending prompt) is what matters first, same as any chat app.
-  scrollToBottom(false);
+  // Landing on a search result (see sidebar.php's search box below and
+  // SessionController::show()'s own jump_line handling) - the page's own
+  // initial history load already ends exactly at jumpLine (a full
+  // navigation, not an in-place fetch - see the click handler below), so
+  // this only has to find and highlight it, not fetch anything itself.
+  // Falls back to the normal "land at the bottom" behavior if the element
+  // somehow isn't there (e.g. a stale link to a line that's since been
+  // pruned/rotated away).
+  var jumpLine = window.CSM_BOOTSTRAP.jumpLine || null;
+  var jumpTarget = jumpLine !== null ? list.querySelector('[data-line="' + jumpLine + '"]') : null;
+
+  if (jumpTarget) {
+    // A plain window.scrollTo() computed from the element's own rect,
+    // not scrollIntoView() - found live 2026-08-09: scrollIntoView()
+    // silently no-ops on this page in at least one real headless-Chrome
+    // automation context (verified: window.scrollTo() itself worked
+    // immediately when called directly right after, in the very same
+    // context where scrollIntoView() had just done nothing), so this
+    // avoids depending on browser-specific scrollIntoView behavior
+    // entirely rather than risking the same silent no-op for a real user.
+    var jumpTargetRect = jumpTarget.getBoundingClientRect();
+    var jumpScrollTop = window.scrollY + jumpTargetRect.top - (window.innerHeight / 2) + (jumpTargetRect.height / 2);
+    window.scrollTo({ top: Math.max(0, jumpScrollTop), behavior: 'auto' });
+    markNewContent(null, [jumpTarget]);
+  } else {
+    // Land at the bottom on open - the current/latest activity (and any
+    // pending prompt) is what matters first, same as any chat app.
+    scrollToBottom(false);
+  }
+
   updateGoToBottomVisibility();
 
   if (document.visibilityState === 'visible') {
     startPolling();
+  }
+
+  // --- sidebar search: server-side full-text search of this session's
+  // ENTIRE transcript (see SessionController::search()'s own doc comment
+  // for why this can't just filter the sidebar's own rendered DOM the way
+  // index.js's archived-list filter does) - debounced, since every
+  // keystroke would otherwise round-trip to the host-agent's own grep over
+  // a potentially large transcript file for nothing. Clicking a result is
+  // a full page navigation (jump_line - see above), not an in-place
+  // fetch: simplest way to reuse the exact same SSR history-loading path
+  // an ordinary page load already takes, rather than duplicating it
+  // client-side for what's a rare, deliberate action, not a repeated one. ---
+  var sessionSearchInput = document.getElementById('session-search-input');
+  var sessionSearchResults = document.getElementById('session-search-results');
+  var sessionSearchDebounceTimer = null;
+  var sessionSearchAbortController = null;
+
+  function renderSessionSearchResults(matches) {
+    if (!matches || matches.length === 0) {
+      sessionSearchResults.innerHTML = '<div class="text-xs text-slate-500">No matches.</div>';
+      return;
+    }
+
+    sessionSearchResults.innerHTML = matches.map(function (m) {
+      var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
+      return '<button type="button" class="session-search-result-btn w-full text-left rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 px-2 py-1.5" data-line="' + m.line + '">'
+        + '<div class="text-[11px] text-slate-500 mb-0.5">' + escapeHtml(roleLabel) + '</div>'
+        + '<div class="text-xs text-slate-300 break-words">' + escapeHtml(m.snippet) + '</div>'
+        + '</button>';
+    }).join('');
+  }
+
+  if (sessionSearchInput && sessionSearchResults) {
+    sessionSearchInput.addEventListener('input', function () {
+      var query = sessionSearchInput.value.trim();
+
+      clearTimeout(sessionSearchDebounceTimer);
+
+      if (sessionSearchAbortController) {
+        sessionSearchAbortController.abort();
+      }
+
+      if (query === '') {
+        sessionSearchResults.innerHTML = '';
+        return;
+      }
+
+      sessionSearchDebounceTimer = setTimeout(function () {
+        sessionSearchAbortController = new AbortController();
+
+        fetch('/session_search.php?session=' + encodeURIComponent(sessionName) + '&q=' + encodeURIComponent(query), {
+          credentials: 'same-origin',
+          signal: sessionSearchAbortController.signal
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!data || !data.ok) {
+              sessionSearchResults.innerHTML = '<div class="text-xs text-red-400">' + escapeHtml((data && data.message) || 'Search failed.') + '</div>';
+              return;
+            }
+
+            renderSessionSearchResults(data.matches);
+          })
+          .catch(function (e) {
+            if (e && e.name === 'AbortError') {
+              return;
+            }
+
+            sessionSearchResults.innerHTML = '<div class="text-xs text-red-400">Network error - search failed.</div>';
+          });
+      }, 400);
+    });
+
+    sessionSearchResults.addEventListener('click', function (e) {
+      var resultBtn = e.target.closest('.session-search-result-btn');
+
+      if (resultBtn) {
+        window.location.href = '/session.php?session=' + encodeURIComponent(sessionName) + '&jump_line=' + encodeURIComponent(resultBtn.dataset.line);
+      }
+    });
   }
 })();

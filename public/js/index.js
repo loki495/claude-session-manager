@@ -767,3 +767,90 @@ document.addEventListener('keydown', function (e) {
       });
   });
 })();
+
+// --- dashboard-wide content search: unlike the archived-list filter above
+// (a plain client-side substring match against each row's own rendered
+// text - title/name/workdir only), this greps every known transcript's
+// REAL message content, live and archived alike, server-side (see
+// SessionService::search_transcripts()'s own doc comment). Debounced for
+// the same reason session.js's own per-session search box is - every
+// keystroke round-tripping to a host-agent grep over ~160 real transcripts
+// would be real, wasted work. Clicking a result is a full navigation to
+// that session with a jump_line param (session.php for a live result -
+// session_name is non-null - or archived_session.php otherwise), reusing
+// the exact same SSR "load the page ending at this line" path an ordinary
+// page load already takes. ---
+(function () {
+  var input = document.getElementById('dashboard-search-input');
+  var results = document.getElementById('dashboard-search-results');
+
+  if (!input || !results) {
+    return;
+  }
+
+  var debounceTimer = null;
+  var abortController = null;
+
+  function renderResults(sessionResults) {
+    if (!sessionResults || sessionResults.length === 0) {
+      results.innerHTML = '<div class="text-xs text-slate-500 px-1">No matches.</div>';
+      return;
+    }
+
+    results.innerHTML = sessionResults.map(function (r) {
+      var url = r.session_name
+        ? '/session.php?session=' + encodeURIComponent(r.session_name) + '&jump_line=' + encodeURIComponent(r.matches[0].line)
+        : '/archived_session.php?claude_session_id=' + encodeURIComponent(r.claude_session_id) + '&jump_line=' + encodeURIComponent(r.matches[0].line);
+
+      var matchesHtml = r.matches.map(function (m) {
+        var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
+        return '<div class="text-xs text-slate-400 mt-1"><span class="text-slate-500">' + escapeHtml(roleLabel) + ':</span> ' + escapeHtml(m.snippet) + '</div>';
+      }).join('');
+
+      return '<a href="' + url + '" class="block rounded-xl border border-slate-800 bg-slate-900/50 active:bg-slate-800 px-3 py-2">'
+        + '<div class="flex items-center gap-1.5 text-sm font-medium text-slate-200 truncate">'
+        + escapeHtml(r.title)
+        + (r.session_name ? ' <span class="shrink-0 text-[10px] font-normal text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-0.5">live</span>' : '')
+        + '</div>'
+        + matchesHtml
+        + '</a>';
+    }).join('');
+  }
+
+  input.addEventListener('input', function () {
+    var query = input.value.trim();
+
+    clearTimeout(debounceTimer);
+
+    if (abortController) {
+      abortController.abort();
+    }
+
+    if (query === '') {
+      results.innerHTML = '';
+      return;
+    }
+
+    debounceTimer = setTimeout(function () {
+      abortController = new AbortController();
+
+      fetch('/search_sessions.php?q=' + encodeURIComponent(query), { credentials: 'same-origin', signal: abortController.signal })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data || !data.ok) {
+            results.innerHTML = '<div class="text-xs text-red-400 px-1">' + escapeHtml((data && data.message) || 'Search failed.') + '</div>';
+            return;
+          }
+
+          renderResults(data.results);
+        })
+        .catch(function (e) {
+          if (e && e.name === 'AbortError') {
+            return;
+          }
+
+          results.innerHTML = '<div class="text-xs text-red-400 px-1">Network error - search failed.</div>';
+        });
+    }, 400);
+  });
+})();

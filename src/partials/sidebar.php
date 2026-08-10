@@ -5,6 +5,14 @@
     <span class="text-sm font-medium text-slate-200">Other sessions</span>
     <button type="button" id="sidebar-close-btn" aria-label="Close" class="text-slate-400 active:text-slate-200 px-1 text-lg leading-none">&times;</button>
   </div>
+  <?php if ($found): ?>
+    <div class="px-4 py-3 border-b border-slate-800">
+      <span class="block text-xs font-medium text-slate-500 mb-2">Search this conversation</span>
+      <input type="search" id="session-search-input" placeholder="Search messages&hellip;" autocomplete="off"
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-200 placeholder:text-slate-500">
+      <div id="session-search-results" class="mt-2 flex flex-col gap-1.5 text-sm"></div>
+    </div>
+  <?php endif; ?>
   <div id="sidebar-list" class="divide-y divide-slate-800 text-sm">
     <div class="px-4 py-3 text-slate-500">Loading&hellip;</div>
   </div>

@@ -338,6 +338,40 @@ $response = match ($action) {
         'stale' => false,
         'refreshing' => false,
     ],
+    // Only 'redirect' (matching CANNED_SESSION_NAME's own title/history)
+    // and 'widget' (matching CANNED_ARCHIVED_CLAUDE_SESSION_ID's) produce
+    // real results - a live result (session_name set) and an archived one
+    // (session_name null) side by side proves the HTTP layer's own
+    // live-vs-archived link-target branching (see index.js's
+    // renderResults()) without needing a real tmux session anywhere in
+    // this test process.
+    'search_transcripts' => trim((string)($request['query'] ?? '')) === 'redirect'
+        ? ['ok' => true, 'results' => [[
+            'claude_session_id' => CANNED_CLAUDE_SESSION_ID,
+            'session_name' => CANNED_SESSION_NAME,
+            'title' => 'Fix the login redirect bug',
+            'cwd' => '/home/andres/www/demo-project',
+            'last_activity' => time() - 120,
+            'matches' => [['line' => 2, 'snippet' => 'Fix the login redirect bug', 'role' => 'user', 'kind' => 'text']],
+        ], [
+            'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+            'session_name' => null,
+            'title' => 'Refactor the old widget',
+            'cwd' => '/home/andres/www/old-project',
+            'last_activity' => time() - 3 * 86400,
+            'matches' => [['line' => 5, 'snippet' => 'the redirect logic also needs a look', 'role' => 'assistant', 'kind' => 'text']],
+        ]]]
+        : ['ok' => true, 'results' => []],
+    'session_transcript_search' => ($request['session'] ?? null) === CANNED_SESSION_NAME
+        ? (trim((string)($request['query'] ?? '')) === 'redirect'
+            ? ['ok' => true, 'matches' => [['line' => 2, 'snippet' => 'Fix the login redirect bug', 'role' => 'user', 'kind' => 'text']]]
+            : ['ok' => true, 'matches' => []])
+        : ['ok' => false, 'message' => 'No transcript recorded for this session'],
+    'archived_session_transcript_search' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+        ? (trim((string)($request['query'] ?? '')) === 'widget'
+            ? ['ok' => true, 'matches' => [['line' => 3, 'snippet' => 'Refactor the old widget', 'role' => 'assistant', 'kind' => 'text']]]
+            : ['ok' => true, 'matches' => []])
+        : ['ok' => false, 'message' => 'Transcript file not found'],
     default => ['ok' => false, 'message' => 'Unknown action'],
 };
 

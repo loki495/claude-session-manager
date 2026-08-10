@@ -55,3 +55,109 @@
       });
   });
 })();
+
+// --- landing on a search result (see the search box below and
+// SessionController::showArchived()'s own jump_line handling) - the
+// page's own initial history load already ends exactly at jumpLine (a
+// full navigation, not an in-place fetch), so this only has to find and
+// scroll to it. No fade-on-view machinery here (unlike session.js's own
+// markNewContent()/newEntryObserver) - a dormant transcript never gets
+// new content to distinguish "new" from, so a plain persistent ring is
+// enough; Tailwind's CDN build (already loaded globally - see layout.php)
+// makes these arbitrary utility classes work with no CSS of our own to
+// author or keep in sync. ---
+(function () {
+  var bootstrap = window.CSM_ARCHIVED_BOOTSTRAP || {};
+  var list = document.getElementById('history-list');
+
+  if (!list || !bootstrap.jumpLine) {
+    return;
+  }
+
+  var jumpTarget = list.querySelector('[data-line="' + bootstrap.jumpLine + '"]');
+
+  if (jumpTarget) {
+    // A plain window.scrollTo() computed from the element's own rect, not
+    // scrollIntoView() - see session.js's own jump-scroll comment for why
+    // (found live 2026-08-09: scrollIntoView() silently no-op'd in at
+    // least one real headless-Chrome automation context).
+    var jumpTargetRect = jumpTarget.getBoundingClientRect();
+    var jumpScrollTop = window.scrollY + jumpTargetRect.top - (window.innerHeight / 2) + (jumpTargetRect.height / 2);
+    window.scrollTo({ top: Math.max(0, jumpScrollTop), behavior: 'auto' });
+    jumpTarget.classList.add('ring-2', 'ring-sky-500', 'ring-offset-2', 'ring-offset-slate-950', 'rounded-lg');
+  }
+})();
+
+// --- search this (read-only) transcript - same server-side full-text
+// search as session.js's own sidebar box (see SessionController::
+// archivedSearch()'s doc comment), just keyed by claude_session_id
+// instead of a live tmux name, and with no sidebar to live in here - this
+// view has none. ---
+(function () {
+  var bootstrap = window.CSM_ARCHIVED_BOOTSTRAP || {};
+  var input = document.getElementById('session-search-input');
+  var results = document.getElementById('session-search-results');
+
+  if (!input || !results || !bootstrap.claudeSessionId) {
+    return;
+  }
+
+  var debounceTimer = null;
+  var abortController = null;
+
+  function renderResults(matches) {
+    if (!matches || matches.length === 0) {
+      results.innerHTML = '<div class="text-xs text-slate-500">No matches.</div>';
+      return;
+    }
+
+    results.innerHTML = matches.map(function (m) {
+      var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
+      return '<a href="/archived_session.php?claude_session_id=' + encodeURIComponent(bootstrap.claudeSessionId) + '&jump_line=' + encodeURIComponent(m.line) + '"'
+        + ' class="block rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 px-2 py-1.5">'
+        + '<div class="text-[11px] text-slate-500 mb-0.5">' + escapeHtml(roleLabel) + '</div>'
+        + '<div class="text-xs text-slate-300 break-words">' + escapeHtml(m.snippet) + '</div>'
+        + '</a>';
+    }).join('');
+  }
+
+  input.addEventListener('input', function () {
+    var query = input.value.trim();
+
+    clearTimeout(debounceTimer);
+
+    if (abortController) {
+      abortController.abort();
+    }
+
+    if (query === '') {
+      results.innerHTML = '';
+      return;
+    }
+
+    debounceTimer = setTimeout(function () {
+      abortController = new AbortController();
+
+      fetch('/archived_session_search.php?claude_session_id=' + encodeURIComponent(bootstrap.claudeSessionId) + '&q=' + encodeURIComponent(query), {
+        credentials: 'same-origin',
+        signal: abortController.signal
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data || !data.ok) {
+            results.innerHTML = '<div class="text-xs text-red-400">' + escapeHtml((data && data.message) || 'Search failed.') + '</div>';
+            return;
+          }
+
+          renderResults(data.matches);
+        })
+        .catch(function (e) {
+          if (e && e.name === 'AbortError') {
+            return;
+          }
+
+          results.innerHTML = '<div class="text-xs text-red-400">Network error - search failed.</div>';
+        });
+    }, 400);
+  });
+})();
