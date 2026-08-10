@@ -29,7 +29,7 @@ Larger architecture / consolidation work (bigger surface area):
 
 - Multi-socket tmux discovery: today the whole app is wired to exactly one
   tmux socket path (Config::tmux_socket(), defaulting to
-  /tmp/tmux-1000/default - tmux's own standard default path, not an app
+  /tmp/tmux-<uid>/default - tmux's own standard default path, not an app
   convention, which is why a plain `tmux` command Andres types by hand
   lands on the same server the app manages). Every TmuxService call is
   scoped to that one path - if a session ends up on a DIFFERENT tmux
@@ -72,6 +72,7 @@ Smaller polish (low effort, low risk):
   code/scrollable sections (e.g. the collapsible tool_use/tool_result
   blocks - BlockedPromptView::render_collapsible_block()/its session.js
   mirror) - copying currently means selecting text by hand.
+
 Exploratory / speculative / lower priority:
 
 - A search function to search within the contents of all sessions (from
@@ -119,8 +120,6 @@ Exploratory / speculative / lower priority:
     echo "Success! Process $PID moved to tmux session: $SESSION_NAME"
     sleep 1
     exec tmux attach-session -t "$SESSION_NAME"
-- Future end-user/contributor separation concerns: remove hardcoded paths,
-  README is out of date/too long (split into files if necessary).
 - Bug: the context-used percentage sometimes goes missing from the session
   footer (render_session_static_info_html()'s contextUsedPercentage). Going
   back to the dashboard and back into the session fixes it - suggests a
