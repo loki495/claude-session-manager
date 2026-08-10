@@ -147,6 +147,18 @@ only `create_cc_session()`-spawned sessions have).
   reasoning that led to the fix — read them before assuming something is
   over-engineered; the non-obvious behavior it's guarding against is
   usually explained right there.
+- Every transcript block (text/plan/tool_use/tool_result) carries two
+  cross-cutting attributes in both its PHP render (`transcript/block.php`)
+  and its JS poll-time mirror (`renderBlock()` in `session.js`) — keep
+  both in sync when touching either:
+  - `data-line="<line>"` — the block's own raw JSONL line number, used to
+    scroll to and highlight a search result (see "Session/dashboard
+    content search" in CONTRIBUTING.md).
+  - A `.copy-btn` + `.copy-source` pair (wrapped in `.copy-block`, or the
+    block's own `<pre>` for a `<details>`-expanded collapsible block) —
+    the shared copy-to-clipboard affordance (`copyTextToClipboard()` in
+    `common.js`). A new block kind needs both attached the same way, or it
+    silently loses search-jump and copy support that every other kind has.
 - Branch model actually used here: work happens directly on `master`
   (pushed straight to `origin/master`) for anything normal - a new feature,
   a bug fix, a doc update. A separate `refactor/*` or `feature/*` branch

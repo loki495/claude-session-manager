@@ -30,7 +30,13 @@ user accounts - access control is the network binding, not a login.
   collapsible "N tool calls" runs so a long tool-heavy stretch doesn't
   spam the page), subagent calls/reports, plan presentations - with live
   polling for new messages while you watch, and a compose box to send a
-  new message or answer a prompt without attaching to tmux at all.
+  new message or answer a prompt without attaching to tmux at all. Every
+  message and tool call/output has a Copy button.
+- **Search**: a dashboard-wide search box finds a session by anything
+  actually said inside it (not just its title), across live and archived
+  transcripts alike; a per-session search box does the same within just
+  that conversation, including older history you haven't scrolled to yet.
+  Either one jumps straight to the matching point in the transcript.
 - Also lists any other real `claude` process found on the host that isn't
   inside a `cc-*` session this tool manages (started by hand in a plain
   terminal, for example) - killable, and adoptable into a tracked session

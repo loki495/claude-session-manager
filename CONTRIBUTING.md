@@ -91,6 +91,64 @@ is waiting:
   unavailable" - this is a nice-to-have, never a hard dependency for the
   rest of the app.
 
+## Session/dashboard content search
+
+Broader than the archived list's own client-side title/name filter
+(`filterArchivedRows()` in `index.js`, a plain substring match against
+each row's already-rendered text) - this searches actual message
+content, server-side, since most of it was never loaded into any page's
+DOM in the first place.
+
+- `TranscriptService::search_transcript_file()` walks a transcript's raw
+  JSONL lines newest-first, two-stage matching per candidate line: a
+  cheap `stripos()` against the RAW line first (skips `json_decode()` +
+  `parse_transcript_line()` entirely for the overwhelming majority of
+  lines in a real transcript - verified against a real ~50MB/~10k-line
+  session), then a second `stripos()` against the PARSED block text once
+  a line clears the first check. That second check matters: a raw-line
+  hit can land inside metadata this app never renders as content at all
+  (a `tool_use_id`, an internal param never surfaced as block text) -
+  without it, a "match" could point at nothing findable once the user
+  actually clicks through to it.
+- `SessionService::search_transcripts()` (dashboard-wide, `/search_sessions.php`)
+  runs that across every known transcript, live and archived alike, and
+  cross-references the live-tracked-session list (same reconciliation
+  `list_archived_dashboard()` already does) so each result's own
+  `session_name` is set only when something currently tracks it live -
+  that's what tells the client which page to link to.
+  `SessionService::session_transcript_search()`/
+  `archived_session_transcript_search()` (`/session_search.php`,
+  `/archived_session_search.php`) do the same for one session's own
+  transcript.
+- Clicking a result is a **full page navigation**, not an in-place fetch:
+  `session.php`/`archived_session.php?...&jump_line=<line>`
+  (`SessionController::show()`/`showArchived()`) reuses the *existing*
+  `before` pagination cursor - `before = jumpLine + 1` is exactly "the
+  page whose last entry is `jumpLine` itself," the same semantics
+  `TranscriptService::read_transcript_page()` already had - rather than
+  inventing a second loading path. A "Showing a search result / Back to
+  latest" banner is the way back to the normal live-tail view. Anything
+  *newer* than the jump point is deliberately not backfilled on a live
+  session's jump landing - the regular live poll's own forward (`after`)
+  fetch picks it back up as ordinary "new content" on its very next tick,
+  so there's nothing extra to wire; an archived (dormant, non-polling)
+  session has no such follow-up, hence "Back to latest" being the only
+  way forward there.
+- Every rendered transcript block carries `data-line="<line>"` (both the
+  PHP render and `session.js`'s own poll-time mirror - see CLAUDE.md's
+  "Conventions worth knowing" for the exact pairing requirement), which
+  is how a jump target is found regardless of whether it ended up
+  standalone or swept into a grouped "N tool calls" pair.
+- **Found live 2026-08-09**: `Element.scrollIntoView()` silently no-op'd
+  on this page in a real headless-Chrome automation context used to
+  verify the jump-to-match flow end to end - confirmed by calling
+  `window.scrollTo()` directly in that same context immediately
+  afterward, which worked. The jump-scroll in both `session.js` and
+  `archived-session.js` uses an explicit `window.scrollTo()` computed
+  from the target's own `getBoundingClientRect()` instead, sidestepping
+  whatever `scrollIntoView()`-specific behavior caused this rather than
+  risking the same silent no-op for a real user on some browser/context.
+
 ## File structure
 
 ```
@@ -374,8 +432,12 @@ processes on the host:**
 `tests/test_agent_client_protocol.php` covers the socket wire protocol
 (`src/lib/AgentClient.php` against the real `host-agent/agent.php`),
 `tests/test_sessions_lifecycle.php` covers create/list/kill/cleanup against
-the isolated tmux fixture, and `tests/test_ui_smoke.php` covers the web UI
-end to end via curl (plus the optional headless-browser tier above).
+the isolated tmux fixture, `tests/test_transcript.php` covers
+`TranscriptService`/transcript-reading `SessionService` methods (parsing,
+pagination, search, archived-session listing) against real fixture JSONL
+files under a fake `HOME_ROOT`, and `tests/test_ui_smoke.php` covers the
+web UI end to end via curl (plus the optional headless-browser tier
+above).
 
 ## Code style / conventions
 
