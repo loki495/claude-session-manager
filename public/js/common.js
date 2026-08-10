@@ -73,14 +73,86 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// --- copy-to-clipboard: shared by every ".copy-btn" this app renders
+// (transcript text/plan entries, tool_use/tool_result collapsible blocks,
+// the fullscreen text modal - see openFullscreenTextModal() below and the
+// PHP/JS mirrors that render these buttons: BlockedPromptView::render_
+// collapsible_block()/renderCollapsibleBlock(), transcript/block.php/
+// renderBlock()). navigator.clipboard requires a secure context (HTTPS or
+// localhost) - this app is also reachable over plain HTTP on the LAN (see
+// README), where it's simply undefined, so a real fallback (not just a
+// silent no-op) matters here, not just for ancient browsers. ---
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+
+  return new Promise(function (resolve, reject) {
+    var textarea = document.createElement('textarea');
+    textarea.value = text;
+    // Off-screen, not display:none/hidden - execCommand('copy') needs the
+    // element to actually be selectable, which a non-rendered element isn't.
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.setAttribute('readonly', '');
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    try {
+      document.execCommand('copy') ? resolve() : reject(new Error('execCommand(copy) returned false'));
+    } catch (e) {
+      reject(e);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  });
+}
+
+// Finds the text this trigger button is meant to copy - either its own
+// nearest <details> (an expandable collapsible block) or the nearest
+// ".copy-block" wrapper (every other copy-btn site: non-expandable
+// collapsible blocks, transcript text/plan/system entries) - then copies
+// its ".copy-source" descendant's real textContent, same "read it straight
+// off the rendered element" approach as openFullscreenTextModal() below,
+// so copied text can never drift from what's actually shown.
+document.addEventListener('click', function (e) {
+  var trigger = e.target.closest('.copy-btn');
+
+  if (!trigger) {
+    return;
+  }
+
+  var container = trigger.closest('details, .copy-block');
+  var source = container ? container.querySelector('.copy-source') : null;
+
+  if (!source) {
+    return;
+  }
+
+  var originalLabel = trigger.textContent;
+
+  copyTextToClipboard(source.textContent).then(function () {
+    trigger.textContent = 'Copied!';
+  }, function () {
+    trigger.textContent = 'Copy failed';
+  }).finally(function () {
+    setTimeout(function () {
+      trigger.textContent = originalLabel;
+    }, 1200);
+  });
+});
+
 // --- full screen text view: a shared "View full screen" affordance for
 // any long tool call/output or prompt context that's still hard to read
 // even expanded (BlockedPromptView::render_collapsible_block() in PHP,
 // renderCollapsibleBlock() in session.js - both share this one modal
 // rather than each page rolling its own). Reads the text straight off the
-// triggering button's own preceding <pre> sibling instead of a data
+// triggering button's own <details>'s "pre.copy-source" instead of a data
 // attribute, so there's no risk of the modal ever showing something
-// different from what was actually expanded on the page. ---
+// different from what was actually expanded on the page - same reasoning
+// as the ".copy-btn" handler above, and deliberately the same lookup (not
+// previousElementSibling) since both buttons now share one footer row. ---
 var fullscreenTextModal = document.getElementById('fullscreen-text-modal');
 var fullscreenTextModalContent = document.getElementById('fullscreen-text-modal-content');
 var fullscreenTextModalClose = document.getElementById('fullscreen-text-modal-close');
@@ -135,7 +207,7 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
     var trigger = e.target.closest('.expand-fullscreen-btn');
 
     if (trigger) {
-      var pre = trigger.previousElementSibling;
+      var pre = trigger.closest('details') ? trigger.closest('details').querySelector('.copy-source') : null;
 
       if (pre) {
         openFullscreenTextModal(pre.textContent);
@@ -152,6 +224,23 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
       } catch (ignored) {}
 
       applyFullscreenTextWrap(nextWrap);
+
+      return;
+    }
+
+    if (e.target.closest('#fullscreen-text-modal-copy')) {
+      var copyTrigger = e.target.closest('#fullscreen-text-modal-copy');
+      var originalLabel = copyTrigger.textContent;
+
+      copyTextToClipboard(fullscreenTextModalContent.textContent).then(function () {
+        copyTrigger.textContent = 'Copied!';
+      }, function () {
+        copyTrigger.textContent = 'Copy failed';
+      }).finally(function () {
+        setTimeout(function () {
+          copyTrigger.textContent = originalLabel;
+        }, 1200);
+      });
 
       return;
     }

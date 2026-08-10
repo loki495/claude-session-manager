@@ -37,7 +37,10 @@
 </div>
 <div id="fullscreen-text-modal" class="hidden fixed inset-0 z-50 bg-slate-950 flex flex-col">
   <div class="select-none flex items-center justify-between px-2 py-2 border-b border-slate-800 shrink-0">
-    <button type="button" id="fullscreen-text-modal-wrap-toggle" aria-pressed="false" class="text-xs text-slate-400 active:text-slate-200 border border-slate-700 rounded px-2 py-1">Wrap: Off</button>
+    <span class="flex items-center gap-1.5">
+      <button type="button" id="fullscreen-text-modal-wrap-toggle" aria-pressed="false" class="text-xs text-slate-400 active:text-slate-200 border border-slate-700 rounded px-2 py-1">Wrap: Off</button>
+      <button type="button" id="fullscreen-text-modal-copy" class="text-xs text-slate-400 active:text-slate-200 border border-slate-700 rounded px-2 py-1">Copy</button>
+    </span>
     <button type="button" id="fullscreen-text-modal-close" aria-label="Close full screen view" class="text-slate-400 active:text-slate-200 text-2xl leading-none px-3 py-1">&times;</button>
   </div>
   <pre id="fullscreen-text-modal-content" class="flex-1 overflow-auto overscroll-contain whitespace-pre px-3 py-2 text-xs text-slate-100"></pre>

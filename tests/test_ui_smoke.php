@@ -349,15 +349,15 @@ try {
         'GET /session.php: conversational text bumps to a bigger font on desktop (lg:text-base), not just the mobile text-sm'
     );
     assert_true(
-        preg_match('/<p class="whitespace-pre-wrap break-words[^"]*">\s*Looking into it now\./', $result['body']) === 1,
+        preg_match('/<p class="copy-source whitespace-pre-wrap break-words[^"]*">\s*Looking into it now\./', $result['body']) === 1,
         'GET /session.php: text blocks get break-words, not just whitespace-pre-wrap - otherwise a long unbroken token (found live: a 51-char FILTER_FLAG_... constant name) widens the whole page horizontally instead of wrapping'
     );
     assert_true(
-        preg_match('/<div class="rounded border[^>]*>\s*<span class="whitespace-pre">\s*&rarr;\s*Bash\(pwd\)/', $result['body']) === 1,
+        preg_match('/<div class="copy-block rounded border[^>]*>\s*<span class="whitespace-pre">\s*&rarr;\s*<span class="copy-source">Bash\(pwd\)/', $result['body']) === 1,
         'GET /session.php: a short/trivial tool_use block renders as plain (non-wrapping, scrollable) text, not a <details>'
     );
     assert_true(
-        preg_match('/<div class="rounded border[^>]*>\s*<span class="whitespace-pre">\s*done\s*</', $result['body']) === 1,
+        preg_match('/<div class="copy-block rounded border[^>]*>\s*<span class="whitespace-pre">\s*<span class="copy-source">\s*done\s*</', $result['body']) === 1,
         'GET /session.php: a short/trivial tool_result block ("done") renders as plain (non-wrapping, scrollable) text, not a <details>'
     );
     assert_true(
@@ -434,6 +434,9 @@ try {
     $commonJs = curl_request('GET', "{$baseUrl}{$sessionScriptMatch[1]}");
     assert_equal(200, $commonJs['status'], 'GET /js/common.js?v=...: 200 (served as a static file, no 404)');
     assert_contains('function parseJsonResponse(', $commonJs['body'], 'GET /js/common.js: parseJsonResponse() (shared between session.js and index.js) is shipped');
+    assert_contains('function copyTextToClipboard(', $commonJs['body'], 'GET /js/common.js: copyTextToClipboard() (navigator.clipboard with an execCommand fallback for insecure-context LAN access) is shipped');
+    assert_contains("closest('.copy-btn')", $commonJs['body'], 'GET /js/common.js: the delegated .copy-btn click handler is shipped');
+    assert_contains('fullscreen-text-modal-copy', $commonJs['body'], 'GET /js/common.js: the fullscreen text modal\'s own Copy button is wired up');
     $sessionJs = curl_request('GET', "{$baseUrl}{$sessionScriptMatch[2]}");
     assert_equal(200, $sessionJs['status'], 'GET /js/session.js?v=...: 200 (served as a static file, no 404)');
     assert_contains('function markNewContent(', $sessionJs['body'], 'GET /js/session.js: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
@@ -445,6 +448,8 @@ try {
     // the first such poll and never came back without a full page reload.
     assert_contains('detail.context_used_percentage', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads context_used_percentage from the poll payload, not just the initial PHP render');
     assert_contains('detail.git_worktree', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads git_worktree from the poll payload, not just the initial PHP render');
+    assert_contains('class="copy-block"><p class="copy-source whitespace-pre-wrap', $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button on plain text entries');
+    assert_contains("closest('summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
     assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
     // --- tool-call grouping (TranscriptView::render_transcript_entries_
     // html()/render_tool_group_html()/render_tool_pair_html(), added

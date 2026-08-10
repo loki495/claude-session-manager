@@ -727,15 +727,15 @@
     var full = escapeHtml(rawText);
 
     if (summary === trimmed) {
-      return '<div class="rounded border ' + borderClass + ' bg-slate-950/60 overflow-x-auto px-2 py-1.5 text-xs ' + textClass + '"><span class="whitespace-pre">' + prefix + full + '</span></div>';
+      return '<div class="copy-block rounded border ' + borderClass + ' bg-slate-950/60 overflow-x-auto px-2 py-1.5 text-xs ' + textClass + ' flex items-start justify-between gap-2"><span class="whitespace-pre">' + prefix + '<span class="copy-source">' + full + '</span></span><button type="button" class="copy-btn select-none shrink-0 text-[11px] text-slate-500 active:text-slate-300">Copy</button></div>';
     }
 
     var summaryHtml = escapeHtml(summary);
 
     return '<details' + (forceOpen ? ' open' : '') + ' class="rounded border ' + borderClass + ' bg-slate-950/60">'
       + '<summary class="block w-full text-left cursor-pointer select-none whitespace-pre-wrap break-all px-2 py-1.5 text-xs ' + textClass + '">' + prefix + summaryHtml + '</summary>'
-      + '<pre class="whitespace-pre overflow-auto overscroll-contain max-h-64 px-2 pb-1.5 text-xs ' + textClass + '">' + full + '</pre>'
-      + '<button type="button" class="expand-fullscreen-btn select-none block w-full text-center text-[11px] text-slate-500 active:text-slate-300 border-t border-slate-800 py-1">View full screen</button>'
+      + '<pre class="copy-source whitespace-pre overflow-auto overscroll-contain max-h-64 px-2 pb-1.5 text-xs ' + textClass + '">' + full + '</pre>'
+      + '<div class="flex border-t border-slate-800"><button type="button" class="copy-btn select-none flex-1 text-center text-[11px] text-slate-500 active:text-slate-300 py-1 border-r border-slate-800">Copy</button><button type="button" class="expand-fullscreen-btn select-none flex-1 text-center text-[11px] text-slate-500 active:text-slate-300 py-1">View full screen</button></div>'
       + '</details>';
   }
 
@@ -803,9 +803,9 @@
     // page horizontally instead of wrapping.
     switch (block.kind) {
       case 'text':
-        return '<p class="whitespace-pre-wrap break-words text-sm lg:text-base text-slate-100">' + text + '</p>';
+        return '<div class="copy-block"><p class="copy-source whitespace-pre-wrap break-words text-sm lg:text-base text-slate-100">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-500 active:text-slate-300 mt-0.5">Copy</button></div>';
       case 'plan':
-        return '<div class="rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2"><p class="whitespace-pre-wrap break-words text-sm lg:text-base text-amber-100">' + text + '</p></div>';
+        return '<div class="copy-block rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2"><p class="copy-source whitespace-pre-wrap break-words text-sm lg:text-base text-amber-100">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-amber-700 active:text-amber-500 mt-1">Copy</button></div>';
       case 'tool_use':
         // Collapsed by default regardless of the show/hide-subagent
         // toggle - it used to force-open when details were hidden (on the
@@ -819,9 +819,9 @@
         // tool in the first place.
         return '<div class="tool-detail' + (isSubagent ? ' subagent-detail' : '') + '">' + renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '') + '</div>' + imageHtml + attachmentsHtml;
       case 'image':
-        return imageHtml || (text ? '<p class="break-words text-xs text-slate-600">' + text + '</p>' : '');
+        return imageHtml || (text ? '<div class="copy-block"><p class="copy-source break-words text-xs text-slate-600">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-700 active:text-slate-500">Copy</button></div>' : '');
       default:
-        return text ? '<p class="break-words text-xs text-slate-600">' + text + '</p>' : '';
+        return text ? '<div class="copy-block"><p class="copy-source break-words text-xs text-slate-600">' + text + '</p><button type="button" class="copy-btn select-none text-[11px] text-slate-700 active:text-slate-500">Copy</button></div>' : '';
     }
   }
 
@@ -2779,11 +2779,12 @@
   // text selection (a plain click event doesn't fire for a scroll-drag
   // gesture to begin with, so normal scrolling/reading is unaffected
   // either way - this guard is specifically for "tap elsewhere to dismiss
-  // a selection", not scrolling), or fire on the "View full screen" button
-  // (see common.js) - collapsing the block right as its own fullscreen
-  // modal opens over it would leave it collapsed once the modal closes. ---
+  // a selection", not scrolling), or fire on the "View full screen"/"Copy"
+  // buttons (see common.js) - collapsing the block right as its own
+  // fullscreen modal opens over it (or right as its own Copy button shows
+  // its "Copied!" feedback) would leave it collapsed once that resolves. ---
   document.addEventListener('click', function (e) {
-    if (e.target.closest('summary, .expand-fullscreen-btn')) {
+    if (e.target.closest('summary, .expand-fullscreen-btn, .copy-btn')) {
       return;
     }
 
