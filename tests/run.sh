@@ -61,6 +61,7 @@ set +a
 REAL_TMUX_SOCKET="/tmp/tmux-1000/default"
 REAL_SIDECAR_DIR="/run/user/1000/csm-sessions"
 REAL_QUOTA_CACHE_FILE="/run/user/1000/csm-agent-quota-cache.json"
+REAL_CACHE_DIR="/run/user/1000/csm-cache"
 
 if [ "$TMUX_SOCKET" = "$REAL_TMUX_SOCKET" ] || [ -z "$TMUX_SOCKET" ]; then
     echo "REFUSING TO RUN: TMUX_SOCKET in tests/.env.testing resolves to the real host socket (or is empty). Aborting before touching tmux." >&2
@@ -74,6 +75,11 @@ fi
 
 if [ "${QUOTA_CACHE_FILE:-}" = "$REAL_QUOTA_CACHE_FILE" ] || [ -z "${QUOTA_CACHE_FILE:-}" ]; then
     echo "REFUSING TO RUN: QUOTA_CACHE_FILE in tests/.env.testing resolves to the real quota cache (or is empty). Aborting before deleting anything." >&2
+    exit 1
+fi
+
+if [ "${CACHE_DIR:-}" = "$REAL_CACHE_DIR" ] || [ -z "${CACHE_DIR:-}" ]; then
+    echo "REFUSING TO RUN: CACHE_DIR in tests/.env.testing resolves to the real cache dir (or is empty). Aborting before deleting anything." >&2
     exit 1
 fi
 
@@ -116,6 +122,10 @@ if [ "$cleanup_only" -eq 1 ]; then
         rm -rf "$(dirname "$QUOTA_CACHE_FILE")"
     fi
 
+    if [ -n "${CACHE_DIR:-}" ] && [ "$CACHE_DIR" != "$REAL_CACHE_DIR" ]; then
+        rm -rf "$CACHE_DIR"
+    fi
+
     rm -rf "$(dirname "$TMUX_SOCKET")"
     echo "Done."
     exit 0
@@ -139,6 +149,10 @@ cleanup() {
         rm -rf "$(dirname "$QUOTA_CACHE_FILE")"
     fi
 
+    if [ -n "${CACHE_DIR:-}" ] && [ "$CACHE_DIR" != "$REAL_CACHE_DIR" ]; then
+        rm -rf "$CACHE_DIR"
+    fi
+
     rm -rf "$(dirname "$TMUX_SOCKET")"
 }
 
@@ -156,7 +170,7 @@ interrupt() {
 trap cleanup EXIT
 trap interrupt INT TERM
 
-mkdir -p "$(dirname "$TMUX_SOCKET")" "$SIDECAR_DIR" "$(dirname "$QUOTA_CACHE_FILE")"
+mkdir -p "$(dirname "$TMUX_SOCKET")" "$SIDECAR_DIR" "$(dirname "$QUOTA_CACHE_FILE")" "$CACHE_DIR"
 
 failures=0
 

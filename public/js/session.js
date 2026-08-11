@@ -232,8 +232,9 @@
     sidebarNotifyDot.classList.toggle('bg-emerald-400', kind === 'finished');
   }
 
-  // Shared by refreshSidebarNotification() (every poll cycle, markSeen
-  // false) and loadSidebarList() (sidebar actually opened, markSeen true -
+  // Shared by refreshSidebarNotification() (its own slow poll cycle, see
+  // startSidebarNotifyPolling(), markSeen false) and loadSidebarList()
+  // (sidebar actually opened, markSeen true -
   // that's the "look" that clears the green dot for any idle session it
   // just displayed).
   function processOtherSessions(others, markSeen) {
@@ -2272,7 +2273,6 @@
     return Promise.all([
       pollInfo(wasNearBottom),
       pollHistory(wasNearBottom),
-      refreshSidebarNotification(),
       sidebarCurrentlyOpen ? loadUploadedFiles() : Promise.resolve(),
       sidebarCurrentlyOpen ? loadPlanFiles() : Promise.resolve()
     ]).finally(function () {
@@ -2285,7 +2285,50 @@
     });
   }
 
+  // The sidebar notification dot only needs to reflect other sessions'
+  // state within a "glance" freshness, not the transcript's own
+  // pollIntervalMs (which can be set as low as 1s) - riding that fast
+  // cycle meant every tick also re-ran the full, expensive list_all_
+  // sessions() scan (tmux capture-pane + /proc walk per tracked session)
+  // purely to maybe flip a dot for sessions this page isn't even
+  // showing. Found live 2026-08-11: with several sessions/tabs open, that
+  // redundant full scan on every fast tick was visibly hanging the page
+  // for a second or two. Its own fixed, much slower interval fixes that
+  // without losing the dot's responsiveness in any way that matters.
+  var SIDEBAR_NOTIFY_POLL_INTERVAL_MS = 15000;
+  var sidebarNotifyPollTimer = null;
+  var sidebarNotifyPollingActive = false;
+
+  function startSidebarNotifyPolling() {
+    if (sidebarNotifyPollingActive) {
+      return;
+    }
+
+    sidebarNotifyPollingActive = true;
+
+    function cycle() {
+      refreshSidebarNotification().finally(function () {
+        if (sidebarNotifyPollingActive) {
+          sidebarNotifyPollTimer = setTimeout(cycle, SIDEBAR_NOTIFY_POLL_INTERVAL_MS);
+        }
+      });
+    }
+
+    cycle();
+  }
+
+  function stopSidebarNotifyPolling() {
+    sidebarNotifyPollingActive = false;
+
+    if (sidebarNotifyPollTimer !== null) {
+      clearTimeout(sidebarNotifyPollTimer);
+      sidebarNotifyPollTimer = null;
+    }
+  }
+
   function startPolling() {
+    startSidebarNotifyPolling();
+
     if (pollingActive) {
       return;
     }
@@ -2305,6 +2348,8 @@
   }
 
   function stopPolling() {
+    stopSidebarNotifyPolling();
+
     if (!pollingActive) {
       return;
     }

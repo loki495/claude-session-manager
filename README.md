@@ -160,6 +160,8 @@ default (your real `$HOME`, your real uid) or is optional:
 | `HOME_ROOT`                  | your real `$HOME`                             | Upper bound the folder browser can't escape |
 | `TMUX_SOCKET`                | `/tmp/tmux-<uid>/default`                     | tmux socket this agent drives (`-S`)        |
 | `SIDECAR_DIR`                | `/run/user/<uid>/csm-sessions`                | Per-session workdir/spawned_at metadata     |
+| `CACHE_DIR`                  | `/run/user/<uid>/csm-cache`                   | Session-list cache (see below)              |
+| `SESSION_LIST_CACHE_TTL_SECONDS` | `0.9`                                     | How long a session-list scan is reused across near-simultaneous callers |
 | `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                                 | Inactivity threshold for "Kill inactive"    |
 | `CLAUDE_QUOTA_BIN`           | *(unset - quota footer disabled)*             | Script that scrapes the `/usage` panel      |
 | `QUOTA_CACHE_FILE`           | `/run/user/<uid>/csm-agent-quota-cache.json`  | Where the last successful reading is cached |

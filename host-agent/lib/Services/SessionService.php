@@ -6,6 +6,7 @@ namespace HostAgent\Services;
 
 use HostAgent\Stores\SidecarStore;
 use HostAgent\Stores\PendingToolStore;
+use HostAgent\Stores\SessionListCacheStore;
 
 /**
  * Session lifecycle and control: listing, detail/history snapshots,
@@ -392,6 +393,20 @@ class SessionService
      * @return array{sessions: array<int, array>, bare: array<int, array>}
      */
     public static function list_all_sessions(): array
+    {
+        $cached = SessionListCacheStore::read();
+
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $result = self::list_all_sessions_uncached();
+        SessionListCacheStore::write($result);
+
+        return $result;
+    }
+
+    private static function list_all_sessions_uncached(): array
     {
         $tmuxSessions = TmuxService::list_tracked_tmux_sessions();
         $claudeProcs = ProcessInspector::find_claude_processes();

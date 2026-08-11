@@ -71,6 +71,30 @@ class Config
         return self::csm_config('SIDECAR_DIR', '/run/user/' . getmyuid() . '/csm-sessions');
     }
 
+    /**
+     * Separate from sidecar_dir() on purpose - SidecarStore::
+     * prune_orphaned_sidecars() globs and deletes anything in sidecar_dir()
+     * that isn't a live session's own file, so a cache file dropped in
+     * there would get treated as an orphan and unlinked on the very next
+     * scan. Same tmpfs base, own subdirectory.
+     */
+    public static function cache_dir(): string
+    {
+        return self::csm_config('CACHE_DIR', '/run/user/' . getmyuid() . '/csm-cache');
+    }
+
+    /**
+     * See SessionListCacheStore's own doc comment for why this is a
+     * fraction of a second, not the minutes-scale TTL quota_cache_ttl_
+     * seconds() below uses - this only ever needs to outlive the gap
+     * between concurrent callers, never outlive a single poller's own
+     * next tick.
+     */
+    public static function session_list_cache_ttl_seconds(): float
+    {
+        return (float)self::csm_config('SESSION_LIST_CACHE_TTL_SECONDS', '0.9');
+    }
+
     public static function cleanup_threshold_seconds(): int
     {
         return (int)self::csm_config('CLEANUP_THRESHOLD_SECONDS', '43200'); // 12h
