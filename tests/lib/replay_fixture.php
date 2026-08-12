@@ -19,18 +19,30 @@ declare(strict_types=1);
  *                          Line 1 is written up front by replay_setup();
  *                          each subsequent line is appended by one
  *                          replay_step() call.
- *   <name>.replay.json  - {"steps": [...]}, one entry per line AFTER line
- *                          1, in the same order - each entry's optional
+ *   <name>.replay.json  - {"steps": [...]}, in order - each entry's optional
  *                          "pane_text" is the lines of tmux pane content
  *                          (send-keys, one call per line) that should be
- *                          showing once that transcript line has landed;
- *                          "clear_before" (bool) sends a real ANSI
- *                          clear-screen first, simulating Claude Code's own
- *                          full-screen repaint - the mechanism this
- *                          fixture uses to make an earlier blocked-prompt's
- *                          text actually leave the pane's CURRENTLY VISIBLE
- *                          content (all tmux_capture_pane() ever reads),
- *                          the same way a real redraw would.
+ *                          showing once this step has landed; "clear_before"
+ *                          (bool) sends a real ANSI clear-screen first,
+ *                          simulating Claude Code's own full-screen repaint
+ *                          - the mechanism this fixture uses to make an
+ *                          earlier blocked-prompt's text actually leave the
+ *                          pane's CURRENTLY VISIBLE content (all
+ *                          tmux_capture_pane() ever reads), the same way a
+ *                          real redraw would. "append_line" (bool, default
+ *                          true) - false for a step that only redraws the
+ *                          pane without a new transcript line landing (e.g.
+ *                          the second+ question of one multi-question
+ *                          AskUserQuestion call - Claude Code only ever
+ *                          writes ONE combined tool_result once every
+ *                          question is answered, never one line per
+ *                          question, so a step representing "the CLI
+ *                          redrew to the next question" has no transcript
+ *                          content of its own to append). Every
+ *                          "append_line" !== false step consumes exactly
+ *                          one line from <name>.jsonl, in order, after the
+ *                          seed line - replay_load_scenario() checks this
+ *                          count matches, not a raw step-count match.
  */
 
 /**
@@ -58,12 +70,13 @@ function replay_load_scenario(string $name): array
     }
 
     $seedLine = array_shift($rawLines);
+    $appendingSteps = array_filter($steps, static fn(array $step): bool => $step['append_line'] ?? true);
 
-    if (count($steps) !== count($rawLines)) {
+    if (count($appendingSteps) !== count($rawLines)) {
         fwrite(STDERR, sprintf(
-            "replay_load_scenario: %s has %d step(s) but %s has %d line(s) after the seed line - must match 1:1\n",
+            "replay_load_scenario: %s has %d step(s) with append_line !== false but %s has %d line(s) after the seed line - must match 1:1\n",
             $stepsPath,
-            count($steps),
+            count($appendingSteps),
             $jsonlPath,
             count($rawLines)
         ));
@@ -137,6 +150,10 @@ function replay_setup(string $scenarioName, string $workdir): array
         'transcript_path' => $transcriptPath,
         'scenario' => $scenario,
         'next_step' => 0,
+        // Separate from next_step - only steps with append_line !== false
+        // consume one of these, so a pane-only step (no new transcript
+        // content) doesn't skip a real line.
+        'next_line' => 0,
     ];
 }
 
@@ -195,14 +212,17 @@ function replay_capture_pane(string $sessionName): string
 
 /**
  * Advances $ctx by exactly one step: appends the next transcript line to
- * the real transcript file, then (if this step calls for it) redraws the
- * fixture pane - a real ANSI clear-screen first when "clear_before" is
- * set, so tmux_capture_pane() (which only ever sees the pane's CURRENTLY
- * VISIBLE content) genuinely stops showing whatever prompt text was there
- * before, exactly like a real Claude Code repaint would.
+ * the real transcript file (unless this step's own "append_line" is
+ * false - see this file's own doc comment), then (if this step calls for
+ * it) redraws the fixture pane - a real ANSI clear-screen first when
+ * "clear_before" is set, so tmux_capture_pane() (which only ever sees the
+ * pane's CURRENTLY VISIBLE content) genuinely stops showing whatever
+ * prompt text was there before, exactly like a real Claude Code repaint
+ * would.
  *
- * @param array{session_name:string, transcript_path:string, scenario:array, next_step:int} $ctx
- * @return array{line_number:int, step:array}|null null once every step has been consumed
+ * @param array{session_name:string, transcript_path:string, scenario:array, next_step:int, next_line:int} $ctx
+ * @return array{line_number:?int, step:array}|null null once every step has been consumed;
+ *   line_number is null for an append_line:false step (no new transcript content this step)
  */
 function replay_step(array &$ctx): ?array
 {
@@ -213,9 +233,18 @@ function replay_step(array &$ctx): ?array
         return null;
     }
 
-    file_put_contents($ctx['transcript_path'], $ctx['scenario']['lines'][$i] . "\n", FILE_APPEND);
-
     $step = $steps[$i];
+    $lineNumber = null;
+
+    if ($step['append_line'] ?? true) {
+        $lineIndex = $ctx['next_line'];
+        file_put_contents($ctx['transcript_path'], $ctx['scenario']['lines'][$lineIndex] . "\n", FILE_APPEND);
+        // read_transcript_page()'s 'line' field is 1-indexed against the
+        // whole file, and the seed line already occupies line 1 - see
+        // replay_setup()/replay_load_scenario()'s own doc comments.
+        $lineNumber = $lineIndex + 2;
+        $ctx['next_line'] = $lineIndex + 1;
+    }
 
     if (!empty($step['clear_before'])) {
         replay_tmux_send_keys($ctx['session_name'], "\x1b[2J\x1b[H", true);
@@ -229,10 +258,7 @@ function replay_step(array &$ctx): ?array
 
     $ctx['next_step'] = $i + 1;
 
-    // read_transcript_page()'s 'line' field is 1-indexed against the whole
-    // file, and the seed line already occupies line 1 - see
-    // replay_setup()/replay_load_scenario()'s own doc comments.
-    return ['line_number' => $i + 2, 'step' => $step];
+    return ['line_number' => $lineNumber, 'step' => $step];
 }
 
 /**

@@ -75,7 +75,21 @@ function cdp_launch(string $chromeBin): ?array
         '--disable-crash-reporter',
         '--remote-debugging-port=0', '--user-data-dir=' . $userDataDir, 'about:blank',
     ];
-    $process = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    // stdout/stderr go to /dev/null, not pipes - found live: chrome is
+    // chatty on stderr (its own internal logging), and NOTHING in this
+    // file ever reads a piped stdout/stderr once launch succeeds. Once
+    // that pipe's OS buffer (64KB) fills, chrome's own write() calls
+    // block waiting for a reader that will never come - reproduced
+    // exactly at the point in a run where chrome had emitted enough
+    // stderr output to fill it (consistently around the same step of a
+    // long scenario, not close to session start): CDP commands stopped
+    // getting responses with no crash, no JS exception, no error -
+    // cdp_call() just timed out every time from then on, every
+    // downstream check silently failing against a technically-still-
+    // alive but unresponsive browser. A discarded (file) descriptor can
+    // never fill, so there's nothing to block on.
+    $devNull = [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $process = proc_open($cmd, [0 => ['pipe', 'r']] + $devNull, $pipes);
 
     if (!is_resource($process)) {
         echo "  SKIP: chrome found at {$chromeBin} but failed to launch\n";
@@ -263,13 +277,14 @@ function cdp_ws_send(mixed $sock, string $payload): void
 }
 
 /**
- * Reads exactly one WebSocket frame's payload (server->client frames are
- * never masked). Only handles single-frame text messages (FIN=1, opcode
- * 0x1) - every CDP command/event response fits in one frame in practice
- * for what this client sends/receives; a continuation frame would just
- * come back null here rather than being silently misparsed.
+ * Reads exactly one raw WebSocket frame: header, extended length if any,
+ * and its full payload. Frame-type-agnostic on purpose - see
+ * cdp_ws_recv()'s own doc comment for why a frame's payload must always
+ * be fully consumed here regardless of its opcode, never skipped.
+ *
+ * @return array{opcode:int, payload:string}|null null on a read failure
  */
-function cdp_ws_recv(mixed $sock): ?string
+function cdp_ws_read_frame(mixed $sock): ?array
 {
     $header = fread($sock, 2);
 
@@ -279,19 +294,14 @@ function cdp_ws_recv(mixed $sock): ?string
 
     $b0 = ord($header[0]);
     $b1 = ord($header[1]);
-
-    if (($b0 & 0x0F) !== 0x1) {
-        return null; // not a single-frame text message - not produced by chrome's devtools server for our own calls
-    }
-
     $len = $b1 & 0x7F;
 
     if ($len === 126) {
         $ext = fread($sock, 2);
-        $len = $ext === false ? 0 : unpack('n', $ext)[1];
+        $len = $ext === false || strlen($ext) < 2 ? 0 : unpack('n', $ext)[1];
     } elseif ($len === 127) {
         $ext = fread($sock, 8);
-        $len = $ext === false ? 0 : unpack('J', $ext)[1];
+        $len = $ext === false || strlen($ext) < 8 ? 0 : unpack('J', $ext)[1];
     }
 
     $payload = '';
@@ -306,7 +316,76 @@ function cdp_ws_recv(mixed $sock): ?string
         $payload .= $chunk;
     }
 
-    return $payload;
+    return ['opcode' => $b0 & 0x0F, 'payload' => $payload];
+}
+
+/**
+ * Reads WebSocket frames until a text-message one (opcode 0x1) arrives,
+ * returning its payload - every CDP command/event response fits in one
+ * frame in practice for what this client sends/receives, so this only
+ * ever returns one frame's worth of payload, never reassembles
+ * continuation frames.
+ *
+ * Every OTHER frame type read along the way is still fully consumed
+ * (via cdp_ws_read_frame(), which always reads a frame's complete
+ * declared-length payload regardless of opcode) rather than skipped -
+ * found live: an earlier version bailed out immediately on a non-text
+ * frame without reading its payload bytes at all. Chrome periodically
+ * sends WebSocket PING frames (opcode 0x9) on an otherwise-idle
+ * connection; leaving one unread desynchronizes every future frame read
+ * forever after (the "header" of the NEXT read call ends up landing
+ * partway into the previous frame's still-unread payload bytes) - this
+ * reproduced live as every cdp_call() silently timing out for the rest
+ * of a run, from whatever moment a PING happened to arrive onward, with
+ * no error of any kind on either side to point at why. A PING frame
+ * specifically gets a real PONG (opcode 0xA) reply, per RFC 6455 - not
+ * required for chrome to keep tolerating this client, but correct.
+ */
+function cdp_ws_recv(mixed $sock): ?string
+{
+    while (true) {
+        $frame = cdp_ws_read_frame($sock);
+
+        if ($frame === null) {
+            return null;
+        }
+
+        if ($frame['opcode'] === 0x1) {
+            return $frame['payload'];
+        }
+
+        if ($frame['opcode'] === 0x8) {
+            return null; // a real close frame - nothing more will ever arrive
+        }
+
+        if ($frame['opcode'] === 0x9) {
+            cdp_ws_send_pong($sock, $frame['payload']);
+        }
+
+        // Any other frame (pong, continuation, binary) - already fully
+        // consumed above by cdp_ws_read_frame(); loop and keep waiting
+        // for the text frame this call actually wants.
+    }
+}
+
+/**
+ * A pong frame is a masked client->server frame just like any other
+ * client-sent frame (cdp_ws_send() is text-opcode-only, hence this
+ * separate minimal sender) - echoes the ping's own payload back
+ * unchanged, per RFC 6455.
+ */
+function cdp_ws_send_pong(mixed $sock, string $payload): void
+{
+    $len = strlen($payload);
+    $mask = random_bytes(4);
+    $frame = chr(0x8A); // FIN + opcode 0xA (pong)
+    $frame .= chr($len | 0x80) . $mask; // pong payloads are always tiny (<=125 bytes) in practice
+
+    for ($i = 0; $i < $len; $i++) {
+        $frame .= $payload[$i] ^ $mask[$i % 4];
+    }
+
+    @fwrite($sock, $frame);
 }
 
 /**
@@ -315,6 +394,19 @@ function cdp_ws_recv(mixed $sock): ?string
  * Page.frameStartedLoading) that arrive first - id-matching is what tells
  * a command's response apart from an event notification (events carry no
  * "id" field at all).
+ *
+ * $page MUST reach here by reference at every call site, including
+ * through a closure (`use (&$page)`, not `use ($page)`) - found live: a
+ * closure passed to browser_wait_until() that captured $page BY VALUE got
+ * its own independent copy of next_id, incrementing separately from the
+ * outer scope's calls on the same underlying socket. Both copies
+ * eventually sent the same numeric id to chrome, which responded with a
+ * real CDP-level "Duplicate `id` in protocol request" error - and once
+ * that happens, id-matching for legitimate subsequent calls on either
+ * copy silently stops working (every later cdp_call() times out with no
+ * further errors), which is what actually surfaced this: a test scenario
+ * that ran long enough to create enough retrying closures for a
+ * collision to become likely.
  *
  * @param array{sock:resource, next_id:int} $page
  * @return array<string, mixed>|null the command's "result" object, or null on timeout/error

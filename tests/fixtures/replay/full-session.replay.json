@@ -22,6 +22,20 @@
       "blocked_prompt": {"question": "Which environment should this run against?", "answer": {"mode": "freetext", "option": 3, "text": "staging-canary"}}
     },
     {"label": "Tool result after free-text answer", "pane_text": ["User replied: staging-canary"], "clear_before": true},
-    {"label": "Assistant wrap-up text", "pane_text": ["User replied: staging-canary", "", "Fixed it and confirmed against staging-canary."]}
+    {
+      "label": "Multi-question prompt: Q1 (region) shown + answered",
+      "pane_text": ["● AskUserQuestion(Which region should this deploy to?)", "", "←  ☐ Region  ☐ Monitoring  ✔ Submit  →", "", "Which region should this deploy to?", "❯ 1. us-east", "  2. eu-west"],
+      "clear_before": true,
+      "blocked_prompt": {"question": "Which region should this deploy to?", "multi_question": true, "answer": {"mode": "option", "option": 1}}
+    },
+    {
+      "label": "Multi-question prompt: Q2 (monitoring) shown + answered",
+      "pane_text": ["←  ✔ Region  ☐ Monitoring  ✔ Submit  →", "", "Enable monitoring for this deploy?", "❯ 1. Yes", "  2. No"],
+      "clear_before": true,
+      "append_line": false,
+      "blocked_prompt": {"question": "Enable monitoring for this deploy?", "multi_question": true, "answer": {"mode": "option", "option": 1}}
+    },
+    {"label": "Tool result after multi-question answers", "pane_text": ["Deploying to us-east with monitoring enabled..."], "clear_before": true},
+    {"label": "Assistant wrap-up text", "pane_text": ["Deploying to us-east with monitoring enabled...", "", "Fixed it and confirmed against staging-canary. Deploying to us-east with monitoring enabled."]}
   ]
 }

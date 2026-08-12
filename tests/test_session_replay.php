@@ -114,32 +114,38 @@ try {
             continue;
         }
 
-        $expectRender = $advanced['step']['expect_render'] ?? true;
+        // null for an "append_line": false step (e.g. the second+ question
+        // of one multi-question AskUserQuestion call) - no new transcript
+        // content landed at all this step, so there's nothing to check via
+        // session_history and $lastSeenLine stays exactly where it was.
+        if ($advanced['line_number'] !== null) {
+            $expectRender = $advanced['step']['expect_render'] ?? true;
 
-        $history = curl_request(
-            'GET',
-            "{$baseUrl}/session_history.php?session=" . urlencode($sessionName) . "&after={$lastSeenLine}&limit=30",
-            [],
-            $cookieJar
-        );
-        $historyData = json_decode($history['body'], true);
-        assert_true($historyData['ok'] ?? false, "session_history (step {$i}): ok=true");
-
-        $newLines = array_column($historyData['entries'] ?? [], 'line');
-
-        if ($expectRender) {
-            assert_true(
-                in_array($advanced['line_number'], $newLines, true),
-                "session_history (step {$i}): the just-appended transcript line ({$advanced['line_number']}) shows up as new via ?after={$lastSeenLine}"
+            $history = curl_request(
+                'GET',
+                "{$baseUrl}/session_history.php?session=" . urlencode($sessionName) . "&after={$lastSeenLine}&limit=30",
+                [],
+                $cookieJar
             );
-        } else {
-            // A meta-only line (e.g. "permission-mode" noise) - proves the
-            // server-side filter actually drops it, not just that nothing
-            // asserted it either way.
-            assert_equal([], $historyData['entries'] ?? null, "session_history (step {$i}): a meta-only transcript line produces zero new entries");
-        }
+            $historyData = json_decode($history['body'], true);
+            assert_true($historyData['ok'] ?? false, "session_history (step {$i}): ok=true");
 
-        $lastSeenLine = $advanced['line_number'];
+            $newLines = array_column($historyData['entries'] ?? [], 'line');
+
+            if ($expectRender) {
+                assert_true(
+                    in_array($advanced['line_number'], $newLines, true),
+                    "session_history (step {$i}): the just-appended transcript line ({$advanced['line_number']}) shows up as new via ?after={$lastSeenLine}"
+                );
+            } else {
+                // A meta-only line (e.g. "permission-mode" noise) - proves the
+                // server-side filter actually drops it, not just that nothing
+                // asserted it either way.
+                assert_equal([], $historyData['entries'] ?? null, "session_history (step {$i}): a meta-only transcript line produces zero new entries");
+            }
+
+            $lastSeenLine = $advanced['line_number'];
+        }
 
         $detail = curl_request('GET', "{$baseUrl}/session_detail.php?session=" . urlencode($sessionName), [], $cookieJar);
         $detailData = json_decode($detail['body'], true);
@@ -152,6 +158,16 @@ try {
             $optionNumbers = array_column($detailData['prompt_options'] ?? [], 'number');
             $answerOption = (int)$blockedPrompt['answer']['option'];
             assert_true(in_array($answerOption, $optionNumbers, true), "session_detail (step {$i}): option {$answerOption} is offered");
+
+            if ($blockedPrompt['multi_question'] ?? false) {
+                // Proves PromptParser actually recognized the tab-bar shape
+                // (the "←  ☐ Region  ..." line in this step's own pane_text),
+                // not just that some blocked_reason text happened to match -
+                // real multi-question prompts skip the trailing Enter on
+                // answer (see SessionService::answer_prompt()'s own doc
+                // comment), which only actually applies when this is true.
+                assert_equal(true, $detailData['prompt_multi_question'] ?? null, "session_detail (step {$i}): prompt_multi_question is reported true");
+            }
 
             if ($blockedPrompt['answer']['mode'] === 'freetext') {
                 $answerText = (string)$blockedPrompt['answer']['text'];

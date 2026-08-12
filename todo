@@ -4,6 +4,13 @@ see the note above each moved/merged item for what changed and why.
 
 Bigger features needing research first (moderate-high surface area):
 
+- Persistent "pending answers" list: track every prompt/permission that
+  hasn't been answered yet (either a small state file this app maintains
+  itself, or derived by reading all sessions from Claude's own global
+  ~/.claude/projects path), surviving session archival, removed once
+  answered - shown on the dashboard so waking the laptop and opening the
+  app immediately shows what's actually waiting, without hunting through
+  each session.
 - Mode CHANGES (accept edits / plan / manual / auto) aren't currently
   visible as discrete events in the transcript at all -
   render_mode_toggle_html() only shows the CURRENT mode, there's no

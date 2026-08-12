@@ -84,12 +84,21 @@ function inject_control_panel(array &$page): void
         window.__csmReplay = { mode: 'paused', advance: false };
 
         document.getElementById('csm-replay-run-pause').addEventListener('click', function () {
+            var nextBtn = document.getElementById('csm-replay-next');
+
             if (window.__csmReplay.mode === 'running') {
                 window.__csmReplay.mode = 'paused';
                 this.textContent = 'Run';
+                nextBtn.disabled = false;
             } else {
                 window.__csmReplay.mode = 'running';
                 this.textContent = 'Pause';
+                // Disabled while free-running - clicking it mid-run doesn't
+                // actually do anything useful (control_panel_wait_for_go()
+                // returns immediately once already running, whether or not
+                // advance is set), so leaving it clickable was just
+                // confusing UI, not a functional bug.
+                nextBtn.disabled = true;
             }
         });
 
@@ -353,25 +362,32 @@ try {
                 continue;
             }
 
-            $expectRender = $advanced['step']['expect_render'] ?? true;
+            // null for an "append_line": false step (e.g. the second+
+            // question of one multi-question AskUserQuestion call) - no
+            // new transcript content landed this step at all, so there's
+            // nothing to check rendering-wise; skip straight to this
+            // step's blocked-prompt handling below.
+            if ($advanced['line_number'] !== null) {
+                $expectRender = $advanced['step']['expect_render'] ?? true;
 
-            if ($expectRender) {
-                $lineSelector = json_encode('[data-line="' . $advanced['line_number'] . '"]');
-                $sawLine = browser_wait_until(function () use ($page, $lineSelector) {
-                    return cdp_evaluate($page, "document.querySelector({$lineSelector}) !== null") === true;
-                });
-                browser_assert($page, $sawLine, "session.php (step {$i}): the client's own poll picks up transcript line {$advanced['line_number']} and renders it (data-line)", "step-{$i}-missing-data-line");
-            } else {
-                // A meta-only line (e.g. "permission-mode" noise) - give
-                // the poll a beat to (not) do anything, then confirm the
-                // rendered entry count genuinely didn't move from this
-                // step's own starting point, proving the noise line stayed
-                // invisible client-side too, not just server-side
-                // (test_session_replay.php already covers the server side
-                // of this).
-                usleep(1500000);
-                $countAfter = cdp_evaluate($page, "document.querySelectorAll('[data-line]').length");
-                browser_assert($page, $countAfter === $countBefore, "session.php (step {$i}): a meta-only transcript line renders zero new entries", "step-{$i}-meta-leaked");
+                if ($expectRender) {
+                    $lineSelector = json_encode('[data-line="' . $advanced['line_number'] . '"]');
+                    $sawLine = browser_wait_until(function () use (&$page, $lineSelector) {
+                        return cdp_evaluate($page, "document.querySelector({$lineSelector}) !== null") === true;
+                    });
+                    browser_assert($page, $sawLine, "session.php (step {$i}): the client's own poll picks up transcript line {$advanced['line_number']} and renders it (data-line)", "step-{$i}-missing-data-line");
+                } else {
+                    // A meta-only line (e.g. "permission-mode" noise) - give
+                    // the poll a beat to (not) do anything, then confirm the
+                    // rendered entry count genuinely didn't move from this
+                    // step's own starting point, proving the noise line stayed
+                    // invisible client-side too, not just server-side
+                    // (test_session_replay.php already covers the server side
+                    // of this).
+                    usleep(1500000);
+                    $countAfter = cdp_evaluate($page, "document.querySelectorAll('[data-line]').length");
+                    browser_assert($page, $countAfter === $countBefore, "session.php (step {$i}): a meta-only transcript line renders zero new entries", "step-{$i}-meta-leaked");
+                }
             }
 
             $blockedPrompt = $advanced['step']['blocked_prompt'] ?? null;
@@ -379,7 +395,7 @@ try {
             if ($blockedPrompt !== null) {
                 $question = $blockedPrompt['question'];
                 $questionJs = json_encode($question);
-                $sawPrompt = browser_wait_until(function () use ($page, $questionJs) {
+                $sawPrompt = browser_wait_until(function () use (&$page, $questionJs) {
                     $text = cdp_evaluate($page, "document.getElementById('blocked-prompt-section').textContent");
                     return is_string($text) && str_contains($text, json_decode($questionJs));
                 });
@@ -408,13 +424,50 @@ try {
                     });
                     browser_assert($page, $sentToPane, "session.php (step {$i}): the free-text submit reached /answer_prompt.php and sent \"{$expectedPane}\" into the fixture pane", "step-{$i}-freetext-not-sent");
                 } else {
+                    $isMultiQuestion = $blockedPrompt['multi_question'] ?? false;
+
+                    if ($isMultiQuestion) {
+                        // The tab-bar UI (.nav-prompt-btn Left/Right, see
+                        // src/partials/blocked-prompt/options.php) only
+                        // renders for a multi-question prompt - proves the
+                        // DOM actually took the distinct multi-question
+                        // path, not just that some question text matched.
+                        $hasNavButtons = cdp_evaluate($page, "document.querySelectorAll('#blocked-prompt-section .nav-prompt-btn').length === 2");
+                        browser_assert($page, $hasNavButtons === true, "session.php (step {$i}): multi-question prompt renders both Left/Right nav buttons", "step-{$i}-nav-buttons-missing");
+                    }
+
                     $clicked = cdp_click($page, '#blocked-prompt-section form[data-confirm-label] button[type="submit"]');
                     browser_assert($page, $clicked, "session.php (step {$i}): the option {$option} button is found and clicked", "step-{$i}-option-click-failed");
 
-                    $sentToPane = browser_wait_until(function () use ($ctx, $option) {
-                        return str_ends_with(trim(replay_capture_pane($ctx['session_name'])), (string)$option);
-                    });
-                    browser_assert($page, $sentToPane, "session.php (step {$i}): the click's real submit reached /answer_prompt.php and sent option {$option} into the fixture pane", "step-{$i}-option-not-sent");
+                    // A multi-question answer sends ONLY the digit, no
+                    // trailing Enter (see SessionService::answer_prompt()'s
+                    // own doc comment) - cat's canonical-mode line buffering
+                    // never echoes an incomplete line, so there's nothing to
+                    // check in the pane for this shape (the click reaching
+                    // the real backend at all is already covered by
+                    // test_session_replay.php's curl-based answer_prompt.php
+                    // assertion).
+                    if (!$isMultiQuestion) {
+                        $sentToPane = browser_wait_until(function () use ($ctx, $option) {
+                            return str_ends_with(trim(replay_capture_pane($ctx['session_name'])), (string)$option);
+                        });
+                        browser_assert($page, $sentToPane, "session.php (step {$i}): the click's real submit reached /answer_prompt.php and sent option {$option} into the fixture pane", "step-{$i}-option-not-sent");
+                    } else {
+                        // A brief settle beat before the next question's own
+                        // click - found live: firing two blocked-prompt
+                        // answers back-to-back with no delay (Q1 immediately
+                        // followed by Q2, both programmatic clicks with zero
+                        // human-speed pacing) made chrome's renderer stop
+                        // responding to ANY further CDP command for the rest
+                        // of the run, reproducibly, purely a browser/CDP
+                        // timing artifact of unrealistically-fast scripted
+                        // interaction - test_session_replay.php's curl-based
+                        // equivalent (no browser involved) already proves the
+                        // real backend handles two rapid answers with no
+                        // trouble at all, so this is pacing for the browser's
+                        // sake, not covering for an app bug.
+                        usleep(500000);
+                    }
                 }
             } else {
                 // .prompt-options-wrapper (src/partials/blocked-prompt/
@@ -449,7 +502,8 @@ try {
                 'uncaught-error-leaked'
             );
 
-            // Known-correct target: every step whose own JSON doesn't say
+            // Known-correct target: every step that actually appends a
+            // transcript line ("append_line" !== false) AND doesn't say
             // "expect_render": false. Compared against a WAIT-until-reached
             // live count below, not a second live snapshot taken elsewhere -
             // two live DOM snapshots can legitimately differ for a moment
@@ -458,7 +512,7 @@ try {
             // from the fixture itself is the right thing to compare against.
             $expectedEntryLines = 0;
             foreach ($ctx['scenario']['steps'] as $step) {
-                if ($step['expect_render'] ?? true) {
+                if (($step['append_line'] ?? true) && ($step['expect_render'] ?? true)) {
                     $expectedEntryLines++;
                 }
             }
@@ -491,7 +545,7 @@ try {
                 control_panel_set_current($page, 'Mobile viewport check (390x844)');
             }
 
-            $sawExpectedCount = browser_wait_until(function () use ($page, $expectedEntryLines) {
+            $sawExpectedCount = browser_wait_until(function () use (&$page, $expectedEntryLines) {
                 return cdp_evaluate($page, "document.querySelectorAll('[data-line]').length") === $expectedEntryLines;
             });
             browser_assert($page, $sawExpectedCount, "session.php (mobile viewport): renders all {$expectedEntryLines} expected transcript entries", 'mobile-entry-count-mismatch');
