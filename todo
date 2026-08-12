@@ -72,9 +72,19 @@ Smaller polish (low effort, low risk):
   code/scrollable sections (e.g. the collapsible tool_use/tool_result
   blocks - BlockedPromptView::render_collapsible_block()/its session.js
   mirror) - copying currently means selecting text by hand.
+- Plan-mode entries don't render as their own separate transcript block.
+- Subagent (Agent/Task tool) entries render raw XML markup instead of
+  parsed/formatted content.
+- Assistant text is rendered plain (no markdown parsing) - add a simple
+  markdown parser so bold/lists/code spans/etc. actually render instead of
+  showing raw markdown syntax.
 
 Exploratory / speculative / lower priority:
 
+- Replay test suite (tests/test_session_replay_browser.php): consider
+  taking baseline screenshots at key steps for pixel-to-pixel visual
+  regression comparison, not just the DOM/text assertions it does today.
+  Not needed yet - just something to think about.
 - A search function to search within the contents of all sessions (from
   the dashboard), and within a single session (from the session sidebar) -
   broader than the plain name/title filter field the archived list

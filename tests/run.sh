@@ -2,8 +2,23 @@
 # Runs every tests/test_*.php file against isolated fixtures (see
 # tests/.env.testing) and guarantees cleanup of anything they start -
 # tmux sessions, the fake claude process, sidecar files - even if a test
-# fails or the run is interrupted. Usage: bash tests/run.sh [--bail] [--cleanup]
+# fails or the run is interrupted. Usage: bash tests/run.sh [--bail] [--cleanup] [--replay] [--no-browser] [--browser]
 #   --bail     stop at the first failing test file instead of running the rest
+#   --replay   only run the session-replay test files (test_session_replay*.php)
+#              - fast iteration on tests/lib/replay_fixture.php,
+#              tests/lib/cdp.php, or tests/fixtures/replay/* without paying
+#              for the other 10 unrelated test files every time
+#   --no-browser  skip any test file that needs a real browser (matched by
+#              filename, *_browser.php - currently just
+#              test_session_replay_browser.php) - for a host with no Chrome/
+#              Chromium installed, or when you just don't want to pay for a
+#              browser launch on this run. Combine with --replay to run only
+#              test_session_replay.php.
+#   --browser  the opposite of --no-browser: only run test files that DO need
+#              a real browser (*_browser.php). Combine with --replay to run
+#              only test_session_replay_browser.php - the browser-only half
+#              with none of test_session_replay.php's curl-based checks.
+#              Contradicts --no-browser (both together is an error).
 #   --cleanup  don't run tests at all - just sweep any stray test-infra
 #              processes for THIS checkout (see sweep_stray_processes()
 #              below) and exit. A deliberate, explicit action, not run
@@ -18,16 +33,27 @@ set -uo pipefail
 
 bail=0
 cleanup_only=0
+replay_only=0
+no_browser=0
+browser_only=0
 for arg in "$@"; do
     case "$arg" in
         --bail) bail=1 ;;
         --cleanup) cleanup_only=1 ;;
+        --replay) replay_only=1 ;;
+        --no-browser) no_browser=1 ;;
+        --browser) browser_only=1 ;;
         *)
             echo "Unknown argument: $arg" >&2
             exit 1
             ;;
     esac
 done
+
+if [ "$no_browser" -eq 1 ] && [ "$browser_only" -eq 1 ]; then
+    echo "Contradictory flags: --no-browser and --browser can't both be set." >&2
+    exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -160,7 +186,33 @@ mkdir -p "$(dirname "$TMUX_SOCKET")" "$SIDECAR_DIR" "$(dirname "$QUOTA_CACHE_FIL
 
 failures=0
 
-for test_file in "$SCRIPT_DIR"/test_*.php; do
+if [ "$replay_only" -eq 1 ]; then
+    test_files=("$SCRIPT_DIR"/test_session_replay*.php)
+else
+    test_files=("$SCRIPT_DIR"/test_*.php)
+fi
+
+if [ "$no_browser" -eq 1 ]; then
+    filtered_files=()
+    for test_file in "${test_files[@]}"; do
+        case "$(basename "$test_file")" in
+            *_browser.php) ;; # skipped - needs a real browser
+            *) filtered_files+=("$test_file") ;;
+        esac
+    done
+    test_files=("${filtered_files[@]}")
+elif [ "$browser_only" -eq 1 ]; then
+    filtered_files=()
+    for test_file in "${test_files[@]}"; do
+        case "$(basename "$test_file")" in
+            *_browser.php) filtered_files+=("$test_file") ;;
+            *) ;; # skipped - --browser only keeps files that need one
+        esac
+    done
+    test_files=("${filtered_files[@]}")
+fi
+
+for test_file in "${test_files[@]}"; do
     echo "== $(basename "$test_file") =="
     if php "$test_file"; then
         echo "-- $(basename "$test_file"): PASS --"

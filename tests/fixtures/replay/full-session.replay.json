@@ -1,0 +1,25 @@
+{
+  "steps": [
+    {"pane_text": null},
+    {"pane_text": ["Sure, looking into it."]},
+    {"pane_text": ["Sure, looking into it.", "", "● Bash(grep -r login src/)"]},
+    {"pane_text": null},
+    {"pane_text": ["● ExitPlanMode(Present implementation plan)"]},
+    {"pane_text": null},
+    {"pane_text": ["● Agent(general-purpose)"]},
+    {"pane_text": null},
+    {"pane_text": null},
+    {"pane_text": null, "expect_render": false},
+    {
+      "pane_text": ["● Bash(rm -rf /var/www/uploads/tmp)", "", "Do you want to proceed?", "❯ 1. Yes", "  2. No"],
+      "blocked_prompt": {"question": "Do you want to proceed?", "answer": {"mode": "option", "option": 1}}
+    },
+    {"pane_text": ["removed 42 files"], "clear_before": true},
+    {
+      "pane_text": ["● AskUserQuestion(Which environment should this run against?)", "", "Which environment should this run against?", "❯ 1. staging", "  2. production", "  3. Type something."],
+      "blocked_prompt": {"question": "Which environment should this run against?", "answer": {"mode": "freetext", "option": 3, "text": "staging-canary"}}
+    },
+    {"pane_text": ["User replied: staging-canary"], "clear_before": true},
+    {"pane_text": ["User replied: staging-canary", "", "Fixed it and confirmed against staging-canary."]}
+  ]
+}
