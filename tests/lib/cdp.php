@@ -252,7 +252,14 @@ function cdp_ws_send(mixed $sock, string $payload): void
         $frame .= $payload[$i] ^ $mask[$i % 4];
     }
 
-    fwrite($sock, $frame);
+    // @-suppressed: the other end (e.g. a human closing the browser
+    // window mid-run in --headed mode) going away is an expected,
+    // handled condition here - cdp_call()'s own read loop already treats
+    // a subsequent failed/empty read as "no response", so this would
+    // otherwise just spam a "Broken pipe" PHP Notice for every single
+    // call made after the connection dies, found live testing the
+    // control panel's dead-window abort path.
+    @fwrite($sock, $frame);
 }
 
 /**

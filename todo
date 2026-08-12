@@ -78,6 +78,9 @@ Smaller polish (low effort, low risk):
 - Assistant text is rendered plain (no markdown parsing) - add a simple
   markdown parser so bold/lists/code spans/etc. actually render instead of
   showing raw markdown syntax.
+- session.php: add keyboard shortcuts to navigate between sessions -
+  left/right to move to the prev/next session, plus a popup to search/jump
+  by name.
 
 Exploratory / speculative / lower priority:
 
