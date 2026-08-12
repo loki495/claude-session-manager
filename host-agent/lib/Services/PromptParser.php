@@ -42,17 +42,38 @@ class PromptParser
     public const BLOCKING_PROMPT_CONTEXT_WINDOW = 15;
 
     /**
+     * Matches one leading animated spinner glyph (plus trailing whitespace)
+     * on Claude Code's pane title while actively working, e.g. "⠂ Fix login
+     * bug" or "◐ Fix login bug". Deliberately matched by Unicode general
+     * category (\p{So}, "Symbol, other") rather than a specific code-point
+     * range: found live 2026-08-12 that Claude Code had switched its
+     * spinner from Braille Patterns dots (U+2800-U+28FF, this app's
+     * original and only match) to a rotating half-circle from the
+     * Geometric Shapes block (U+25D0 ◐/◑/..., confirmed against a real
+     * live pane title), silently breaking pane_title_is_working() -
+     * working was always false, so the thinking indicator never showed.
+     * \p{So} already covers both of those blocks plus Block Elements and
+     * effectively every other symbol/dingbat-style spinner glyph set in
+     * common use (verified: both the old braille dots and the new
+     * half-circle are category So) - the actual fix for the root cause
+     * (a hardcoded narrow range that breaks every time the CLI's spinner
+     * style changes) rather than just widening it to also include this
+     * one new range.
+     */
+    private const SPINNER_GLYPH_PATTERN = '/^\p{So}+\s*/u';
+
+    /**
      * Claude Code sets the terminal title to a short description of the
-     * current task, prefixed with an animated braille spinner glyph while
-     * actively working (e.g. "⠂ Fix login bug") - tmux captures this as
-     * pane_title via the standard OSC title escape sequence, no special tmux
-     * config needed. Strips the spinner so only the description remains; an
-     * empty/spinner-only title (nothing set yet, or a non-Claude process)
-     * returns null so callers can fall back to the session name.
+     * current task, prefixed with an animated spinner glyph while actively
+     * working - tmux captures this as pane_title via the standard OSC title
+     * escape sequence, no special tmux config needed. Strips the spinner so
+     * only the description remains; an empty/spinner-only title (nothing
+     * set yet, or a non-Claude process) returns null so callers can fall
+     * back to the session name.
      */
     public static function clean_pane_title(string $title): ?string
     {
-        $stripped = preg_replace('/^[\x{2800}-\x{28FF}]+\s*/u', '', $title);
+        $stripped = preg_replace(self::SPINNER_GLYPH_PATTERN, '', $title);
         $title = trim($stripped ?? $title);
 
         return $title !== '' ? $title : null;
@@ -60,14 +81,14 @@ class PromptParser
 
     /**
      * True while Claude Code is actively working (thinking, streaming text,
-     * running a tool) - the same animated braille spinner clean_pane_title()
+     * running a tool) - the same animated spinner glyph clean_pane_title()
      * strips off is the live "is it doing something right now" signal, so a
      * caller that needs the presence rather than the cleaned title reads it
      * here instead of re-deriving it from the raw title itself.
      */
     public static function pane_title_is_working(string $title): bool
     {
-        return preg_match('/^[\x{2800}-\x{28FF}]+\s*/u', $title) === 1;
+        return preg_match(self::SPINNER_GLYPH_PATTERN, $title) === 1;
     }
 
     /**

@@ -89,17 +89,29 @@ function find_session(string $name): ?array
 }
 
 // --- PromptParser::clean_pane_title(): strips Claude Code's animated spinner glyph,
-// leaving the short task description it sets via terminal title escapes ---
-assert_equal('Fix login bug', PromptParser::clean_pane_title('⠂ Fix login bug'), 'clean_pane_title: strips a leading spinner glyph');
-assert_equal('Fix login bug', PromptParser::clean_pane_title('⠐ Fix login bug'), 'clean_pane_title: strips a different spinner frame');
+// leaving the short task description it sets via terminal title escapes.
+// Both the old Braille-dot spinner (⠂⠐...) and the newer half-circle one
+// (◐◑..., found live 2026-08-12 replacing the dots - see
+// PromptParser::SPINNER_GLYPH_PATTERN's own doc comment) are covered by
+// the same \p{So}-based match, not two special-cased branches - the whole
+// point of matching by Unicode category instead of a hardcoded range is
+// that a THIRD future spinner style shouldn't need its own test case
+// either, only new ones actually worth asserting as a specific regression
+// guard get one. ---
+assert_equal('Fix login bug', PromptParser::clean_pane_title('⠂ Fix login bug'), 'clean_pane_title: strips a leading spinner glyph (old braille-dot style)');
+assert_equal('Fix login bug', PromptParser::clean_pane_title('⠐ Fix login bug'), 'clean_pane_title: strips a different spinner frame (old braille-dot style)');
+assert_equal('Fix login bug', PromptParser::clean_pane_title('◐ Fix login bug'), 'clean_pane_title: strips the newer half-circle spinner glyph too');
+assert_equal('Fix login bug', PromptParser::clean_pane_title('◑ Fix login bug'), 'clean_pane_title: strips a different half-circle spinner frame');
 assert_equal('No spinner here', PromptParser::clean_pane_title('No spinner here'), 'clean_pane_title: leaves a plain title untouched');
 assert_equal(null, PromptParser::clean_pane_title(''), 'clean_pane_title: empty title -> null (caller falls back to session name)');
 assert_equal(null, PromptParser::clean_pane_title('   '), 'clean_pane_title: whitespace-only title -> null');
 
 // --- PromptParser::pane_title_is_working(): the live "is it doing something right now"
 // signal - the same leading spinner glyph PromptParser::clean_pane_title() strips off ---
-assert_true(PromptParser::pane_title_is_working('⠂ Fix login bug'), 'pane_title_is_working: true when the spinner glyph is present');
-assert_true(PromptParser::pane_title_is_working('⠐ Fix login bug'), 'pane_title_is_working: true for a different spinner frame');
+assert_true(PromptParser::pane_title_is_working('⠂ Fix login bug'), 'pane_title_is_working: true when the spinner glyph is present (old braille-dot style)');
+assert_true(PromptParser::pane_title_is_working('⠐ Fix login bug'), 'pane_title_is_working: true for a different spinner frame (old braille-dot style)');
+assert_true(PromptParser::pane_title_is_working('◐ Fix login bug'), 'pane_title_is_working: true for the newer half-circle spinner glyph');
+assert_true(PromptParser::pane_title_is_working('◑ Fix login bug'), 'pane_title_is_working: true for a different half-circle spinner frame');
 assert_equal(false, PromptParser::pane_title_is_working('No spinner here'), 'pane_title_is_working: false for a plain title');
 assert_equal(false, PromptParser::pane_title_is_working(''), 'pane_title_is_working: false for an empty title');
 
