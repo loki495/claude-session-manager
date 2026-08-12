@@ -52,8 +52,18 @@ function cdp_launch(string $chromeBin): ?array
     $userDataDir = sys_get_temp_dir() . '/csm-test-cdp-profile-' . getmypid();
     @mkdir($userDataDir, 0700, true);
 
+    // CSM_TEST_HEADED=1 (see tests/run.sh's --headed flag) drops
+    // --headless=new entirely, so a real visible window opens on
+    // whatever display this process inherits (DISPLAY/WAYLAND_DISPLAY,
+    // same as any other GUI app run from this shell) - for watching the
+    // replay happen live, still fully automated (nothing here waits on
+    // real human input, unlike an actually-interactive devtools session).
+    $headed = getenv('CSM_TEST_HEADED') === '1';
+
     $cmd = [
-        $chromeBin, '--headless=new', '--disable-gpu', '--no-sandbox',
+        $chromeBin,
+        ...($headed ? ['--window-size=1280,900'] : ['--headless=new', '--disable-gpu']),
+        '--no-sandbox',
         // --disable-crash-reporter: chrome's crashpad handler deliberately
         // detaches from the main chrome process (so it survives to report
         // a crash even as chrome itself dies) - found live: that means

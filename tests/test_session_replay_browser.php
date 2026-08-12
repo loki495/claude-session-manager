@@ -161,6 +161,18 @@ try {
     }
 
     if ($page !== null) {
+        // CSM_TEST_HEADED=1 (tests/run.sh's --headed) already told
+        // cdp_launch() to open a real visible window instead of a
+        // headless one - this just slows the loop down enough for a
+        // human to actually follow each step landing. Still fully
+        // automated end to end: nothing below waits on real input, it
+        // just paces itself for watching rather than for speed.
+        $headed = getenv('CSM_TEST_HEADED') === '1';
+
+        if ($headed) {
+            echo "  (headed mode - a real browser window should now be visible; pacing steps for watching)\n";
+        }
+
         $sessionName = $ctx['session_name'];
         $sessionUrl = "{$baseUrl}/session.php?session=" . urlencode($sessionName);
 
@@ -282,6 +294,10 @@ try {
                     "step-{$i}-unexpected-prompt"
                 );
             }
+
+            if ($headed) {
+                usleep(1500000);
+            }
         }
 
         browser_assert(
@@ -305,12 +321,19 @@ try {
             }
         }
 
+        if ($headed) {
+            usleep(2000000);
+        }
+
         // One extra pass at a phone-sized viewport, reusing the SAME
         // already-fully-populated session (server-side state persists
         // across a reload - nothing needs re-answering) - proves the
         // final rendered state holds up responsively, not that any JS
         // logic differs by viewport (session.js has no viewport-
-        // conditional branching to begin with).
+        // conditional branching to begin with). In headed mode this is a
+        // real DevTools-style viewport emulation within the same OS
+        // window (like the devtools device toolbar) - the window itself
+        // doesn't resize, only the page's own rendering area does.
         assert_true(cdp_set_viewport($page, 390, 844, 2.0, true), 'cdp: mobile viewport (390x844) set');
         assert_true(cdp_navigate($page, $sessionUrl), 'cdp: re-navigation at mobile viewport succeeds');
 
@@ -323,6 +346,10 @@ try {
         browser_assert($page, $noOverflow === true, 'session.php (mobile viewport): no horizontal overflow', 'mobile-horizontal-overflow');
 
         browser_assert($page, cdp_evaluate($page, "document.getElementById('compose-bar') !== null") === true, 'session.php (mobile viewport): still renders the compose bar', 'mobile-compose-bar-missing');
+
+        if ($headed) {
+            usleep(2000000);
+        }
     }
 } finally {
     if ($page !== null) {

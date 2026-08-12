@@ -19,6 +19,15 @@
 #              only test_session_replay_browser.php - the browser-only half
 #              with none of test_session_replay.php's curl-based checks.
 #              Contradicts --no-browser (both together is an error).
+#   --headed   test_session_replay_browser.php opens a real, visible Chrome
+#              window instead of a headless one, and paces itself between
+#              steps so a human can actually watch the replay happen -
+#              still fully automated, nothing waits on real input. No
+#              effect on any other test file. Needs a real display
+#              (DISPLAY/WAYLAND_DISPLAY) - run this from a real desktop
+#              session, not over a plain SSH connection with no X
+#              forwarding. Combine with --replay --browser for just this
+#              one file, watched, nothing else running first.
 #   --cleanup  don't run tests at all - just sweep any stray test-infra
 #              processes for THIS checkout (see sweep_stray_processes()
 #              below) and exit. A deliberate, explicit action, not run
@@ -36,6 +45,7 @@ cleanup_only=0
 replay_only=0
 no_browser=0
 browser_only=0
+headed=0
 for arg in "$@"; do
     case "$arg" in
         --bail) bail=1 ;;
@@ -43,6 +53,7 @@ for arg in "$@"; do
         --replay) replay_only=1 ;;
         --no-browser) no_browser=1 ;;
         --browser) browser_only=1 ;;
+        --headed) headed=1 ;;
         *)
             echo "Unknown argument: $arg" >&2
             exit 1
@@ -53,6 +64,19 @@ done
 if [ "$no_browser" -eq 1 ] && [ "$browser_only" -eq 1 ]; then
     echo "Contradictory flags: --no-browser and --browser can't both be set." >&2
     exit 1
+fi
+
+if [ "$headed" -eq 1 ] && [ "$no_browser" -eq 1 ]; then
+    echo "Contradictory flags: --headed opens a browser, --no-browser skips the only test file that uses one." >&2
+    exit 1
+fi
+
+# Read by tests/lib/cdp.php's cdp_launch() and
+# test_session_replay_browser.php directly - every other test file
+# ignores it, so exporting it unconditionally for the whole run is
+# harmless even outside --replay/--browser.
+if [ "$headed" -eq 1 ]; then
+    export CSM_TEST_HEADED=1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
