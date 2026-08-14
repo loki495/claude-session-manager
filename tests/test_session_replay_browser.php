@@ -390,6 +390,25 @@ try {
                 }
             }
 
+            if (isset($advanced['step']['expect_working'])) {
+                // Real end-to-end coverage of the thinking indicator actually
+                // RENDERING in the DOM - #thinking-indicator (session.php)
+                // always exists as a container; session.js's own
+                // renderThinkingIndicator() empties/populates it based on the
+                // client's own poll response. Found live 2026-08-12: this
+                // exact path had zero coverage anywhere before now (Claude
+                // Code switched its spinner glyph set, working became always
+                // false, and nothing caught it) - test_session_replay.php
+                // already covers the JSON field itself; this is specifically
+                // whether the browser actually shows it.
+                $expectedWorking = $advanced['step']['expect_working'];
+                $sawWorkingState = browser_wait_until(function () use (&$page, $expectedWorking) {
+                    $hasContent = cdp_evaluate($page, "document.getElementById('thinking-indicator').children.length > 0");
+                    return $hasContent === $expectedWorking;
+                });
+                browser_assert($page, $sawWorkingState, 'session.php (step ' . $i . '): #thinking-indicator shows working=' . ($expectedWorking ? 'true' : 'false'), "step-{$i}-thinking-indicator-wrong");
+            }
+
             $blockedPrompt = $advanced['step']['blocked_prompt'] ?? null;
 
             if ($blockedPrompt !== null) {

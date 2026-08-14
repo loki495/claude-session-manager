@@ -43,6 +43,26 @@ declare(strict_types=1);
  *                          one line from <name>.jsonl, in order, after the
  *                          seed line - replay_load_scenario() checks this
  *                          count matches, not a raw step-count match.
+ *                          "pane_title" (string, optional) - sets the tmux
+ *                          PANE TITLE (not pane content) for this step, via
+ *                          `tmux select-pane -T` - real Claude Code sets
+ *                          this via its own OSC title escape sequence while
+ *                          actively working, prefixed with an animated
+ *                          spinner glyph (see PromptParser::
+ *                          pane_title_is_working()); a step whose title
+ *                          starts with a spinner char is this fixture's way
+ *                          of simulating "Claude is actively working" for
+ *                          real, end-to-end through the same pane-title
+ *                          read path the real app uses - not just unit-
+ *                          testing the parsing function in isolation.
+ *                          Persists across steps exactly like pane content
+ *                          does (unless a later step sets a new one).
+ *                          "expect_working" (bool, optional) - the test
+ *                          files' own assertion of what session_detail's
+ *                          `working` field (and, in the browser test, the
+ *                          #thinking-indicator DOM element) should read
+ *                          once this step lands - not read by replay_step()
+ *                          itself, purely consumed by the two test files.
  */
 
 /**
@@ -181,6 +201,34 @@ function replay_tmux_send_keys(string $sessionName, string $text, bool $literal 
 }
 
 /**
+ * Sets the tmux PANE TITLE (distinct from pane content/text -
+ * #{pane_title}, what PromptParser::pane_title_is_working()/
+ * clean_pane_title() actually read) directly via `tmux select-pane -T`,
+ * rather than trying to inject a raw OSC title escape sequence through
+ * the fixture's `cat` pane and hoping tmux's own terminal emulation
+ * parses it out of the echoed byte stream - simpler, and verified live to
+ * produce an identical result (tmux_session_panes()'s
+ * `#{pane_pid}|#{pane_title}` format read is agnostic to which mechanism
+ * actually set the title).
+ */
+function replay_set_pane_title(string $sessionName, string $title): void
+{
+    $tmuxSocket = (string)getenv('TMUX_SOCKET');
+    $process = proc_open(
+        ['tmux', '-S', $tmuxSocket, 'select-pane', '-t', $sessionName, '-T', $title],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes
+    );
+
+    if (is_resource($process)) {
+        fclose($pipes[0]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+    }
+}
+
+/**
  * The fixture-side equivalent of TmuxService::tmux_capture_pane() -
  * exposed so a caller (e.g. test_session_replay_browser.php, confirming a
  * DOM click's submit actually reached /answer_prompt.php) can see the raw
@@ -252,6 +300,10 @@ function replay_step(array &$ctx): ?array
 
     foreach ($step['pane_text'] ?? [] as $line) {
         replay_tmux_send_keys($ctx['session_name'], $line);
+    }
+
+    if (isset($step['pane_title'])) {
+        replay_set_pane_title($ctx['session_name'], (string)$step['pane_title']);
     }
 
     usleep(300000);

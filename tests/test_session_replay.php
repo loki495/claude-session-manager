@@ -151,6 +151,19 @@ try {
         $detailData = json_decode($detail['body'], true);
         assert_true($detailData['ok'] ?? false, "session_detail (step {$i}): ok=true");
 
+        if (isset($advanced['step']['expect_working'])) {
+            // Real end-to-end coverage of PromptParser::pane_title_is_working()
+            // through the actual live pane-title read path (replay_setup()'s
+            // fixture pane's title was set via a real `tmux select-pane -T`,
+            // not hand-fed into the parser directly) - found live 2026-08-12
+            // that this exact path had zero coverage anywhere before now
+            // (only the pure string-matching function itself was unit-tested),
+            // which is exactly how a real regression in it (Claude Code
+            // switching its spinner glyph set) went unnoticed.
+            $expectedWorking = $advanced['step']['expect_working'];
+            assert_equal($expectedWorking, $detailData['working'] ?? null, 'session_detail (step ' . $i . '): working=' . ($expectedWorking ? 'true' : 'false'));
+        }
+
         $blockedPrompt = $advanced['step']['blocked_prompt'] ?? null;
 
         if ($blockedPrompt !== null) {
