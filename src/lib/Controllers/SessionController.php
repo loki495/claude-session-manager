@@ -136,6 +136,7 @@ class SessionController extends Controller
             'nextBefore' => $nextBefore,
             'hasMore' => $hasMore,
             'jumpLine' => $jumpLine,
+            'csrfToken' => AuthService::csrf_token(),
         ]);
     }
 

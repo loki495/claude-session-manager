@@ -791,11 +791,27 @@ document.addEventListener('keydown', function (e) {
   var debounceTimer = null;
   var abortController = null;
 
+  // Delegated (results.innerHTML is fully replaced on every render, so a
+  // per-form listener would need re-attaching each time) - same
+  // data-confirm-label + closest('form[...]') pattern session.js's own
+  // blocked-prompt answer form uses, rather than an inline onsubmit with
+  // hand-escaped JS string interpolation (r.session_name/r.title are
+  // search-result data, not something to trust into a JS string literal).
+  results.addEventListener('submit', function (e) {
+    var form = e.target.closest('form[data-confirm-label]');
+
+    if (form && !confirm('Archive session ' + form.dataset.confirmLabel + '?')) {
+      e.preventDefault();
+    }
+  });
+
   function renderResults(sessionResults) {
     if (!sessionResults || sessionResults.length === 0) {
       results.innerHTML = '<div class="text-xs text-slate-500 px-1">No matches.</div>';
       return;
     }
+
+    var csrfToken = input.dataset.csrfToken;
 
     results.innerHTML = sessionResults.map(function (r) {
       var url = r.session_name
@@ -807,13 +823,39 @@ document.addEventListener('keydown', function (e) {
         return '<div class="text-xs text-slate-400 mt-1"><span class="text-slate-500">' + escapeHtml(roleLabel) + ':</span> ' + escapeHtml(m.snippet) + '</div>';
       }).join('');
 
-      return '<a href="' + url + '" class="block rounded-xl border border-slate-800 bg-slate-900/50 active:bg-slate-800 px-3 py-2">'
+      // Archive (kill, per Andres's own call - there's no separate
+      // "archived" state to move a live session into, its own transcript
+      // just naturally becomes archived once nothing's tracking it live
+      // anymore) for a live result; Unarchive (resume) for an already-
+      // archived one - only shown when a real workdir is known, same
+      // "no cwd, no resume form" gate archived-row.php already uses.
+      var actionHtml = r.session_name
+        ? '<form method="post" action="/" class="shrink-0" data-confirm-label="' + escapeHtml(r.session_name) + '">'
+          + '<input type="hidden" name="action" value="kill">'
+          + '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">'
+          + '<input type="hidden" name="session" value="' + escapeHtml(r.session_name) + '">'
+          + '<button type="submit" class="select-none rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5">Archive</button>'
+          + '</form>'
+        : (r.cwd
+          ? '<form method="post" action="/" class="shrink-0">'
+            + '<input type="hidden" name="action" value="resume">'
+            + '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">'
+            + '<input type="hidden" name="claude_session_id" value="' + escapeHtml(r.claude_session_id) + '">'
+            + '<input type="hidden" name="workdir" value="' + escapeHtml(r.cwd) + '">'
+            + '<button type="submit" class="select-none rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5">Unarchive</button>'
+            + '</form>'
+          : '');
+
+      return '<div class="rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2 flex items-start gap-2">'
+        + '<a href="' + url + '" class="min-w-0 flex-1 active:opacity-80">'
         + '<div class="flex items-center gap-1.5 text-sm font-medium text-slate-200 truncate">'
         + escapeHtml(r.title)
         + (r.session_name ? ' <span class="shrink-0 text-[10px] font-normal text-emerald-400 border border-emerald-800/60 rounded-full px-1.5 py-0.5">live</span>' : '')
         + '</div>'
         + matchesHtml
-        + '</a>';
+        + '</a>'
+        + actionHtml
+        + '</div>';
     }).join('');
   }
 

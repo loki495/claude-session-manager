@@ -23,10 +23,21 @@ $this->layout('layout', [
       <p class="mt-1"><?= $this->e((string)($detail['message'] ?? 'Unknown error')) ?></p>
     </div>
   <?php else: ?>
-    <div class="select-none mb-4 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">
-      <div class="text-sm text-slate-200"><?= $this->e((string)($detail['title'] ?? $claudeSessionId)) ?></div>
-      <?php if (!empty($detail['cwd'])): ?><div class="text-xs text-slate-500 truncate mt-0.5"><?= $this->e((string)$detail['cwd']) ?></div><?php endif ?>
-      <div class="text-xs text-slate-400 mt-1">Last active <?= $this->e(\App\Views\SessionRowView::relative_time((int)($detail['last_activity'] ?? 0))) ?></div>
+    <div class="select-none mb-4 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 flex items-start justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="text-sm text-slate-200"><?= $this->e((string)($detail['title'] ?? $claudeSessionId)) ?></div>
+        <?php if (!empty($detail['cwd'])): ?><div class="text-xs text-slate-500 truncate mt-0.5"><?= $this->e((string)$detail['cwd']) ?></div><?php endif ?>
+        <div class="text-xs text-slate-400 mt-1">Last active <?= $this->e(\App\Views\SessionRowView::relative_time((int)($detail['last_activity'] ?? 0))) ?></div>
+      </div>
+      <?php if (!empty($detail['cwd'])): ?>
+      <form method="post" action="/" class="shrink-0">
+        <input type="hidden" name="action" value="resume">
+        <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
+        <input type="hidden" name="claude_session_id" value="<?= $this->e($claudeSessionId) ?>">
+        <input type="hidden" name="workdir" value="<?= $this->e((string)$detail['cwd']) ?>">
+        <button type="submit" class="select-none min-h-[2.75rem] rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-200 font-medium text-sm px-4 py-2">Unarchive</button>
+      </form>
+      <?php endif ?>
     </div>
 
     <div class="select-none mb-4">

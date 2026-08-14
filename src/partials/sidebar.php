@@ -47,13 +47,13 @@
       </div>
     </div>
     <div class="px-4 py-3 border-t border-slate-800">
-      <form method="post" action="/" onsubmit="return confirm('Close session <?= htmlspecialchars($sessionName, ENT_QUOTES) ?>?');">
+      <form method="post" action="/" onsubmit="return confirm('Archive session <?= htmlspecialchars($sessionName, ENT_QUOTES) ?>?');">
         <input type="hidden" name="action" value="kill">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>">
         <input type="hidden" name="session" value="<?= htmlspecialchars($sessionName, ENT_QUOTES) ?>">
         <button type="submit"
           class="w-full min-h-[2.75rem] rounded-lg bg-red-900/70 active:bg-red-800 text-red-100 font-medium text-sm px-4 py-2">
-          Close session
+          Archive
         </button>
       </form>
     </div>

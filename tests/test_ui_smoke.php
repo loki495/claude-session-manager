@@ -619,8 +619,8 @@ try {
         'GET /session.php: the sidebar drawer has overscroll-contain, so scrolling to its end does not scroll-chain into the page behind it'
     );
     assert_true(
-        preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="kill">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="session" value="cc-20260101-1200">\s*<button type="submit"[^>]*>\s*Close session#', $result['body']) === 1,
-        'GET /session.php: sidebar has a "Close session" action that kills THIS session'
+        preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="kill">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="session" value="cc-20260101-1200">\s*<button type="submit"[^>]*>\s*Archive#', $result['body']) === 1,
+        'GET /session.php: sidebar has an "Archive" action that kills THIS session'
     );
     assert_true(
         strpos($result['body'], 'id="history-list"') < strpos($result['body'], 'id="blocked-prompt-section"'),
