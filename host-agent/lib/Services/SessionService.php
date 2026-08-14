@@ -965,15 +965,28 @@ class SessionService
 
         usleep(self::TMUX_KEY_STEP_DELAY_USEC);
 
-        $set = TmuxService::tmux_run(['set-buffer', '--', $text]);
+        // A uniquely-named buffer, not tmux's shared default one (a bare
+        // set-buffer/paste-buffer with no -b) - found live 2026-08-14: this
+        // host-agent handles every request as its OWN separate OS process
+        // (systemd socket activation), all sharing the SAME tmux server, so
+        // two genuinely concurrent replies (two devices/tabs, or this and
+        // send_message() racing) landing their set-buffer calls back to
+        // back before either's paste-buffer runs would silently paste
+        // WHICHEVER text set-buffer wrote last into BOTH panes - reproduced
+        // live against two real fixture panes. -d deletes the named buffer
+        // the instant paste-buffer consumes it, so nothing here needs its
+        // own separate cleanup step on the success path.
+        $bufferName = 'csm-' . bin2hex(random_bytes(8));
+        $set = TmuxService::tmux_run(['set-buffer', '-b', $bufferName, '--', $text]);
 
         if ($set['exit'] !== 0) {
             return ['ok' => false, 'message' => 'Failed to stage reply: ' . trim($set['stderr'])];
         }
 
-        $paste = TmuxService::tmux_run(['paste-buffer', '-t', $name]);
+        $paste = TmuxService::tmux_run(['paste-buffer', '-d', '-b', $bufferName, '-t', $name]);
 
         if ($paste['exit'] !== 0) {
+            TmuxService::tmux_run(['delete-buffer', '-b', $bufferName]); // best-effort - paste-buffer's own -d never ran, so the named buffer would otherwise leak
             return ['ok' => false, 'message' => 'Failed to send reply: ' . trim($paste['stderr'])];
         }
 
@@ -1118,15 +1131,22 @@ class SessionService
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
-        $set = TmuxService::tmux_run(['set-buffer', '--', $text]);
+        // See answer_prompt_with_text()'s own comment on this same pattern -
+        // a uniquely-named buffer, not tmux's shared default one, since
+        // every request here is its own OS process and two genuinely
+        // concurrent sends can otherwise clobber each other's staged text
+        // before either's paste-buffer runs.
+        $bufferName = 'csm-' . bin2hex(random_bytes(8));
+        $set = TmuxService::tmux_run(['set-buffer', '-b', $bufferName, '--', $text]);
 
         if ($set['exit'] !== 0) {
             return ['ok' => false, 'message' => 'Failed to stage message: ' . trim($set['stderr'])];
         }
 
-        $paste = TmuxService::tmux_run(['paste-buffer', '-t', $name]);
+        $paste = TmuxService::tmux_run(['paste-buffer', '-d', '-b', $bufferName, '-t', $name]);
 
         if ($paste['exit'] !== 0) {
+            TmuxService::tmux_run(['delete-buffer', '-b', $bufferName]);
             return ['ok' => false, 'message' => 'Failed to send message: ' . trim($paste['stderr'])];
         }
 

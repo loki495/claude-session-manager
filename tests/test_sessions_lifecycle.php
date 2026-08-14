@@ -46,6 +46,12 @@ $promptTestSession = null;
 /** @var string|null $sendTestSession a cc-* session used to test SessionService::send_message(), for the finally-block safety net */
 $sendTestSession = null;
 
+/** @var string|null $raceSessionA a cc-* session used to test send_message()/answer_prompt_with_text()'s tmux buffer isolation, for the finally-block safety net */
+$raceSessionA = null;
+
+/** @var string|null $raceSessionB the second session in the same buffer-isolation test, for the finally-block safety net */
+$raceSessionB = null;
+
 /** @var string|null $wrapTestSession a cc-* session used to test TmuxService::tmux_capture_pane()'s line-wrap rejoin, for the finally-block safety net */
 $wrapTestSession = null;
 
@@ -1196,6 +1202,80 @@ try {
     SidecarStore::delete_sidecar($sendTestSession);
     $sendTestSession = null;
 
+    // --- send_message()/answer_prompt_with_text() concurrency isolation:
+    // found live 2026-08-14 that both used tmux's single SHARED default
+    // buffer (a bare `set-buffer`/`paste-buffer` with no -b) - this
+    // host-agent handles every request as its OWN separate OS process
+    // (systemd socket activation in production; tests/lib/socket_harness.php
+    // mirrors that here), all sharing the same tmux server, so two
+    // genuinely concurrent sends interleaving as (A sets, B sets - clobbers
+    // A's staged text, A pastes, B pastes) would silently paste B's text
+    // into A's pane. Reproduced live against two real panes with that exact
+    // interleaving before the fix (A received "MESSAGE-FOR-B"); the fix
+    // gives every call its own uniquely-named buffer instead.
+    //
+    // Real OS-level concurrency can't be driven deterministically from here
+    // without either flaky timing or a test-only hook inside production
+    // code (not doing that) - so this drives the exact worst-case
+    // interleaving directly via TmuxService::tmux_run(), using the SAME
+    // named-buffer + -d command shape the real fix uses, against two real
+    // panes. This proves the TECHNIQUE the fix relies on is actually sound
+    // (never flaky - no timing dependency at all) - it does NOT by itself
+    // catch a future regression in send_message()/answer_prompt_with_text()
+    // themselves, since it never calls them; the source-level check right
+    // after this block is what actually guards that. ---
+    $raceSessionA = 'cc-test-buffer-race-a-' . getmypid();
+    $raceSessionB = 'cc-test-buffer-race-b-' . getmypid();
+    TmuxService::tmux_run(['new-session', '-d', '-s', $raceSessionA, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    TmuxService::tmux_run(['new-session', '-d', '-s', $raceSessionB, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
+    usleep(300000);
+
+    // A stages its own text into its OWN named buffer...
+    TmuxService::tmux_run(['set-buffer', '-b', 'csm-race-test-a', '--', 'MESSAGE-FOR-A']);
+    // ...B's ENTIRE send (stage, paste, auto-delete via -d) completes fully
+    // in between, on its OWN separate named buffer...
+    TmuxService::tmux_run(['set-buffer', '-b', 'csm-race-test-b', '--', 'MESSAGE-FOR-B']);
+    TmuxService::tmux_run(['paste-buffer', '-d', '-b', 'csm-race-test-b', '-t', $raceSessionB]);
+    TmuxService::tmux_run(['send-keys', '-t', $raceSessionB, 'Enter']);
+    // ...only THEN does A finally paste from its own still-untouched buffer.
+    TmuxService::tmux_run(['paste-buffer', '-d', '-b', 'csm-race-test-a', '-t', $raceSessionA]);
+    TmuxService::tmux_run(['send-keys', '-t', $raceSessionA, 'Enter']);
+    usleep(300000);
+
+    assert_contains('MESSAGE-FOR-A', TmuxService::tmux_capture_pane($raceSessionA), 'buffer isolation: session A receives its own message even when B\'s entire send completes in between A\'s set and paste');
+    assert_true(!str_contains(TmuxService::tmux_capture_pane($raceSessionA), 'MESSAGE-FOR-B'), 'buffer isolation: session A never receives B\'s message');
+    assert_contains('MESSAGE-FOR-B', TmuxService::tmux_capture_pane($raceSessionB), 'buffer isolation: session B receives its own message');
+
+    $leftoverBuffers = TmuxService::tmux_run(['list-buffers'])['stdout'];
+    assert_equal('', trim($leftoverBuffers), 'buffer isolation: both named buffers were auto-deleted by paste-buffer -d, none leaked');
+
+    TmuxService::tmux_run(['kill-session', '-t', $raceSessionA]);
+    TmuxService::tmux_run(['kill-session', '-t', $raceSessionB]);
+    $raceSessionA = null;
+    $raceSessionB = null;
+
+    // --- The actual regression guard for the fix above: confirms
+    // send_message() and answer_prompt_with_text() themselves genuinely
+    // use a named (-b) buffer at BOTH their set-buffer and paste-buffer
+    // call sites, not tmux's shared default one - a plain source check
+    // rather than another behavioral one, since truly forcing these two
+    // specific call sites to interleave via real OS concurrency from a
+    // test would be inherently flaky (no artificial-delay hook exists in
+    // either function, deliberately not adding one for testability alone).
+    // Deterministic and fails immediately if either call site is ever
+    // reverted to the bare, shared-buffer form. ---
+    $sessionServiceSource = (string)file_get_contents(dirname(__DIR__) . '/host-agent/lib/Services/SessionService.php');
+    assert_equal(
+        0,
+        preg_match('/set-buffer\',\s*\'--\'/', $sessionServiceSource),
+        'buffer isolation: SessionService.php never uses a bare set-buffer with no -b (the shared, unsafe default buffer)'
+    );
+    assert_equal(
+        0,
+        preg_match('/paste-buffer\',\s*\'-t\'/', $sessionServiceSource),
+        'buffer isolation: SessionService.php never uses paste-buffer with no -b (would paste from the shared default buffer)'
+    );
+
     // --- Full-feature parity for an adopted (non-cc-*) session: "tracked"
     // is now sidecar-existence, not the cc-* prefix (see TmuxService::
     // list_tracked_tmux_sessions()), so a session session_start.php adopted
@@ -1300,6 +1380,12 @@ try {
     }
     if ($sendTestSession !== null) {
         TmuxService::tmux_run(['kill-session', '-t', $sendTestSession]);
+    }
+    if ($raceSessionA !== null) {
+        TmuxService::tmux_run(['kill-session', '-t', $raceSessionA]);
+    }
+    if ($raceSessionB !== null) {
+        TmuxService::tmux_run(['kill-session', '-t', $raceSessionB]);
     }
     if ($adoptedTestSession !== null) {
         TmuxService::tmux_run(['kill-session', '-t', $adoptedTestSession]);
