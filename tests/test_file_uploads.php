@@ -129,6 +129,25 @@ try {
     assert_equal(0, $emptyListed['total_size'] ?? null, 'list_uploaded_files: total_size 0 when empty');
     rrmdir($emptyWorkdir);
 
+    // --- UploadService::read_uploaded_file(): the sidebar's new-tab link
+    // target for an uploaded file - reuses resolve_upload_path()'s own
+    // realpath boundary check, so path-traversal coverage lives there
+    // (delete_uploaded_file's own tests below already exercise that
+    // shared helper); this only needs to cover the read-specific parts:
+    // real content, MIME detection, and a plain not-found case. ---
+
+    $readUploaded = UploadService::read_uploaded_file($sessionName, 'note.txt');
+    assert_true($readUploaded['ok'] ?? false, 'read_uploaded_file: ok=true for a real file');
+    assert_equal($content, base64_decode((string)($readUploaded['data'] ?? ''), true), 'read_uploaded_file: returns the real file content, base64-encoded');
+    assert_true(str_starts_with((string)($readUploaded['media_type'] ?? ''), 'text/'), 'read_uploaded_file: detects a text/* media_type for a plain text file');
+    assert_equal('note.txt', $readUploaded['filename'] ?? null, 'read_uploaded_file: reports the real filename');
+
+    $readMissing = UploadService::read_uploaded_file($sessionName, 'never-existed.txt');
+    assert_equal(false, $readMissing['ok'] ?? null, 'read_uploaded_file: fails for a nonexistent file rather than returning garbage');
+
+    $readUnknownSession = UploadService::read_uploaded_file('cc-does-not-exist', 'note.txt');
+    assert_equal(false, $readUnknownSession['ok'] ?? null, 'read_uploaded_file: fails for a session with no known workdir (no sidecar)');
+
     // --- UploadService::delete_uploaded_file(): real delete, path-traversal-safe ---
 
     $deleteResult = UploadService::delete_uploaded_file($sessionName, 'note-1.txt');
@@ -167,6 +186,10 @@ try {
     $dispatchList = dispatch_action(['action' => 'list_uploaded_files', 'session' => $sessionName]);
     assert_equal(true, $dispatchList['ok'] ?? null, 'dispatch_action: list_uploaded_files routes correctly');
     assert_equal(1, count($dispatchList['files'] ?? []), 'dispatch_action: list_uploaded_files reflects real on-disk state');
+
+    $dispatchRead = dispatch_action(['action' => 'read_uploaded_file', 'session' => $sessionName, 'filename' => 'dispatch-test.txt']);
+    assert_equal(true, $dispatchRead['ok'] ?? null, 'dispatch_action: read_uploaded_file routes correctly');
+    assert_equal('via dispatch', base64_decode((string)($dispatchRead['data'] ?? ''), true), 'dispatch_action: read_uploaded_file returns the real content');
 
     $dispatchSave = dispatch_action(['action' => 'save_uploaded_file', 'session' => $sessionName, 'filename' => 'via-dispatch.txt', 'content_base64' => base64_encode('hi')]);
     assert_equal(true, $dispatchSave['ok'] ?? null, 'dispatch_action: save_uploaded_file routes correctly');

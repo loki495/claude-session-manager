@@ -502,6 +502,75 @@ class SessionService
     }
 
     /**
+     * Resolves $filename against $sessionName's own working directory with
+     * a realpath boundary check (same discipline as UploadService::
+     * resolve_upload_path()), re-applying list_plan_files()'s own .md/
+     * README/CLAUDE.md rules rather than trusting that a caller-supplied
+     * filename only ever came from that listing - it never actually goes
+     * through the client round-trip, but the whole point of re-checking
+     * server-side is to not depend on that being true forever.
+     */
+    private static function resolve_plan_file_path(string $workdir, string $filename): ?string
+    {
+        if (strtolower((string)pathinfo($filename, PATHINFO_EXTENSION)) !== 'md') {
+            return null;
+        }
+
+        if (in_array(strtolower(basename($filename)), ['readme.md', 'claude.md'], true)) {
+            return null;
+        }
+
+        $realDir = realpath($workdir);
+
+        if ($realDir === false) {
+            return null;
+        }
+
+        $real = realpath($realDir . '/' . basename($filename));
+
+        if ($real === false || !str_starts_with($real, $realDir . '/')) {
+            return null;
+        }
+
+        return $real;
+    }
+
+    /**
+     * The sidebar's "Plan/handoff files" glance links straight to this for
+     * a new-tab view of the real file content.
+     *
+     * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string}
+     */
+    public static function read_plan_file(string $sessionName, string $filename): array
+    {
+        $sidecar = SidecarStore::read_sidecar($sessionName);
+        $workdir = is_string($sidecar['workdir'] ?? null) ? $sidecar['workdir'] : null;
+
+        if ($workdir === null) {
+            return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+        }
+
+        $path = self::resolve_plan_file_path($workdir, $filename);
+
+        if ($path === null) {
+            return ['ok' => false, 'message' => 'File not found'];
+        }
+
+        $data = file_get_contents($path);
+
+        if ($data === false) {
+            return ['ok' => false, 'message' => 'Could not read file'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => base64_encode($data),
+            'media_type' => 'text/markdown; charset=utf-8',
+            'filename' => basename($path),
+        ];
+    }
+
+    /**
      * Fresh, single-session snapshot for the detail page - re-derives
      * everything from a live tmux/proc scan by name rather than trusting
      * anything from the caller, same discipline as kill_cc_session()'s

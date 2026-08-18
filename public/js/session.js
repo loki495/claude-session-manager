@@ -370,8 +370,9 @@
 
   function uploadedFileRowHtml(f) {
     var name = escapeHtml(f.name);
+    var url = '/uploaded_file_view.php?session=' + encodeURIComponent(sessionName) + '&filename=' + encodeURIComponent(f.name);
     return '<div class="flex items-center justify-between gap-2">'
-      + '<span class="truncate text-slate-300" title="' + name + '">' + name + '</span>'
+      + '<a href="' + url + '" target="_blank" rel="noopener" class="truncate text-slate-300 active:text-slate-100 hover:underline" title="' + name + '">' + name + '</a>'
       + '<span class="shrink-0 flex items-center gap-2">'
       + '<span class="text-xs text-slate-500">' + formatFileSize(f.size) + '</span>'
       + '<button type="button" class="delete-upload-btn text-slate-500 active:text-red-400 text-base leading-none px-1" data-filename="' + name + '" aria-label="Delete ' + name + '">&times;</button>'
@@ -420,8 +421,9 @@
   // purpose - cleanup stays manual.
   function planFileRowHtml(f) {
     var name = escapeHtml(f.name);
+    var url = '/session_plan_file.php?session=' + encodeURIComponent(sessionName) + '&filename=' + encodeURIComponent(f.name);
     return '<div class="flex items-center justify-between gap-2">'
-      + '<span class="truncate text-slate-300" title="' + name + '">' + name + '</span>'
+      + '<a href="' + url + '" target="_blank" rel="noopener" class="truncate text-slate-300 active:text-slate-100 hover:underline" title="' + name + '">' + name + '</a>'
       + '<span class="shrink-0 text-xs text-slate-500">' + escapeHtml(relativeTimeLabel(f.mtime)) + '</span>'
       + '</div>';
   }

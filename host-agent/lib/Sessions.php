@@ -141,6 +141,9 @@ function dispatch_action(array $request): array
         case 'list_plan_files':
             return SessionService::list_plan_files((string)($request['session'] ?? ''));
 
+        case 'read_plan_file':
+            return SessionService::read_plan_file((string)($request['session'] ?? ''), (string)($request['filename'] ?? ''));
+
         case 'quota':
             $quotaSession = trim((string)($request['session'] ?? ''));
 
@@ -161,6 +164,9 @@ function dispatch_action(array $request): array
 
         case 'list_uploaded_files':
             return UploadService::list_uploaded_files((string)($request['session'] ?? ''));
+
+        case 'read_uploaded_file':
+            return UploadService::read_uploaded_file((string)($request['session'] ?? ''), (string)($request['filename'] ?? ''));
 
         case 'delete_uploaded_file':
             return UploadService::delete_uploaded_file((string)($request['session'] ?? ''), (string)($request['filename'] ?? ''));

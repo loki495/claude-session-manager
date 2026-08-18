@@ -226,6 +226,9 @@ $response = match ($action) {
             ['name' => 'handoff-2026-08-08.md', 'size' => 1024, 'mtime' => time() - 3600],
         ]]
         : ['ok' => false, 'message' => 'Unknown working directory for this session'],
+    'read_plan_file' => ($request['session'] ?? null) === CANNED_SESSION_NAME && ($request['filename'] ?? null) === 'PLAN.md'
+        ? ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/markdown; charset=utf-8', 'filename' => 'PLAN.md']
+        : ['ok' => false, 'message' => 'File not found'],
     'session_attachment' => (string)($request['session'] ?? null) === CANNED_SESSION_NAME
         ? match ($request['file_uuid'] ?? null) {
             CANNED_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES)],
@@ -302,6 +305,9 @@ $response = match ($action) {
     'list_uploaded_files' => ($request['session'] ?? null) === CANNED_SESSION_NAME
         ? ['ok' => true, 'files' => [['name' => 'photo.jpg', 'size' => 204800, 'mtime' => time() - 60], ['name' => 'notes.txt', 'size' => 512, 'mtime' => time() - 120]], 'total_size' => 205312]
         : ['ok' => false, 'message' => 'Unknown working directory for this session'],
+    'read_uploaded_file' => ($request['session'] ?? null) === CANNED_SESSION_NAME && ($request['filename'] ?? null) === 'notes.txt'
+        ? ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt']
+        : ['ok' => false, 'message' => 'File not found'],
     'delete_uploaded_file' => ($request['session'] ?? null) === CANNED_SESSION_NAME && ($request['filename'] ?? null) === 'photo.jpg'
         ? ['ok' => true]
         : ['ok' => false, 'message' => 'File not found'],

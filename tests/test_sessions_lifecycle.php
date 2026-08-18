@@ -452,6 +452,24 @@ assert_equal(['PLAN.md', 'older-plan.md'], $planFileNames, 'list_plan_files: onl
 $planFileSizes = array_column($planFilesResult['files'] ?? [], 'size', 'name');
 assert_equal(strlen('newer'), $planFileSizes['PLAN.md'] ?? null, 'list_plan_files: reports the real file size');
 
+// --- SessionService::read_plan_file(): the sidebar's new-tab link target
+// for a plan file - re-validates the .md/README/CLAUDE.md rules itself
+// rather than trusting a caller-supplied filename just because it looks
+// like something list_plan_files() would have returned. ---
+assert_equal(false, SessionService::read_plan_file('cc-not-a-real-session', 'PLAN.md')['ok'] ?? null, 'read_plan_file: rejects a session with no sidecar (unknown workdir)');
+
+$readPlanFileResult = SessionService::read_plan_file($planFilesSession, 'PLAN.md');
+assert_true($readPlanFileResult['ok'] ?? false, 'read_plan_file: ok=true for a real plan file');
+assert_equal('newer', base64_decode((string)($readPlanFileResult['data'] ?? ''), true), 'read_plan_file: returns the real file content, base64-encoded');
+assert_equal('text/markdown; charset=utf-8', $readPlanFileResult['media_type'] ?? null, 'read_plan_file: reports a markdown media_type');
+
+assert_equal(false, SessionService::read_plan_file($planFilesSession, 'notes.txt')['ok'] ?? null, 'read_plan_file: rejects a non-.md file even though it really exists in the workdir');
+assert_equal(false, SessionService::read_plan_file($planFilesSession, 'README.md')['ok'] ?? null, 'read_plan_file: rejects README.md even though it really exists - same exclusion as list_plan_files()');
+assert_equal(false, SessionService::read_plan_file($planFilesSession, 'CLAUDE.md')['ok'] ?? null, 'read_plan_file: rejects CLAUDE.md too');
+assert_equal(false, SessionService::read_plan_file($planFilesSession, 'does-not-exist.md')['ok'] ?? null, 'read_plan_file: rejects a filename that does not exist on disk');
+assert_equal(false, SessionService::read_plan_file($planFilesSession, '../../../../etc/passwd')['ok'] ?? null, 'read_plan_file: rejects a path-traversal attempt (also fails the .md check)');
+assert_equal(false, SessionService::read_plan_file($planFilesSession, 'nested/deep-plan.md')['ok'] ?? null, 'read_plan_file: rejects a subdirectory path, not just top-level filenames (basename() strips the directory part, so this resolves to a nonexistent top-level file)');
+
 @unlink($planFilesDir . '/README.md');
 @unlink($planFilesDir . '/CLAUDE.md');
 @unlink($planFilesDir . '/notes.txt');

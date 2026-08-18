@@ -585,6 +585,28 @@ try {
     $wrongAttachmentResult = curl_request('GET', "{$baseUrl}/session_attachment.php?session=cc-20260101-1200&line=8&file_uuid=not-the-real-uuid", [], $cookieJar);
     assert_equal(404, $wrongAttachmentResult['status'], 'GET /session_attachment.php: an unrecognized file_uuid -> 404, not a silent empty body');
 
+    // --- uploaded_file_view.php / session_plan_file.php: same binary-
+    // endpoint contract as session_attachment.php, but for the sidebar's
+    // "Uploaded files"/"Plan/handoff files" glances - not immutable
+    // (see Controller::stream_binary_result()'s own doc comment), so no
+    // Cache-Control assertion here the way an attachment might get one. ---
+    $uploadedFileViewResult = curl_request('GET', "{$baseUrl}/uploaded_file_view.php?session=cc-20260101-1200&filename=notes.txt", [], $cookieJar);
+    assert_equal(200, $uploadedFileViewResult['status'], 'GET /uploaded_file_view.php: 200 for a real, matching session/filename');
+    assert_equal('canned attachment bytes', $uploadedFileViewResult['body'], 'GET /uploaded_file_view.php: streams the real (canned) file bytes');
+    assert_true(str_starts_with($uploadedFileViewResult['headers']['content-type'] ?? '', 'text/plain'), 'GET /uploaded_file_view.php: Content-Type reflects the file\'s real media_type');
+    assert_contains('inline', $uploadedFileViewResult['headers']['content-disposition'] ?? '', 'GET /uploaded_file_view.php: a text file opens inline (viewable in a new tab), not forced to download');
+    assert_contains('notes.txt', $uploadedFileViewResult['headers']['content-disposition'] ?? '', 'GET /uploaded_file_view.php: Content-Disposition carries the real filename');
+    $wrongUploadedFileViewResult = curl_request('GET', "{$baseUrl}/uploaded_file_view.php?session=cc-20260101-1200&filename=not-a-real-file.jpg", [], $cookieJar);
+    assert_equal(404, $wrongUploadedFileViewResult['status'], 'GET /uploaded_file_view.php: an unrecognized filename -> 404, not a silent empty body');
+
+    $planFileContentResult = curl_request('GET', "{$baseUrl}/session_plan_file.php?session=cc-20260101-1200&filename=PLAN.md", [], $cookieJar);
+    assert_equal(200, $planFileContentResult['status'], 'GET /session_plan_file.php: 200 for a real, matching session/filename');
+    assert_equal('canned attachment bytes', $planFileContentResult['body'], 'GET /session_plan_file.php: streams the real (canned) file bytes');
+    assert_true(str_starts_with($planFileContentResult['headers']['content-type'] ?? '', 'text/markdown'), 'GET /session_plan_file.php: Content-Type reflects the file\'s real media_type');
+    assert_contains('inline', $planFileContentResult['headers']['content-disposition'] ?? '', 'GET /session_plan_file.php: a markdown file opens inline (viewable in a new tab), not forced to download');
+    $wrongPlanFileContentResult = curl_request('GET', "{$baseUrl}/session_plan_file.php?session=cc-20260101-1200&filename=not-a-real-file.md", [], $cookieJar);
+    assert_equal(404, $wrongPlanFileContentResult['status'], 'GET /session_plan_file.php: an unrecognized filename -> 404, not a silent empty body');
+
     // --- ExitPlanMode (lines 9-10): its own 'plan' block kind, shown in
     // full (not collapsed like a routine tool call), plus the approved
     // outcome's short, clean text - not the real verbose "## Approved

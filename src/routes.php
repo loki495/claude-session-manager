@@ -36,6 +36,7 @@ $router->post('/session.php', [SessionController::class, 'show']);
 
 $router->get('/session_detail.php', [SessionController::class, 'detail']);
 $router->get('/session_plan_files.php', [SessionController::class, 'planFiles']);
+$router->get('/session_plan_file.php', [SessionController::class, 'planFileContent']);
 $router->get('/session_history.php', [SessionController::class, 'history']);
 $router->get('/session_attachment.php', [SessionController::class, 'attachment']);
 $router->get('/session_search.php', [SessionController::class, 'search']);
@@ -61,6 +62,7 @@ $router->post('/answer_prompt.php', [SessionController::class, 'answerPrompt']);
 $router->get('/browse.php', [BrowseController::class, 'browse']);
 
 $router->get('/uploaded_files.php', [UploadController::class, 'list']);
+$router->get('/uploaded_file_view.php', [UploadController::class, 'view']);
 $router->get('/upload_file.php', [UploadController::class, 'upload']);
 $router->post('/upload_file.php', [UploadController::class, 'upload']);
 $router->get('/delete_uploaded_file.php', [UploadController::class, 'deleteOne']);

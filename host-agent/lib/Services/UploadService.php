@@ -213,6 +213,42 @@ class UploadService
     }
 
     /**
+     * The sidebar's "Uploaded files" glance links straight to this for a
+     * new-tab view - resolve_upload_path() already does the real
+     * path-traversal boundary check, this just reads the bytes and
+     * detects a MIME type for the browser to render/download correctly.
+     *
+     * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string}
+     */
+    public static function read_uploaded_file(string $sessionName, string $filename): array
+    {
+        $workdir = self::session_workdir($sessionName);
+
+        if ($workdir === null) {
+            return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+        }
+
+        $path = self::resolve_upload_path($workdir, $filename);
+
+        if ($path === null) {
+            return ['ok' => false, 'message' => 'File not found'];
+        }
+
+        $data = file_get_contents($path);
+
+        if ($data === false) {
+            return ['ok' => false, 'message' => 'Could not read file'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => base64_encode($data),
+            'media_type' => mime_content_type($path) ?: 'application/octet-stream',
+            'filename' => basename($path),
+        ];
+    }
+
+    /**
      * @return array{ok:bool, message?:string}
      */
     public static function delete_uploaded_file(string $sessionName, string $filename): array

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\AgentClient;
+use App\Services\AuthService;
 
 class UploadController extends Controller
 {
@@ -79,6 +80,24 @@ class UploadController extends Controller
             'filename' => (string)($file['name'] ?? 'upload'),
             'content_base64' => base64_encode($content),
         ]));
+    }
+
+    /**
+     * GET-only binary endpoint - the sidebar's "Uploaded files" glance
+     * links straight to this now, opening the real file content in a new
+     * tab rather than just naming it. Not immutable (see Controller::
+     * stream_binary_result()'s own doc comment) - a re-upload can land on
+     * the same (de-duplicated) filename with different content.
+     */
+    public function view(): void
+    {
+        AuthService::start_app_session();
+
+        self::stream_binary_result(AgentClient::agent_call([
+            'action' => 'read_uploaded_file',
+            'session' => (string)($_GET['session'] ?? ''),
+            'filename' => (string)($_GET['filename'] ?? ''),
+        ]), immutable: false, inlineText: true);
     }
 
     /**
