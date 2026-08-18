@@ -17,6 +17,7 @@
   var thinkingIndicator = document.getElementById('thinking-indicator');
   var blockedSection = document.getElementById('blocked-prompt-section');
   var goToBottomBtn = document.getElementById('go-to-bottom-btn');
+  var appShell = document.getElementById('app-shell');
   var composeBar = document.getElementById('compose-bar');
   var composeInputRow = document.getElementById('compose-input-row');
   var composeBlockedNote = document.getElementById('compose-blocked-note');
@@ -224,6 +225,84 @@
     return 'idle';
   }
 
+  // --- Per-row "done" badge: distinct from the aggregate sidebar-notify-
+  // dot above, which clears the moment the sidebar is merely opened/
+  // glanced at. This is Andres's own ask (2026-08-18): a session that just
+  // finished (working/blocked -> idle) should read "done" instead of
+  // "idle" in the list, and stay that way until he actually visits THAT
+  // session's own page - not just sees it listed. Shared across every
+  // session.php tab via localStorage (same mechanism as
+  // SIDEBAR_SESSION_STATE_KEY above, just a separate key/clearing rule),
+  // keyed by session name so any tab can update any other session's
+  // entry, but only that session's OWN page load ever acknowledges it. ---
+  var SESSION_DONE_STATE_KEY = 'csm-session-done-state';
+
+  function readSessionDoneState() {
+    try {
+      var raw = window.localStorage.getItem(SESSION_DONE_STATE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function writeSessionDoneState(state) {
+    try {
+      window.localStorage.setItem(SESSION_DONE_STATE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  // Visiting this session's own page IS the acknowledgment - forgets
+  // whatever state it was last observed in (so a stale "done" elsewhere
+  // doesn't linger) without needing to know its current state yet (that's
+  // only known once session_detail.php's first poll lands) - the next
+  // genuine working/blocked -> idle transition, observed by some OTHER
+  // tab after this, is what re-arms "done" again.
+  (function acknowledgeThisSessionVisited() {
+    var state = readSessionDoneState();
+    state[sessionName] = { lastState: null, done: false };
+    writeSessionDoneState(state);
+  })();
+
+  // Shared by refreshSidebarNotification() and loadSidebarList() - same
+  // "recompute from this poll's fresh data" pattern as
+  // processOtherSessions() above, just writing to its own separate store
+  // with its own clearing rule (see the block comment above).
+  function updateSessionDoneState(others) {
+    var stored = readSessionDoneState();
+    // Starts as a COPY of every existing entry, not an empty object - this
+    // page's own self-acknowledged entry (see acknowledgeThisSessionVisited()
+    // above) never appears in "others" (that list always excludes
+    // sessionName), so rebuilding from others alone would silently wipe it
+    // out on this page's very next poll cycle - found live 2026-08-18,
+    // confirmed via a real two-tab check (localStorage is shared across
+    // every session.php tab on the same origin). Only entries for sessions
+    // actually present in this poll's data get overwritten below.
+    var next = {};
+
+    for (var name in stored) {
+      if (Object.prototype.hasOwnProperty.call(stored, name)) {
+        next[name] = stored[name];
+      }
+    }
+
+    others.forEach(function (s) {
+      var state = otherSessionState(s);
+      var prev = stored[s.name];
+      var done = state === 'idle' && !!(prev && prev.done);
+
+      if (state === 'idle' && prev && prev.lastState && prev.lastState !== 'idle') {
+        done = true;
+      }
+
+      next[s.name] = { lastState: state, done: done };
+    });
+
+    writeSessionDoneState(next);
+
+    return next;
+  }
+
   function applySidebarNotifyDot(kind) {
     if (!sidebarNotifyDot) {
       return;
@@ -287,22 +366,27 @@
 
         var others = (data.sessions || []).filter(function (s) { return s.name !== sessionName; });
         processOtherSessions(others, false);
+        updateSessionDoneState(others);
       })
       .catch(function () {});
   }
 
-  function sidebarStatusBadge(s) {
+  function sidebarStatusBadge(s, isDone) {
     if (s.blocked_reason) {
       return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-amber-900/60 text-amber-300">waiting</span>';
     }
     if (s.working) {
       return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-indigo-900/60 text-indigo-300">working</span>';
     }
+    if (isDone) {
+      return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-emerald-900/60 text-emerald-300">done</span>';
+    }
     return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-slate-800 text-slate-400">' + (s.attached ? 'attached' : 'idle') + '</span>';
   }
 
-  function sidebarRowHtml(s) {
+  function sidebarRowHtml(s, doneState) {
     var label = s.title || s.name;
+    var isDone = !!(doneState && doneState[s.name] && doneState[s.name].done);
     var sub = s.blocked_reason
       ? s.blocked_reason
       : (s.last_message && s.last_message.blocks && s.last_message.blocks[0] ? s.last_message.blocks[0].text : '');
@@ -312,7 +396,7 @@
       '<a href="/session.php?session=' + encodeURIComponent(s.name) + '" class="block px-4 py-3 active:bg-slate-800">' +
       '<div class="flex items-center justify-between gap-2">' +
       '<span class="text-slate-200 truncate">' + escapeHtml(label) + '</span>' +
-      sidebarStatusBadge(s) +
+      sidebarStatusBadge(s, isDone) +
       '</div>' +
       cwdHtml +
       subHtml +
@@ -331,13 +415,20 @@
         }
         var others = (data.sessions || []).filter(function (s) { return s.name !== sessionName; });
         // Opening the sidebar IS "looking" - clears the green (finished,
-        // unseen) dot for anything it's about to display.
+        // unseen) dot for anything it's about to display. Deliberately
+        // NOT the same "seen" trigger as the per-row "done" badge below -
+        // that one only clears when Andres actually visits the session
+        // itself (see acknowledgeThisSessionVisited() above).
         processOtherSessions(others, true);
+        var doneState = updateSessionDoneState(others);
         if (others.length === 0) {
           sidebarList.innerHTML = '<div class="px-4 py-3 text-slate-500">No other sessions.</div>';
           return;
         }
-        sidebarList.innerHTML = others.map(sidebarRowHtml).join('');
+        // Not others.map(sidebarRowHtml) directly - Array.prototype.map
+        // passes (element, index, array), and sidebarRowHtml's second
+        // parameter is doneState, not an index.
+        sidebarList.innerHTML = others.map(function (s) { return sidebarRowHtml(s, doneState); }).join('');
       })
       .catch(function () {
         sidebarList.innerHTML = '<div class="px-4 py-3 text-slate-500">Could not load sessions.</div>';
@@ -518,9 +609,35 @@
     });
   }
 
+  // Matches the lg: breakpoint (1024px) Tailwind classes already use
+  // throughout this app (e.g. lg:max-w-4xl) - desktop/wide screens get a
+  // persistent sidebar (see openSidebar() below), not the mobile modal
+  // drawer.
+  function isDesktopViewport() {
+    return window.matchMedia('(min-width: 1024px)').matches;
+  }
+
   function openSidebar() {
-    sidebarOverlay.classList.remove('hidden');
+    // On desktop this is a lightweight always-visible panel, not a modal
+    // drawer - no dark backdrop, and the main content underneath stays
+    // fully usable (Andres's own choice, 2026-08-18, over keeping the
+    // overlay and just pre-opening it). Mobile keeps the existing
+    // overlay/click-outside-to-close behavior unchanged.
+    if (!isDesktopViewport()) {
+      sidebarOverlay.classList.remove('hidden');
+    }
     sidebar.classList.remove('translate-x-full');
+    // #sidebar is position:fixed (out of #app-shell's own flex flow), so
+    // without this the opaque w-72 (18rem) panel simply renders ON TOP of
+    // whatever's underneath rather than making room for itself - found
+    // live 2026-08-18 that this fully covered the compose bar's Send
+    // button at both 1024px and 1280px widths (still 16px clipped even at
+    // 1440px). lg:mr-72 (same 18rem as the sidebar's own w-72) shrinks the
+    // content column by exactly the sidebar's width instead - lg: prefixed
+    // so it's a no-op if this ever ran below the desktop breakpoint.
+    if (appShell) {
+      appShell.classList.add('lg:mr-72');
+    }
     // The sidebar is its own independently-scrollable element (#sidebar
     // has overflow-y-auto), not tied to the main page's scroll position -
     // but without this, it opens wherever its OWN scrollTop last was left
@@ -536,6 +653,10 @@
   function closeSidebar() {
     sidebarOverlay.classList.add('hidden');
     sidebar.classList.add('translate-x-full');
+
+    if (appShell) {
+      appShell.classList.remove('lg:mr-72');
+    }
   }
 
   if (sidebarToggleBtn) {
@@ -547,6 +668,15 @@
         closeSidebar();
       }
     });
+
+    // Open by default on desktop/wide screens (Andres's own ask,
+    // 2026-08-18) - checked once at load, not kept in sync with later
+    // window resizes (not asked for, and this app is never actually used
+    // at a resized browser window in practice - always either a real
+    // phone or a real desktop width).
+    if (isDesktopViewport()) {
+      openSidebar();
+    }
   }
 
   // --- swipe gestures (touch devices): swipe left anywhere opens the
