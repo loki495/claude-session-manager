@@ -88,7 +88,7 @@ try {
     assert_contains('Fix the login redirect bug', $result['body'], 'GET /: canned pane title shown as the primary label');
     assert_contains('cc-20260101-1200', $result['body'], 'GET /: raw session name still shown (secondary, since a title is present)');
     assert_contains('demo-project', $result['body'], 'GET /: canned workdir rendered');
-    assert_contains('detached', $result['body'], 'GET /: canned session shown as detached');
+    assert_contains('idle', $result['body'], 'GET /: canned session shown as idle');
     assert_contains('Bare title', $result['body'], "GET /: canned bare process's tmux pane title shown");
     assert_contains('csm-test-adhoc', $result['body'], "GET /: canned bare process's owning tmux session shown");
     assert_contains("I&#039;ll clean up the temp directory now", $result['body'], 'GET /: last-message preview shown under a non-blocked session row');

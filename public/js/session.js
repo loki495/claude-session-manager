@@ -298,7 +298,7 @@
     if (s.working) {
       return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-indigo-900/60 text-indigo-300">working</span>';
     }
-    return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-slate-800 text-slate-400">' + (s.attached ? 'attached' : 'detached') + '</span>';
+    return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-slate-800 text-slate-400">' + (s.attached ? 'attached' : 'idle') + '</span>';
   }
 
   function sidebarRowHtml(s) {
@@ -1390,7 +1390,7 @@
       html += '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">'
         + '<span id="static-info-activity"></span>'
         + '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
-        + (detail.attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">detached</span>');
+        + (detail.attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">idle</span>');
 
       if (contextUsedPercentage !== null) {
         html += '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'

@@ -111,6 +111,7 @@ assert_equal('Fix login bug', PromptParser::clean_pane_title('◑ Fix login bug'
 assert_equal('No spinner here', PromptParser::clean_pane_title('No spinner here'), 'clean_pane_title: leaves a plain title untouched');
 assert_equal(null, PromptParser::clean_pane_title(''), 'clean_pane_title: empty title -> null (caller falls back to session name)');
 assert_equal(null, PromptParser::clean_pane_title('   '), 'clean_pane_title: whitespace-only title -> null');
+assert_equal('Fix login bug', PromptParser::clean_pane_title("\u{2733} Fix login bug"), 'clean_pane_title: strips the static idle marker glyph too, same as a real spinner frame');
 
 // --- PromptParser::pane_title_is_working(): the live "is it doing something right now"
 // signal - the same leading spinner glyph PromptParser::clean_pane_title() strips off ---
@@ -120,6 +121,13 @@ assert_true(PromptParser::pane_title_is_working('◐ Fix login bug'), 'pane_titl
 assert_true(PromptParser::pane_title_is_working('◑ Fix login bug'), 'pane_title_is_working: true for a different half-circle spinner frame');
 assert_equal(false, PromptParser::pane_title_is_working('No spinner here'), 'pane_title_is_working: false for a plain title');
 assert_equal(false, PromptParser::pane_title_is_working(''), 'pane_title_is_working: false for an empty title');
+// Found live 2026-08-18: this static "So"-category idle marker (distinct
+// from an actually-animating spinner frame - confirmed by watching a real
+// idle pane's title NOT change across repeated captures) was making every
+// session with a title report working=true forever, even fully idle -
+// the browser's thinking indicator (and the sidebar's "working" badge)
+// never went away once a session had produced its first title.
+assert_equal(false, PromptParser::pane_title_is_working("\u{2733} Fix login bug"), 'pane_title_is_working: false for the static idle marker glyph, even though it is also \p{So}');
 
 // --- PromptParser::detect_blocking_prompt(): flags a session stuck on an interactive
 // prompt (folder trust, tool permission, ...) via the leading "❯ N."

@@ -63,6 +63,24 @@ class PromptParser
     private const SPINNER_GLYPH_PATTERN = '/^\p{So}+\s*/u';
 
     /**
+     * Claude Code also prefixes an IDLE pane title (a task description is
+     * set, but nothing is actively running) with this same-category glyph -
+     * confirmed live 2026-08-18: watched a genuinely idle session's title
+     * stay fixed at "✳" (U+2733, EIGHT SPOKED ASTERISK, Dingbats block)
+     * across repeated captures a second apart, while an actually-working
+     * session's title visibly alternated between "◐"/"◑" each capture.
+     * SPINNER_GLYPH_PATTERN can't tell these apart on its own - both are
+     * \p{So} - which was making pane_title_is_working() report true for
+     * EVERY session that had ever produced a title, idle or not (found
+     * live: the browser's thinking indicator never went away). Narrowing
+     * SPINNER_GLYPH_PATTERN itself back down to hardcoded animated-glyph
+     * ranges would reintroduce the exact fragility \p{So} was chosen to
+     * avoid the last time Claude Code's spinner style changed - excluding
+     * this one confirmed static marker is the smaller, more targeted fix.
+     */
+    private const IDLE_MARKER_GLYPH = "\u{2733}";
+
+    /**
      * Claude Code sets the terminal title to a short description of the
      * current task, prefixed with an animated spinner glyph while actively
      * working - tmux captures this as pane_title via the standard OSC title
@@ -88,7 +106,11 @@ class PromptParser
      */
     public static function pane_title_is_working(string $title): bool
     {
-        return preg_match(self::SPINNER_GLYPH_PATTERN, $title) === 1;
+        if (preg_match(self::SPINNER_GLYPH_PATTERN, $title, $match) !== 1) {
+            return false;
+        }
+
+        return trim($match[0]) !== self::IDLE_MARKER_GLYPH;
     }
 
     /**

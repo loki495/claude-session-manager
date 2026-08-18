@@ -1,7 +1,7 @@
 {
   "steps": [
     {"label": "User message", "pane_text": null, "pane_title": "◐ Fix the login bug", "expect_working": true},
-    {"label": "Assistant text reply", "pane_text": ["Sure, looking into it."], "pane_title": "Fix the login bug", "expect_working": false},
+    {"label": "Assistant text reply", "pane_text": ["Sure, looking into it."], "pane_title": "✳ Fix the login bug", "expect_working": false},
     {"label": "Tool use: Bash (grep)", "pane_text": ["Sure, looking into it.", "", "● Bash(grep -r login src/)"]},
     {"label": "Tool result: grep output", "pane_text": null},
     {"label": "Plan proposed (ExitPlanMode)", "pane_text": ["● ExitPlanMode(Present implementation plan)"]},
