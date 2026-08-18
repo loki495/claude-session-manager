@@ -306,12 +306,14 @@
       ? s.blocked_reason
       : (s.last_message && s.last_message.blocks && s.last_message.blocks[0] ? s.last_message.blocks[0].text : '');
     var subHtml = sub ? '<div class="text-xs text-slate-500 mt-0.5 line-clamp-2">' + escapeHtml(sub) + '</div>' : '';
+    var cwdHtml = s.workdir ? '<div class="text-xs text-slate-600 truncate mt-0.5">' + escapeHtml(s.workdir) + '</div>' : '';
     return (
       '<a href="/session.php?session=' + encodeURIComponent(s.name) + '" class="block px-4 py-3 active:bg-slate-800">' +
       '<div class="flex items-center justify-between gap-2">' +
       '<span class="text-slate-200 truncate">' + escapeHtml(label) + '</span>' +
       sidebarStatusBadge(s) +
       '</div>' +
+      cwdHtml +
       subHtml +
       '</a>'
     );
@@ -690,6 +692,39 @@
   if (goToBottomBtn) {
     window.addEventListener('scroll', updateGoToBottomVisibility, { passive: true });
     goToBottomBtn.addEventListener('click', function () { scrollToBottom(true); });
+  }
+
+  // #compose-bar (position:fixed, bottom:0) can visually detach from the
+  // bottom of the viewport during scroll on iOS Safari - drifts up while
+  // scrolling down, or freezes mid-page while scrolling up - despite the
+  // will-change-transform layer hint already on it (see compose-bar.php's
+  // own comment on that). Reported live 2026-08-17: tapping the textarea
+  // (a focus event) immediately re-anchors it, which is the actual clue
+  // here - focus forces iOS to recompute fixed-position elements, so this
+  // nudges the same recompute on every scroll tick instead of waiting for
+  // a focus event to trigger it by accident. Toggling to a real (if
+  // visually negligible) transform value and back is what forces the
+  // recompute - just re-affirming the existing value is a no-op change
+  // and wouldn't prompt a relayout.
+  if (composeBar) {
+    var composeBarNudgePending = false;
+
+    window.addEventListener('scroll', function () {
+      if (composeBarNudgePending) {
+        return;
+      }
+
+      composeBarNudgePending = true;
+
+      requestAnimationFrame(function () {
+        composeBar.style.transform = 'translateZ(0.01px)';
+
+        requestAnimationFrame(function () {
+          composeBar.style.transform = '';
+          composeBarNudgePending = false;
+        });
+      });
+    }, { passive: true });
   }
 
   // Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed

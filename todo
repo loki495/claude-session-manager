@@ -145,3 +145,5 @@ Exploratory / speculative / lower priority:
   back to the dashboard and back into the session fixes it - suggests a
   transient read (pane scrape or a poll racing a mid-write state) rather
   than something permanently wrong with that session. Investigate.
+- Bug: sometimes the "stop thinking" button (renderThinkingIndicator()'s
+  stop-btn in session.js) doesn't work. Investigate.
