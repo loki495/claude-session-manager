@@ -2,15 +2,21 @@
 $this->layout('layout', [
     'title' => 'Claude Session Manager',
     'viewportContent' => 'width=device-width, initial-scale=1, viewport-fit=cover',
+    'fixedShell' => true,
 ]);
 ?>
 <?php $this->start('head-extra') ?>
 <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Claude%20Sessions%22%2C%22display%22%3A%22standalone%22%7D">
 <?php $this->stop() ?>
 
-<div id="page-content" class="max-w-2xl mx-auto px-4 py-6 pb-44">
-
-  <header class="select-none mb-6 flex items-start justify-between gap-2">
+<!-- #app-shell: same full-height flex column as session.php (see its own
+     comment) - body no longer scrolls, #page-content is the sole scrolling
+     container, and #dashboard-footer is a normal flex item instead of
+     position:fixed, fixing the same iOS Safari detach-mid-scroll bug that
+     hit session.php's compose-bar. -->
+<div id="app-shell" class="flex flex-col h-full min-h-0">
+<header class="select-none px-4 pt-6 pb-2">
+  <div class="max-w-2xl mx-auto flex items-start justify-between gap-2">
     <div class="min-w-0">
       <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
       <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= \App\Views\SessionRowView::session_count_label_html(count($sessions)) ?></p>
@@ -23,7 +29,11 @@ $this->layout('layout', [
       <option value="10000">10s</option>
       <option value="15000">15s</option>
     </select>
-  </header>
+  </div>
+</header>
+
+<div id="page-content" class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+<div class="max-w-2xl mx-auto px-4 py-6">
 
   <?php if ($agentReachable): ?>
     <div class="select-none mb-4">
@@ -116,20 +126,17 @@ $this->layout('layout', [
   <?php endif; ?>
 
 </div>
+</div>
 
-<!-- A sibling of #page-content, not nested inside it (that nesting was
-     harmless in principle - position:fixed escapes document flow
-     regardless of DOM nesting - but session.php's own compose-bar has
-     always been a sibling, and matching that removes any doubt). No
-     backdrop-blur - found live: a position:fixed element combined with
-     backdrop-filter is a known-flaky pairing on iOS Safari specifically
-     (Andres reported the footer visually detaching to the middle of the
-     screen mid-scroll on mobile), so this trades the subtle frosted-glass
-     effect for a plain (still translucent, bg-slate-950/90) background
-     instead. will-change-transform hints the browser to promote this to
-     its own compositing layer up front rather than only reacting once
-     scrolling has already started, the other half of the same mitigation. -->
-<div id="dashboard-footer" class="fixed bottom-0 inset-x-0 bg-slate-950/90 border-t border-slate-800 px-4 py-3 will-change-transform">
+<!-- A normal (non-fixed) flex item, last child of #app-shell - same fix as
+     session.php's #compose-bar (see its own comment): position:fixed was
+     visually detaching mid-scroll on iOS Safari (Andres reported the
+     footer jumping to the middle of the screen mid-scroll on mobile), so
+     this stops relying on fixed positioning for it entirely. No
+     backdrop-blur, kept from the original fixed-positioning mitigation -
+     a plain (still translucent, bg-slate-950/90) background reads fine on
+     its own regardless. -->
+<div id="dashboard-footer" class="flex-none bg-slate-950/90 border-t border-slate-800 px-4 py-3">
   <div class="max-w-2xl mx-auto">
     <div class="flex items-start justify-between gap-3">
       <?= \App\Views\QuotaFooterView::quota_footer_html() ?>
@@ -141,6 +148,8 @@ $this->layout('layout', [
     <?= \App\Views\PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
   </div>
 </div>
+</div>
+
 <script>
 window.CSM_BOOTSTRAP = <?= json_encode(['agentReachable' => $agentReachable]) ?>;
 </script>
