@@ -2160,11 +2160,35 @@
           }
 
           renderStaticInfo(data);
+
+          // maybeAutoScroll() below used to run unconditionally, every
+          // single poll cycle, whether or not this poll's own data
+          // actually changed anything - found live 2026-08-19: Andres
+          // reported the scrollable transcript area visibly "jittering"
+          // while typing a message, which is exactly what a smooth
+          // scrollTo() re-firing every poll interval looks like even when
+          // the target position hasn't meaningfully moved. Only the
+          // thinking indicator and the blocked-prompt card actually add
+          // scrollable content near the bottom worth auto-scrolling for -
+          // renderModeToggle()/renderComposeVisibility() never do, and
+          // renderStaticInfo() above touches the top of the page, not the
+          // bottom - so this only calls it when one of those two actually
+          // changed (both already track their own last-rendered key/state
+          // for their own poll-no-op dedup, reused here rather than
+          // duplicating it).
+          var thinkingShownBefore = lastRenderedThinkingShown;
+          var blockedKeyBefore = lastRenderedBlockedKey;
+
           renderThinkingIndicator(data);
           renderModeToggle(data);
           renderBlockedSection(data);
           renderComposeVisibility(data);
-          maybeAutoScroll(wasNearBottom);
+
+          if (lastRenderedThinkingShown !== thinkingShownBefore || lastRenderedBlockedKey !== blockedKeyBefore) {
+            maybeAutoScroll(wasNearBottom);
+          } else {
+            updateGoToBottomVisibility();
+          }
         }
       })
       .catch(function () {});
