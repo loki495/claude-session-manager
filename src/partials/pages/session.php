@@ -2,6 +2,7 @@
 $this->layout('layout', [
     'title' => $found ? (string)($detail['title'] ?? $detail['name']) : 'Claude Session Manager',
     'viewportContent' => 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, viewport-fit=cover',
+    'fixedShell' => true,
 ]);
 ?>
 <?php $this->start('style') ?>
@@ -114,11 +115,22 @@ $this->layout('layout', [
 </style>
 <?php $this->stop() ?>
 
-<?php include __DIR__ . '/../header.php'; ?>
-
 <?php include __DIR__ . '/../sidebar.php'; ?>
 
-<div id="page-content" class="max-w-2xl lg:max-w-4xl mx-auto px-4 py-6 pb-44">
+<!-- #app-shell: a full-height flex column so #page-content can be the
+     ONLY scrolling element on this page, instead of the whole body -
+     needed to fix #compose-bar's position:fixed detaching mid-scroll on
+     iOS Safari (see its own comment). #sidebar/#go-to-bottom-btn/the two
+     layout.php modals deliberately stay OUTSIDE this div, as body-level
+     siblings same as before - nesting a position:fixed element inside an
+     overflow-hidden flex ancestor risks it being clipped, exactly the
+     kind of thing worth not risking on the same browser this is already
+     working around a fixed-position bug on. -->
+<div id="app-shell" class="flex flex-col h-full min-h-0">
+<?php include __DIR__ . '/../header.php'; ?>
+
+<div id="page-content" class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+<div class="max-w-2xl lg:max-w-4xl mx-auto px-4 py-6">
 
   <?php if (!$found): ?>
     <div class="select-none rounded-lg px-4 py-3 text-sm bg-red-900/50 text-red-200 border border-red-700">
@@ -194,13 +206,15 @@ $this->layout('layout', [
   <?php endif; ?>
 
 </div>
+</div>
+
+<?php include __DIR__ . '/../compose-bar.php'; ?>
+</div>
 
 <button type="button" id="go-to-bottom-btn"
   class="select-none hidden fixed bottom-24 right-5 z-20 w-11 h-11 rounded-full border border-slate-700 bg-slate-800 text-slate-200 shadow-lg active:bg-slate-700 flex items-center justify-center text-lg">
   &darr;
 </button>
-
-<?php include __DIR__ . '/../compose-bar.php'; ?>
 
 <script>
 window.CSM_BOOTSTRAP = <?= json_encode(['session' => $sessionName, 'csrfToken' => $csrfToken, 'newestLine' => $newestLine, 'claudeSessionId' => $detail['claude_session_id'] ?? null, 'jumpLine' => $jumpLine]) ?>;

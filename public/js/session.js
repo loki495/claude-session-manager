@@ -97,14 +97,15 @@
   // same variable-height problem.
   var pageContent = document.getElementById('page-content');
   var GO_TO_BOTTOM_GAP_PX = 12;
-  var PAGE_CONTENT_GAP_PX = 16;
 
+  // #page-content no longer needs bottom-padding to clear #compose-bar -
+  // since the flex-column layout fix (see compose-bar.php's own comment),
+  // the bar takes real flex space instead of overlaying content. Only
+  // #go-to-bottom-btn (still position:fixed) needs tracking, so it keeps
+  // hovering just above the compose bar's real, variable height.
   watchFixedFooterHeight(composeBar, function (height) {
     if (goToBottomBtn) {
       goToBottomBtn.style.bottom = (height + GO_TO_BOTTOM_GAP_PX) + 'px';
-    }
-    if (pageContent) {
-      pageContent.style.paddingBottom = (height + PAGE_CONTENT_GAP_PX) + 'px';
     }
   });
 
@@ -651,28 +652,19 @@
   // user was already at the bottom - never yanks them away from history
   // they scrolled up to read. ---
 
-  // window.innerHeight doesn't shrink when the on-screen keyboard opens on
-  // iOS Safari - the layout viewport stays full-height while the keyboard
-  // visually covers the bottom portion of it, so window.innerHeight +
-  // window.scrollY can claim "near bottom" even while the compose bar is
-  // actually hidden behind the keyboard. Found live: that false positive
-  // is what made maybeAutoScroll() below pull the page back to the
-  // (keyboard-covered) bottom on a later poll, with nothing actually typed
-  // to explain it. visualViewport tracks the real visible area - its
-  // height genuinely shrinks with the keyboard, and pageTop already
-  // accounts for scroll (comparable directly to scrollHeight, no separate
-  // + scrollY needed) - falls back to the old calculation on anything
-  // without visualViewport support.
+  // #page-content is the page's own scrolling container (see #app-shell in
+  // session.php) rather than the whole body, so "near bottom" is measured
+  // against ITS scrollTop/clientHeight/scrollHeight - no visualViewport
+  // compensation needed here any more: #app-shell's body is sized with
+  // 100dvh (a viewport unit that itself shrinks when iOS's on-screen
+  // keyboard/dynamic toolbar appears), so #page-content's own clientHeight
+  // already reflects the real visible area without a separate check.
   function isNearBottom() {
-    if (window.visualViewport) {
-      return (window.visualViewport.pageTop + window.visualViewport.height) >= (document.documentElement.scrollHeight - SCROLL_BOTTOM_THRESHOLD_PX);
-    }
-
-    return (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - SCROLL_BOTTOM_THRESHOLD_PX);
+    return (pageContent.scrollTop + pageContent.clientHeight) >= (pageContent.scrollHeight - SCROLL_BOTTOM_THRESHOLD_PX);
   }
 
   function scrollToBottom(smooth) {
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    pageContent.scrollTo({ top: pageContent.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   }
 
   function updateGoToBottomVisibility() {
@@ -690,41 +682,8 @@
   }
 
   if (goToBottomBtn) {
-    window.addEventListener('scroll', updateGoToBottomVisibility, { passive: true });
+    pageContent.addEventListener('scroll', updateGoToBottomVisibility, { passive: true });
     goToBottomBtn.addEventListener('click', function () { scrollToBottom(true); });
-  }
-
-  // #compose-bar (position:fixed, bottom:0) can visually detach from the
-  // bottom of the viewport during scroll on iOS Safari - drifts up while
-  // scrolling down, or freezes mid-page while scrolling up - despite the
-  // will-change-transform layer hint already on it (see compose-bar.php's
-  // own comment on that). Reported live 2026-08-17: tapping the textarea
-  // (a focus event) immediately re-anchors it, which is the actual clue
-  // here - focus forces iOS to recompute fixed-position elements, so this
-  // nudges the same recompute on every scroll tick instead of waiting for
-  // a focus event to trigger it by accident. Toggling to a real (if
-  // visually negligible) transform value and back is what forces the
-  // recompute - just re-affirming the existing value is a no-op change
-  // and wouldn't prompt a relayout.
-  if (composeBar) {
-    var composeBarNudgePending = false;
-
-    window.addEventListener('scroll', function () {
-      if (composeBarNudgePending) {
-        return;
-      }
-
-      composeBarNudgePending = true;
-
-      requestAnimationFrame(function () {
-        composeBar.style.transform = 'translateZ(0.01px)';
-
-        requestAnimationFrame(function () {
-          composeBar.style.transform = '';
-          composeBarNudgePending = false;
-        });
-      });
-    }, { passive: true });
   }
 
   // Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed
@@ -1579,7 +1538,7 @@
     // Page scroll position, restored (if captured) after the rebuild below
     // - only when there was actually something on screen worth not
     // yanking the user away from, never fights normal scrolling otherwise.
-    var scrollYBeforeRebuild = (freetextHadFocus || contextDetailsWasOpen) ? window.scrollY : null;
+    var scrollYBeforeRebuild = (freetextHadFocus || contextDetailsWasOpen) ? pageContent.scrollTop : null;
 
     if (!detail.blocked_reason) {
       blockedSection.innerHTML = '';
@@ -1700,7 +1659,7 @@
       // scroll-into-view (if any) has already happened, so this is the
       // last word rather than getting immediately overridden by it.
       requestAnimationFrame(function () {
-        window.scrollTo(0, scrollYBeforeRebuild);
+        pageContent.scrollTop = scrollYBeforeRebuild;
       });
     }
 
@@ -2897,17 +2856,20 @@
   var jumpTarget = jumpLine !== null ? list.querySelector('[data-line="' + jumpLine + '"]') : null;
 
   if (jumpTarget) {
-    // A plain window.scrollTo() computed from the element's own rect,
-    // not scrollIntoView() - found live 2026-08-09: scrollIntoView()
-    // silently no-ops on this page in at least one real headless-Chrome
-    // automation context (verified: window.scrollTo() itself worked
-    // immediately when called directly right after, in the very same
-    // context where scrollIntoView() had just done nothing), so this
-    // avoids depending on browser-specific scrollIntoView behavior
-    // entirely rather than risking the same silent no-op for a real user.
+    // A plain scrollTo() computed from the element's own rect, not
+    // scrollIntoView() - found live 2026-08-09: scrollIntoView() silently
+    // no-ops on this page in at least one real headless-Chrome automation
+    // context (verified: scrollTo() itself worked immediately when called
+    // directly right after, in the very same context where
+    // scrollIntoView() had just done nothing), so this avoids depending on
+    // browser-specific scrollIntoView behavior entirely rather than
+    // risking the same silent no-op for a real user. getBoundingClientRect()
+    // is viewport-relative, but #page-content (not the viewport) is the
+    // scrolling container, so this converts via #page-content's own rect.
     var jumpTargetRect = jumpTarget.getBoundingClientRect();
-    var jumpScrollTop = window.scrollY + jumpTargetRect.top - (window.innerHeight / 2) + (jumpTargetRect.height / 2);
-    window.scrollTo({ top: Math.max(0, jumpScrollTop), behavior: 'auto' });
+    var pageContentRect = pageContent.getBoundingClientRect();
+    var jumpScrollTop = pageContent.scrollTop + (jumpTargetRect.top - pageContentRect.top) - (pageContent.clientHeight / 2) + (jumpTargetRect.height / 2);
+    pageContent.scrollTo({ top: Math.max(0, jumpScrollTop), behavior: 'auto' });
     markNewContent(null, [jumpTarget]);
   } else {
     // Land at the bottom on open - the current/latest activity (and any

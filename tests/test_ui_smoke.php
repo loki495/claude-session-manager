@@ -313,7 +313,7 @@ try {
     // desktop chat UI) - mobile is untouched (no breakpoint prefix means
     // no change at the default/mobile size at all). ---
     assert_true(
-        preg_match('/id="page-content" class="[^"]*\bmax-w-2xl lg:max-w-4xl\b/', $result['body']) === 1,
+        preg_match('/id="page-content"[^>]*>\s*<div class="[^"]*\bmax-w-2xl lg:max-w-4xl\b/', $result['body']) === 1,
         'GET /session.php: the main content column widens on desktop (lg:max-w-4xl) but keeps the mobile max-w-2xl as the base'
     );
     assert_true(

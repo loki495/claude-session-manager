@@ -147,3 +147,7 @@ Exploratory / speculative / lower priority:
   than something permanently wrong with that session. Investigate.
 - Bug: sometimes the "stop thinking" button (renderThinkingIndicator()'s
   stop-btn in session.js) doesn't work. Investigate.
+- index.php's #dashboard-footer has the identical position:fixed
+  iOS-detach risk that session.php's #compose-bar had (its own comment
+  already references the same bug report) - apply the same flex-shell
+  layout fix there once the session.php one is confirmed working live.

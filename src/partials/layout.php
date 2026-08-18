@@ -8,7 +8,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <?= $this->section('style', '') ?>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen overscroll-y-none">
+<body class="<?= !empty($fixedShell) ? 'h-[100dvh] overflow-hidden' : 'min-h-screen' ?> bg-slate-950 text-slate-100 overscroll-y-none">
 <!-- overscroll-y-none (not the both-axes overscroll-none this replaced,
      2026-08-09) - Y-axis only, so vertical rubber-banding/scroll-chaining
      past the top/bottom of the page is blocked without also touching
