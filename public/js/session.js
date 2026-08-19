@@ -54,6 +54,23 @@
   var lastRenderedBlockedKey; // undefined, not null - see renderBlockedSection()
   var lastRenderedThinkingShown; // undefined, not null - see renderThinkingIndicator()
   var lastRenderedStaticInfoKey; // undefined, not null - see renderStaticInfo()
+  // context_used_percentage/git_worktree are a live tmux-pane scrape of
+  // Claude Code's own statusline output (see StatuslineMarkerService on
+  // the host-agent side) - captured fresh every poll from whatever's
+  // CURRENTLY on screen, no scrollback. A single poll landing mid-repaint
+  // (right after a screen clear/resize, or just between Claude Code's own
+  // periodic statusline redraws) can transiently miss the marker and come
+  // back null even though the real value hasn't actually changed - found
+  // live 2026-08-19 (Andres: "context seems to sometimes disappear") that
+  // renderStaticInfo() was treating that one-off null as a real value,
+  // instantly blanking a field that was already known good. These two
+  // remember the last real (non-null) value seen and keep showing it
+  // through a transient miss - only session rotation (a genuinely
+  // different Claude Code session - see resetHistoryForRotatedTranscript())
+  // clears them, since that's the only time a previously-known value
+  // could actually be wrong rather than just momentarily unconfirmed.
+  var lastKnownContextUsedPercentage = null;
+  var lastKnownGitWorktree = null;
 
   // Mirrors the $composeBlocked SSR toggle above - hides the message
   // input (not the whole compose bar; quota/mode stay visible) while a
@@ -1505,8 +1522,17 @@
   // the rebuild key too, so a value showing up/changing/disappearing on
   // its own also triggers a rebuild, not just the other four fields.
   function renderStaticInfo(detail) {
-    var contextUsedPercentage = typeof detail.context_used_percentage === 'number' ? detail.context_used_percentage : null;
-    var gitWorktree = detail.git_worktree || null;
+    // A transient miss (this poll's own value is null) falls back to the
+    // last real value seen rather than blanking it - see the block
+    // comment on lastKnownContextUsedPercentage/lastKnownGitWorktree above.
+    if (typeof detail.context_used_percentage === 'number') {
+      lastKnownContextUsedPercentage = detail.context_used_percentage;
+    }
+    if (detail.git_worktree) {
+      lastKnownGitWorktree = detail.git_worktree;
+    }
+    var contextUsedPercentage = lastKnownContextUsedPercentage;
+    var gitWorktree = lastKnownGitWorktree;
     var key = JSON.stringify([detail.title || null, detail.name, detail.workdir || null, !!detail.attached, contextUsedPercentage, gitWorktree]);
 
     if (key !== lastRenderedStaticInfoKey) {
@@ -2144,6 +2170,13 @@
     if (btn) {
       btn.classList.add('hidden');
     }
+
+    // A genuinely different Claude Code session starts with a fresh
+    // context window - the old session's last-known percentage/worktree
+    // (see renderStaticInfo()) would just be stale/wrong here, not merely
+    // unconfirmed, so this is the one case that actually should clear them.
+    lastKnownContextUsedPercentage = null;
+    lastKnownGitWorktree = null;
   }
 
   function pollInfo(wasNearBottom) {

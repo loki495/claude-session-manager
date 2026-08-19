@@ -139,10 +139,17 @@ Exploratory / speculative / lower priority:
     echo "Success! Process $PID moved to tmux session: $SESSION_NAME"
     sleep 1
     exec tmux attach-session -t "$SESSION_NAME"
-- Bug: the context-used percentage sometimes goes missing from the session
-  footer (render_session_static_info_html()'s contextUsedPercentage). Going
-  back to the dashboard and back into the session fixes it - suggests a
-  transient read (pane scrape or a poll racing a mid-write state) rather
-  than something permanently wrong with that session. Investigate.
+- The dashboard's own per-row context-used percentage (SessionRowView)
+  reads from the same StatuslineMarkerService pane-scrape that session.php's
+  version was just found to transiently miss on (fixed 2026-08-19 client-
+  side, via a last-known-good value in session.js's renderStaticInfo()).
+  The dashboard has no equivalent client-side memory - it fully re-renders
+  each row's server HTML fragment every poll (see index.js's sessions_html
+  diff) - so a transient miss there would blank the % for that row until
+  the next real value shows up, with nothing remembering the last one in
+  between. Not confirmed as actually observed yet; if it is, the more
+  robust fix belongs server-side (SidecarStore or build_session_entry()
+  itself falling back to a persisted last-known value), so it fixes every
+  consumer at once instead of duplicating the client-side workaround.
 - Bug: sometimes the "stop thinking" button (renderThinkingIndicator()'s
   stop-btn in session.js) doesn't work. Investigate.
