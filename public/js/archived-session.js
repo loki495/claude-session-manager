@@ -77,6 +77,12 @@
   var jumpTarget = list.querySelector('[data-line="' + bootstrap.jumpLine + '"]');
 
   if (jumpTarget) {
+    // Reveal it first - a jump target hidden inside a collapsed tool-group
+    // <details> gets a meaningless zeroed-out rect while closed, landing
+    // the scroll on the wrong spot (see openAncestorDetails() in
+    // common.js for the full explanation; found live 2026-08-20).
+    openAncestorDetails(jumpTarget);
+
     // A plain window.scrollTo() computed from the element's own rect, not
     // scrollIntoView() - see session.js's own jump-scroll comment for why
     // (found live 2026-08-09: scrollIntoView() silently no-op'd in at

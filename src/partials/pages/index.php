@@ -37,9 +37,12 @@ $this->layout('layout', [
 
   <?php if ($agentReachable): ?>
     <div class="select-none mb-4">
+      <!-- text-base (16px), not text-sm - iOS Safari auto-zooms the whole
+           viewport in on focusing any text input rendered under 16px, no
+           way to opt out of that short of the font size itself. -->
       <input type="search" id="dashboard-search-input" placeholder="Search all sessions&hellip;" autocomplete="off"
         data-csrf-token="<?= $this->e($csrfToken) ?>"
-        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500">
+        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-base text-slate-200 placeholder:text-slate-500">
       <div id="dashboard-search-results" class="mt-2 flex flex-col gap-2"></div>
     </div>
   <?php endif; ?>

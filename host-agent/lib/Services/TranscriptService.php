@@ -287,11 +287,20 @@ class TranscriptService
                 continue;
             }
 
+            // Converted to Unix seconds here (the transcript's own
+            // timestamp is an ISO 8601 string) so the client can feed it
+            // straight into the same relativeTimeLabel() every other
+            // "how long ago" label in this app already uses (session rows,
+            // the session-info footer), rather than parsing a second date
+            // format client-side.
+            $timestamp = is_string($parsed['timestamp']) ? strtotime($parsed['timestamp']) : false;
+
             $matches[] = [
                 'line' => $i + 1,
                 'snippet' => self::build_search_snippet($blockText, $trimmedQuery),
                 'role' => $parsed['role'],
                 'kind' => $parsed['blocks'][0]['kind'],
+                'timestamp' => $timestamp !== false ? $timestamp : null,
             ];
         }
 

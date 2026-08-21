@@ -835,23 +835,6 @@
     goToBottomBtn.addEventListener('click', function () { scrollToBottom(true); });
   }
 
-  // Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed
-  // timestamp reads the same as the server-rendered one.
-  function relativeTimeLabel(timestamp) {
-    var diff = Math.floor(Date.now() / 1000) - timestamp;
-
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
-
-    if (diff < 86400) {
-      var h = Math.floor(diff / 3600);
-      return h + ' hr' + (h > 1 ? 's' : '') + ' ago';
-    }
-
-    var d = Math.floor(diff / 86400);
-    return d + ' day' + (d > 1 ? 's' : '') + ' ago';
-  }
-
   // Mirrors BlockedPromptView::collapsible_summary().
   function collapsibleSummary(text) {
     var trimmed = text.trim();
@@ -2241,6 +2224,31 @@
   // visually complete rather than cutting it off mid-animation.
   var NEW_CONTENT_HIGHLIGHT_FADE_MS = 1200;
 
+  // Same fade duration as .jump-target-highlight.fading's own transition
+  // in <style> above.
+  var JUMP_TARGET_HIGHLIGHT_FADE_MS = 1200;
+
+  // Landing on a search result - a distinct green ring (see .jump-target-
+  // highlight in <style> above), not the amber .new-content-highlight
+  // used for freshly-polled content, so the two read as different things
+  // (Andres's own ask, 2026-08-20). Reuses NEW_CONTENT_VISIBLE_DELAY_MS as
+  // a plain minimum-visible-before-fading timer (not IntersectionObserver-
+  // gated like markNewContent() below) - the scroll that brings this
+  // target into view already happened by the time this is called, so it's
+  // effectively "on screen" from the very first frame, same reasoning
+  // that timer exists for there.
+  function highlightJumpTarget(el) {
+    el.classList.add('jump-target-highlight');
+
+    setTimeout(function () {
+      el.classList.add('fading');
+
+      setTimeout(function () {
+        el.classList.remove('jump-target-highlight', 'fading');
+      }, JUMP_TARGET_HIGHLIGHT_FADE_MS);
+    }, NEW_CONTENT_VISIBLE_DELAY_MS);
+  }
+
   // Marks entries fresh off this poll cycle: a "New" divider above the
   // batch plus a highlight ring on each entry in it, so it's obvious what
   // just arrived without having to spot it by eye in a long list.
@@ -3045,6 +3053,26 @@
   var jumpTarget = jumpLine !== null ? list.querySelector('[data-line="' + jumpLine + '"]') : null;
 
   if (jumpTarget) {
+    // Reveal it FIRST, before measuring anything - a jump target hidden
+    // inside a collapsed tool-group <details> (openAncestorDetails(), in
+    // common.js) or behind the "show subagent calls" toggle being off
+    // gets a meaningless zeroed-out getBoundingClientRect() while hidden,
+    // silently landing the scroll on the wrong spot (found live
+    // 2026-08-20: "clicking on a result doesn't go to the right one").
+    openAncestorDetails(jumpTarget);
+
+    if (!document.body.classList.contains('show-subagent') && jumpTarget.closest('.subagent-detail, .subagent-use-block, .entry-subagent-only')) {
+      applyShowSubagent(true);
+
+      if (showSubagentToggle) {
+        showSubagentToggle.checked = true;
+      }
+
+      try {
+        window.localStorage.setItem(SHOW_SUBAGENT_KEY, '1');
+      } catch (e) {}
+    }
+
     // A plain scrollTo() computed from the element's own rect, not
     // scrollIntoView() - found live 2026-08-09: scrollIntoView() silently
     // no-ops on this page in at least one real headless-Chrome automation
@@ -3059,7 +3087,7 @@
     var pageContentRect = pageContent.getBoundingClientRect();
     var jumpScrollTop = pageContent.scrollTop + (jumpTargetRect.top - pageContentRect.top) - (pageContent.clientHeight / 2) + (jumpTargetRect.height / 2);
     pageContent.scrollTo({ top: Math.max(0, jumpScrollTop), behavior: 'auto' });
-    markNewContent(null, [jumpTarget]);
+    highlightJumpTarget(jumpTarget);
   } else {
     // Land at the bottom on open - the current/latest activity (and any
     // pending prompt) is what matters first, same as any chat app.
@@ -3072,22 +3100,31 @@
     startPolling();
   }
 
-  // --- sidebar search: server-side full-text search of this session's
-  // ENTIRE transcript (see SessionController::search()'s own doc comment
-  // for why this can't just filter the sidebar's own rendered DOM the way
-  // index.js's archived-list filter does) - debounced, since every
-  // keystroke would otherwise round-trip to the host-agent's own grep over
-  // a potentially large transcript file for nothing. Clicking a result is
-  // a full page navigation (jump_line - see above), not an in-place
-  // fetch: simplest way to reuse the exact same SSR history-loading path
-  // an ordinary page load already takes, rather than duplicating it
-  // client-side for what's a rare, deliberate action, not a repeated one. ---
+  // --- sidebar search: server-side full-text search, either scoped to
+  // this session's ENTIRE transcript (see SessionController::search()'s
+  // own doc comment for why this can't just filter the sidebar's own
+  // rendered DOM the way index.js's archived-list filter does) or, via the
+  // scope radio, the same dashboard-wide search index.js's own search box
+  // uses (SessionService::search_transcripts(), live AND archived
+  // sessions alike) - debounced, since every keystroke would otherwise
+  // round-trip to the host-agent's own grep for nothing. Clicking a result
+  // is a full page navigation (jump_line), not an in-place fetch: simplest
+  // way to reuse the exact same SSR "load the page ending at this line"
+  // path an ordinary page load already takes - including for a global
+  // result pointing at a DIFFERENT (or archived) session entirely, so the
+  // right page loads with the right window of history already there
+  // rather than needing to fetch anything further client-side. ---
   var sessionSearchInput = document.getElementById('session-search-input');
   var sessionSearchResults = document.getElementById('session-search-results');
+  var sessionSearchScopeGlobalRadio = document.getElementById('session-search-scope-global');
   var sessionSearchDebounceTimer = null;
   var sessionSearchAbortController = null;
 
-  function renderSessionSearchResults(matches) {
+  function isGlobalSearchScope() {
+    return !!(sessionSearchScopeGlobalRadio && sessionSearchScopeGlobalRadio.checked);
+  }
+
+  function renderSessionSearchResults(matches, query) {
     if (!matches || matches.length === 0) {
       sessionSearchResults.innerHTML = '<div class="text-xs text-slate-500">No matches.</div>';
       return;
@@ -3095,52 +3132,110 @@
 
     sessionSearchResults.innerHTML = matches.map(function (m) {
       var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
+      var timeHtml = typeof m.timestamp === 'number' ? '<span class="text-slate-600"> &middot; ' + escapeHtml(relativeTimeLabel(m.timestamp)) + '</span>' : '';
       return '<button type="button" class="session-search-result-btn w-full text-left rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 px-2 py-1.5" data-line="' + m.line + '">'
-        + '<div class="text-[11px] text-slate-500 mb-0.5">' + escapeHtml(roleLabel) + '</div>'
-        + '<div class="text-xs text-slate-300 break-words">' + escapeHtml(m.snippet) + '</div>'
+        + '<div class="text-[11px] text-slate-500 mb-0.5">' + escapeHtml(roleLabel) + timeHtml + '</div>'
+        + '<div class="text-xs text-slate-300 break-words">' + highlightSnippet(m.snippet, query) + '</div>'
         + '</button>';
     }).join('');
   }
 
-  if (sessionSearchInput && sessionSearchResults) {
-    sessionSearchInput.addEventListener('input', function () {
-      var query = sessionSearchInput.value.trim();
+  // Global mode's own results shape (one entry per matching session, each
+  // with its own matches array) mirrors index.js's dashboard-wide search
+  // exactly - includes cwd (Andres's own ask: global results need to show
+  // it, since without a per-session sidebar it's the only way to tell
+  // sessions with the same title apart) and a "live" badge, but not that
+  // search's Archive/Unarchive action forms - this is a quick jump-to-
+  // result box, not the dashboard's own management UI.
+  function renderGlobalSearchResults(results, query) {
+    if (!results || results.length === 0) {
+      sessionSearchResults.innerHTML = '<div class="text-xs text-slate-500">No matches.</div>';
+      return;
+    }
 
-      clearTimeout(sessionSearchDebounceTimer);
+    sessionSearchResults.innerHTML = results.map(function (r) {
+      var url = r.session_name
+        ? '/session.php?session=' + encodeURIComponent(r.session_name) + '&jump_line=' + encodeURIComponent(r.matches[0].line)
+        : '/archived_session.php?claude_session_id=' + encodeURIComponent(r.claude_session_id) + '&jump_line=' + encodeURIComponent(r.matches[0].line);
+      var cwdHtml = r.cwd ? '<div class="text-[11px] text-slate-600 truncate mt-0.5">' + escapeHtml(r.cwd) + '</div>' : '';
+      var matchesHtml = r.matches.map(function (m) {
+        var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
+        var timeHtml = typeof m.timestamp === 'number' ? '<span class="text-slate-600"> &middot; ' + escapeHtml(relativeTimeLabel(m.timestamp)) + '</span>' : '';
+        return '<div class="text-xs text-slate-400 mt-0.5 break-words"><span class="text-slate-500">' + escapeHtml(roleLabel) + ':</span>' + timeHtml + ' ' + highlightSnippet(m.snippet, query) + '</div>';
+      }).join('');
 
-      if (sessionSearchAbortController) {
-        sessionSearchAbortController.abort();
-      }
+      return '<a href="' + url + '" class="block w-full text-left rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 px-2 py-1.5">'
+        + '<div class="flex items-center gap-1.5 text-xs font-medium text-slate-200 truncate">'
+        + escapeHtml(r.title)
+        + (r.session_name ? ' <span class="shrink-0 text-[10px] text-emerald-400 border border-emerald-800/60 rounded-full px-1 py-0.5">live</span>' : '')
+        + '</div>'
+        + cwdHtml
+        + matchesHtml
+        + '</a>';
+    }).join('');
+  }
 
-      if (query === '') {
-        sessionSearchResults.innerHTML = '';
-        return;
-      }
+  function runSessionSearch() {
+    var query = sessionSearchInput.value.trim();
 
-      sessionSearchDebounceTimer = setTimeout(function () {
-        sessionSearchAbortController = new AbortController();
+    clearTimeout(sessionSearchDebounceTimer);
 
-        fetch('/session_search.php?session=' + encodeURIComponent(sessionName) + '&q=' + encodeURIComponent(query), {
-          credentials: 'same-origin',
-          signal: sessionSearchAbortController.signal
+    if (sessionSearchAbortController) {
+      sessionSearchAbortController.abort();
+    }
+
+    if (query === '') {
+      sessionSearchResults.innerHTML = '';
+      return;
+    }
+
+    var global = isGlobalSearchScope();
+
+    sessionSearchDebounceTimer = setTimeout(function () {
+      sessionSearchAbortController = new AbortController();
+
+      var url = global
+        ? '/search_sessions.php?q=' + encodeURIComponent(query)
+        : '/session_search.php?session=' + encodeURIComponent(sessionName) + '&q=' + encodeURIComponent(query);
+
+      fetch(url, { credentials: 'same-origin', signal: sessionSearchAbortController.signal })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data || !data.ok) {
+            sessionSearchResults.innerHTML = '<div class="text-xs text-red-400">' + escapeHtml((data && data.message) || 'Search failed.') + '</div>';
+            return;
+          }
+
+          if (global) {
+            renderGlobalSearchResults(data.results, query);
+          } else {
+            renderSessionSearchResults(data.matches, query);
+          }
         })
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (!data || !data.ok) {
-              sessionSearchResults.innerHTML = '<div class="text-xs text-red-400">' + escapeHtml((data && data.message) || 'Search failed.') + '</div>';
-              return;
-            }
+        .catch(function (e) {
+          if (e && e.name === 'AbortError') {
+            return;
+          }
 
-            renderSessionSearchResults(data.matches);
-          })
-          .catch(function (e) {
-            if (e && e.name === 'AbortError') {
-              return;
-            }
+          sessionSearchResults.innerHTML = '<div class="text-xs text-red-400">Network error - search failed.</div>';
+        });
+    }, 400);
+  }
 
-            sessionSearchResults.innerHTML = '<div class="text-xs text-red-400">Network error - search failed.</div>';
-          });
-      }, 400);
+  if (sessionSearchInput && sessionSearchResults) {
+    sessionSearchInput.addEventListener('input', runSessionSearch);
+
+    // Flipping the scope radio re-runs immediately (no debounce wait, and
+    // whatever the previous mode's request had in flight is aborted by
+    // runSessionSearch() itself) against whatever's already typed -
+    // switching modes IS the deliberate action here, same as typing a
+    // fresh keystroke.
+    document.querySelectorAll('input[name="session-search-scope"]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        if (sessionSearchInput.value.trim() !== '') {
+          runSessionSearch();
+        }
+      });
     });
 
     sessionSearchResults.addEventListener('click', function (e) {

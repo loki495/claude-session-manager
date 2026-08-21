@@ -521,6 +521,25 @@ try {
                 'uncaught-error-leaked'
             );
 
+            // Real end-to-end coverage of the jump-to-search-result "wrong
+            // spot" bug (found live 2026-08-20): line 4 in the fixture's
+            // own jsonl is the Bash tool_use, grouped with its result into
+            // a collapsed <details class="tool-group"> (closed by
+            // default - see TranscriptView::render_tool_group_html()).
+            // Before the fix, session.js's jump-target code measured this
+            // element's getBoundingClientRect() while its ancestor
+            // <details> was still closed (browsers never lay out a closed
+            // <details>'s children), landing the scroll on a meaningless
+            // position. openAncestorDetails() (common.js) is what's
+            // supposed to open it first - this proves that actually
+            // happens, not just that the function exists.
+            assert_true(cdp_navigate($page, $sessionUrl . '&jump_line=4'), 'cdp: navigation with jump_line=4 (inside a collapsed tool-group) succeeds');
+
+            $toolGroupOpened = browser_wait_until(function () use (&$page) {
+                return cdp_evaluate($page, "(function () { var el = document.querySelector('[data-line=\"4\"]'); var details = el ? el.closest('details') : null; return details ? details.open : null; })()") === true;
+            });
+            browser_assert($page, $toolGroupOpened, 'session.php (jump_line=4): the collapsed tool-group containing the jump target is opened, not left closed', 'jump-target-tool-group-not-opened');
+
             // Known-correct target: every step that actually appends a
             // transcript line ("append_line" !== false) AND doesn't say
             // "expect_render": false. Compared against a WAIT-until-reached

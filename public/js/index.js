@@ -792,7 +792,7 @@ document.addEventListener('keydown', function (e) {
     }
   });
 
-  function renderResults(sessionResults) {
+  function renderResults(sessionResults, query) {
     if (!sessionResults || sessionResults.length === 0) {
       results.innerHTML = '<div class="text-xs text-slate-500 px-1">No matches.</div>';
       return;
@@ -807,7 +807,8 @@ document.addEventListener('keydown', function (e) {
 
       var matchesHtml = r.matches.map(function (m) {
         var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
-        return '<div class="text-xs text-slate-400 mt-1"><span class="text-slate-500">' + escapeHtml(roleLabel) + ':</span> ' + escapeHtml(m.snippet) + '</div>';
+        var timeHtml = typeof m.timestamp === 'number' ? '<span class="text-slate-600"> &middot; ' + escapeHtml(relativeTimeLabel(m.timestamp)) + '</span>' : '';
+        return '<div class="text-xs text-slate-400 mt-1"><span class="text-slate-500">' + escapeHtml(roleLabel) + ':</span>' + timeHtml + ' ' + highlightSnippet(m.snippet, query) + '</div>';
       }).join('');
 
       // Archive (kill, per Andres's own call - there's no separate
@@ -871,7 +872,7 @@ document.addEventListener('keydown', function (e) {
             return;
           }
 
-          renderResults(data.results);
+          renderResults(data.results, query);
         })
         .catch(function (e) {
           if (e && e.name === 'AbortError') {

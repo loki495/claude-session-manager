@@ -436,7 +436,7 @@ file_put_contents($searchFile, implode("\n", [
     json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'tool_use', 'id' => 'tool_pineapple_1', 'name' => 'Bash', 'input' => ['command' => 'ls']]]]]),
     json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'I love pineapple pizza']]]]),
     json_encode(['type' => 'assistant', 'message' => ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => 'Pineapple is a fruit, technically a berry']]]]),
-    json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => str_repeat('x', 100) . ' pineapple ' . str_repeat('y', 100)]]]]),
+    json_encode(['type' => 'user', 'timestamp' => '2026-08-11T00:00:00Z', 'message' => ['role' => 'user', 'content' => [['type' => 'text', 'text' => str_repeat('x', 100) . ' pineapple ' . str_repeat('y', 100)]]]]),
 ]) . "\n");
 
 $matches = TranscriptService::search_transcript_file($searchFile, 'pineapple', 10);
@@ -447,6 +447,8 @@ assert_equal('text', $matches[0]['kind'] ?? null, 'search_transcript_file: kind 
 assert_true(str_starts_with($matches[0]['snippet'], '… '), 'search_transcript_file: a match with a long prefix before it gets a leading ellipsis');
 assert_true(str_ends_with($matches[0]['snippet'], ' …'), 'search_transcript_file: a match with a long suffix after it gets a trailing ellipsis');
 assert_true(str_contains($matches[0]['snippet'], 'pineapple'), 'search_transcript_file: the snippet actually contains the match');
+assert_equal(strtotime('2026-08-11T00:00:00Z'), $matches[0]['timestamp'] ?? null, 'search_transcript_file: the transcript entry\'s own ISO timestamp is converted to Unix seconds, ready for relativeTimeLabel() client-side');
+assert_true(array_key_exists('timestamp', $matches[1]) && $matches[1]['timestamp'] === null, 'search_transcript_file: timestamp key is present but null when the source line has no timestamp field at all');
 assert_equal('Pineapple is a fruit, technically a berry', $matches[1]['snippet'] ?? null, 'search_transcript_file: a short match (fits within the context window) gets no ellipsis, whole text as-is');
 assert_equal('I love pineapple pizza', $matches[2]['snippet'] ?? null, 'search_transcript_file: matching is case-insensitive relative to the query - "pineapple" (lowercase query) matches "Pineapple" (line 3) too, proven by that match being included above');
 

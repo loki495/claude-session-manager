@@ -112,6 +112,38 @@ $this->layout('layout', [
   .new-content-highlight.entry-free-flowing.fading::before {
     box-shadow: 0 0 12px 0px rgba(251, 191, 36, 0), 0 0 24px 4px rgba(251, 191, 36, 0);
   }
+  /* Landing on a search result (see highlightJumpTarget() in the <script>
+     below) - a distinct green ring/glow, on purpose, so it doesn't read as
+     "new message" (the amber ring above) when what actually happened is
+     "you searched and jumped here" (Andres's own ask, 2026-08-20). Same
+     box-shadow/fade shape as .new-content-highlight, just a different
+     color and lit immediately (no NEW_CONTENT_VISIBLE_DELAY_MS wait -
+     there's no risk of an intersection-observer race here, the scroll
+     that lands on this target already happened by the time this class is
+     added). */
+  .jump-target-highlight {
+    box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.8), 0 0 8px 4px rgba(52, 211, 153, 0.5), 0 0 16px 8px rgba(52, 211, 153, 0.25);
+    transition: box-shadow 1.2s ease-out;
+  }
+  .jump-target-highlight.fading {
+    box-shadow: 0 0 0 1px rgba(52, 211, 153, 0), 0 0 8px 4px rgba(52, 211, 153, 0), 0 0 16px 8px rgba(52, 211, 153, 0);
+  }
+  .jump-target-highlight.entry-free-flowing {
+    position: relative;
+  }
+  .jump-target-highlight.entry-free-flowing::before {
+    content: '';
+    position: absolute;
+    margin: 5px;
+    inset: -12px;
+    border-radius: 0.625rem;
+    box-shadow: 0 0 12px 0px rgba(52, 211, 153, 0.5), 0 0 24px 4px rgba(52, 211, 153, 0.2);
+    transition: box-shadow 1.2s ease-out;
+    pointer-events: none;
+  }
+  .jump-target-highlight.entry-free-flowing.fading::before {
+    box-shadow: 0 0 12px 0px rgba(52, 211, 153, 0), 0 0 24px 4px rgba(52, 211, 153, 0);
+  }
 </style>
 <?php $this->stop() ?>
 

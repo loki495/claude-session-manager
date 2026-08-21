@@ -73,6 +73,45 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed
+// timestamp reads the same as the server-rendered one. Shared by
+// session.js's own live updates and index.js's search results (moved here
+// from session.js 2026-08-20 - a pure function, no reason it couldn't
+// serve both).
+function relativeTimeLabel(timestamp) {
+  var diff = Math.floor(Date.now() / 1000) - timestamp;
+
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+
+  if (diff < 86400) {
+    var h = Math.floor(diff / 3600);
+    return h + ' hr' + (h > 1 ? 's' : '') + ' ago';
+  }
+
+  var d = Math.floor(diff / 86400);
+  return d + ' day' + (d > 1 ? 's' : '') + ' ago';
+}
+
+// Wraps the query itself in <mark> within an already-escaped snippet -
+// escaping first, then matching against the SAME escaping applied to the
+// query, so a query containing &/</> still lines up with what actually
+// appears in the escaped snippet text. $& in the replacement re-inserts
+// the exact matched text (preserving its original casing) rather than the
+// query's own casing. Shared by session.js's own sidebar search and
+// index.js's dashboard-wide search (Andres's own ask, 2026-08-20:
+// "highlight the match").
+function highlightSnippet(snippet, query) {
+  var escapedSnippet = escapeHtml(snippet);
+  var escapedQuery = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  if (escapedQuery === '') {
+    return escapedSnippet;
+  }
+
+  return escapedSnippet.replace(new RegExp('(' + escapedQuery + ')', 'ig'), '<mark class="bg-amber-400/30 text-amber-200 rounded-sm">$&</mark>');
+}
+
 // --- copy-to-clipboard: shared by every ".copy-btn" this app renders
 // (transcript text/plan entries, tool_use/tool_result collapsible blocks,
 // the fullscreen text modal - see openFullscreenTextModal() below and the
@@ -276,6 +315,29 @@ function watchFixedFooterHeight(footerEl, onHeightChange) {
   new ResizeObserver(function () {
     onHeightChange(footerEl.offsetHeight);
   }).observe(footerEl);
+}
+
+// Shared by session.js/archived-session.js's own "jump to a search
+// result" scroll logic - a jump target sitting inside a collapsed
+// tool-group (<details class="tool-group">, closed by default - see
+// TranscriptView::render_tool_group_html()) is present in the DOM but not
+// actually rendered while its <details> stays closed, so its own
+// getBoundingClientRect() comes back as if it doesn't exist at all
+// (browsers never lay out a closed <details>'s children), making any
+// scroll-to-it calculation land on the wrong spot entirely - found live
+// 2026-08-20 (Andres: "clicking on a result doesn't go to the right
+// one"). Opens every ancestor <details>, not just the immediate one, in
+// case of nesting.
+function openAncestorDetails(target) {
+  var el = target.parentElement;
+
+  while (el) {
+    if (el.tagName === 'DETAILS' && !el.open) {
+      el.open = true;
+    }
+
+    el = el.parentElement;
+  }
 }
 
 // --- navigation-away loading blanket: covers the iOS edge-swipe-back
