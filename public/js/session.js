@@ -1764,7 +1764,10 @@
 
       if (hasFreeText) {
         html += '<div class="freetext-reply hidden mt-2">'
-          + '<textarea class="freetext-reply-textarea w-full resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 px-3 py-2" rows="2" placeholder="Type your reply&hellip;"></textarea>'
+          + '<div class="relative">'
+          + '<textarea class="freetext-reply-textarea w-full resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 pl-3 pr-8 py-2" rows="2" placeholder="Type your reply&hellip;"></textarea>'
+          + '<button type="button" class="freetext-reply-clear-btn hidden absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded text-slate-500 active:text-slate-300 text-lg leading-none" aria-label="Clear reply" tabindex="-1">&times;</button>'
+          + '</div>'
           + '<button type="button" class="freetext-reply-send-btn mt-1 rounded-lg bg-indigo-600 active:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5">Send</button>'
           + '</div>';
       }
@@ -1789,6 +1792,16 @@
           newTextarea.setSelectionRange(freetextSelectionStart, freetextSelectionEnd);
         }
       }
+    }
+
+    // After any draft restore above, not before - wireClearButton()'s own
+    // initial visibility check needs the textarea's FINAL value (the
+    // restored draft, if any), not the empty one it started with fresh
+    // off the innerHTML rebuild.
+    var freetextReplyEl = blockedSection.querySelector('.freetext-reply');
+
+    if (freetextReplyEl) {
+      wireClearButton(freetextReplyEl.querySelector('.freetext-reply-textarea'), freetextReplyEl.querySelector('.freetext-reply-clear-btn'));
     }
 
     if (contextDetailsWasOpen) {
@@ -2765,6 +2778,7 @@
       updateSendButtonState();
     });
     composeSendBtn.addEventListener('click', sendComposedMessage);
+    wireClearButton(composeTextarea, document.getElementById('compose-textarea-clear-btn'));
 
     // Plain Enter inserts a newline (the browser's own default - no
     // handling needed here); only Shift+Enter submits. The opposite of the
@@ -3233,6 +3247,7 @@
 
   if (sessionSearchInput && sessionSearchResults) {
     sessionSearchInput.addEventListener('input', runSessionSearch);
+    wireClearButton(sessionSearchInput, document.getElementById('session-search-input-clear-btn'));
 
     // Flipping the scope radio re-runs immediately (no debounce wait, and
     // whatever the previous mode's request had in flight is aborted by

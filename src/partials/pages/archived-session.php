@@ -41,8 +41,18 @@ $this->layout('layout', [
     </div>
 
     <div class="select-none mb-4">
-      <input type="search" id="session-search-input" placeholder="Search this conversation&hellip;" autocomplete="off"
-        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500">
+      <!-- text-base (16px), not text-sm - iOS Safari auto-zooms the whole
+           viewport in on focusing any text input rendered under 16px
+           (found live 2026-08-20: this one was missed in the same pass
+           that fixed sidebar.php's/index.php's own search inputs).
+           appearance-none suppresses the native WebKit search-cancel
+           button - see sidebar.php's own copy of this comment for why. -->
+      <div class="relative">
+        <input type="search" id="session-search-input" placeholder="Search this conversation&hellip;" autocomplete="off"
+          class="appearance-none w-full rounded-lg border border-slate-700 bg-slate-800 pl-3 pr-9 py-2 text-base text-slate-200 placeholder:text-slate-500">
+        <button type="button" id="session-search-input-clear-btn" aria-label="Clear search" tabindex="-1"
+          class="hidden absolute top-1/2 right-1.5 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded text-slate-500 active:text-slate-300 text-lg leading-none">&times;</button>
+      </div>
       <div id="session-search-results" class="mt-2 flex flex-col gap-1.5 text-sm"></div>
     </div>
 

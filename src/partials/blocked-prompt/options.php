@@ -23,7 +23,10 @@
   </div>
   <?php if ($hasFreeText): ?>
   <div class="freetext-reply hidden mt-2">
-    <textarea class="freetext-reply-textarea w-full resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 px-3 py-2" rows="2" placeholder="Type your reply&hellip;"></textarea>
+    <div class="relative">
+      <textarea class="freetext-reply-textarea w-full resize-none rounded-lg bg-slate-800 border border-slate-700 text-base text-slate-100 pl-3 pr-8 py-2" rows="2" placeholder="Type your reply&hellip;"></textarea>
+      <button type="button" class="freetext-reply-clear-btn hidden absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded text-slate-500 active:text-slate-300 text-lg leading-none" aria-label="Clear reply" tabindex="-1">&times;</button>
+    </div>
     <button type="button" class="freetext-reply-send-btn mt-1 rounded-lg bg-indigo-600 active:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5">Send</button>
   </div>
   <?php endif ?>

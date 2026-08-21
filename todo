@@ -91,9 +91,6 @@ Smaller polish (low effort, low risk):
 - A more compact ("thin") version of the session-info header (name + cwd)
   - Andres's own phrasing was terse ("thin version of name and cwd header
     fixed"), worth confirming exactly what layout he wants before building.
-- Every text input/textarea app-wide should have a clear ("×") button to
-  wipe its contents, right-aligned (top-right specifically for multi-line
-  textareas, since a vertically-centered one would drift as the box grows).
 
 Exploratory / speculative / lower priority:
 

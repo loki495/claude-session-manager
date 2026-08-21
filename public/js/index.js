@@ -746,6 +746,7 @@ document.addEventListener('keydown', function (e) {
 
         if (searchInput) {
           searchInput.addEventListener('input', filterArchivedRows);
+          wireClearButton(searchInput, document.getElementById('archived-search-clear-btn'));
         }
       })
       .catch(function () {
@@ -846,6 +847,8 @@ document.addEventListener('keydown', function (e) {
         + '</div>';
     }).join('');
   }
+
+  wireClearButton(input, document.getElementById('dashboard-search-input-clear-btn'));
 
   input.addEventListener('input', function () {
     var query = input.value.trim();

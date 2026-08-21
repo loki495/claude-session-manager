@@ -111,7 +111,7 @@
   var debounceTimer = null;
   var abortController = null;
 
-  function renderResults(matches) {
+  function renderResults(matches, query) {
     if (!matches || matches.length === 0) {
       results.innerHTML = '<div class="text-xs text-slate-500">No matches.</div>';
       return;
@@ -119,13 +119,16 @@
 
     results.innerHTML = matches.map(function (m) {
       var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
+      var timeHtml = typeof m.timestamp === 'number' ? '<span class="text-slate-600"> &middot; ' + escapeHtml(relativeTimeLabel(m.timestamp)) + '</span>' : '';
       return '<a href="/archived_session.php?claude_session_id=' + encodeURIComponent(bootstrap.claudeSessionId) + '&jump_line=' + encodeURIComponent(m.line) + '"'
         + ' class="block rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 px-2 py-1.5">'
-        + '<div class="text-[11px] text-slate-500 mb-0.5">' + escapeHtml(roleLabel) + '</div>'
-        + '<div class="text-xs text-slate-300 break-words">' + escapeHtml(m.snippet) + '</div>'
+        + '<div class="text-[11px] text-slate-500 mb-0.5">' + escapeHtml(roleLabel) + timeHtml + '</div>'
+        + '<div class="text-xs text-slate-300 break-words">' + highlightSnippet(m.snippet, query) + '</div>'
         + '</a>';
     }).join('');
   }
+
+  wireClearButton(input, document.getElementById('session-search-input-clear-btn'));
 
   input.addEventListener('input', function () {
     var query = input.value.trim();
@@ -155,7 +158,7 @@
             return;
           }
 
-          renderResults(data.matches);
+          renderResults(data.matches, query);
         })
         .catch(function (e) {
           if (e && e.name === 'AbortError') {

@@ -39,10 +39,16 @@ $this->layout('layout', [
     <div class="select-none mb-4">
       <!-- text-base (16px), not text-sm - iOS Safari auto-zooms the whole
            viewport in on focusing any text input rendered under 16px, no
-           way to opt out of that short of the font size itself. -->
-      <input type="search" id="dashboard-search-input" placeholder="Search all sessions&hellip;" autocomplete="off"
-        data-csrf-token="<?= $this->e($csrfToken) ?>"
-        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-base text-slate-200 placeholder:text-slate-500">
+           way to opt out of that short of the font size itself.
+           appearance-none suppresses the native WebKit search-cancel
+           button - see sidebar.php's own copy of this comment for why. -->
+      <div class="relative">
+        <input type="search" id="dashboard-search-input" placeholder="Search all sessions&hellip;" autocomplete="off"
+          data-csrf-token="<?= $this->e($csrfToken) ?>"
+          class="appearance-none w-full rounded-lg border border-slate-700 bg-slate-800 pl-3 pr-9 py-2 text-base text-slate-200 placeholder:text-slate-500">
+        <button type="button" id="dashboard-search-input-clear-btn" aria-label="Clear search" tabindex="-1"
+          class="hidden absolute top-1/2 right-1.5 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded text-slate-500 active:text-slate-300 text-lg leading-none">&times;</button>
+      </div>
       <div id="dashboard-search-results" class="mt-2 flex flex-col gap-2"></div>
     </div>
   <?php endif; ?>

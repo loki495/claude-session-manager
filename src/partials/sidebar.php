@@ -10,9 +10,18 @@
       <span class="block text-xs font-medium text-slate-500 mb-2">Search</span>
       <!-- text-base (16px), not text-sm - iOS Safari auto-zooms the whole
            viewport in on focusing any text input rendered under 16px, no
-           way to opt out of that short of the font size itself. -->
-      <input type="search" id="session-search-input" placeholder="Search messages&hellip;" autocomplete="off"
-        class="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-base text-slate-200 placeholder:text-slate-500">
+           way to opt out of that short of the font size itself.
+           appearance-none suppresses the native WebKit search-cancel
+           button - Andres wants ONE consistent custom clear button
+           everywhere (native ones vary in styling/position by browser and
+           textareas never get one at all), not that plus a second,
+           differently-styled native one alongside it. -->
+      <div class="relative">
+        <input type="search" id="session-search-input" placeholder="Search messages&hellip;" autocomplete="off"
+          class="appearance-none w-full rounded-lg border border-slate-700 bg-slate-800 pl-2 pr-8 py-1.5 text-base text-slate-200 placeholder:text-slate-500">
+        <button type="button" id="session-search-input-clear-btn" aria-label="Clear search" tabindex="-1"
+          class="hidden absolute top-1/2 right-1 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded text-slate-500 active:text-slate-300 text-lg leading-none">&times;</button>
+      </div>
       <div class="flex items-center gap-3 mt-1.5 text-xs text-slate-400">
         <label class="flex items-center gap-1">
           <input type="radio" name="session-search-scope" id="session-search-scope-session" value="session" checked class="text-indigo-500 focus:ring-indigo-500">

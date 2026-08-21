@@ -73,6 +73,34 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Shared by every text input/textarea in the app that has its own clear
+// (x) button (Andres's own explicit ask, 2026-08-20: every text field
+// needs one, not just relying on browser-native type="search" clear
+// icons - inconsistently styled/positioned across browsers, and
+// textareas never get one at all). Only visible while there's something
+// to clear; clearing dispatches a real 'input' event so any listener
+// depending on that (auto-grow, draft-saving, send-button enable/
+// disable, a debounced search) fires exactly as if the user had deleted
+// the text by hand, not left stale by a raw .value assignment.
+function wireClearButton(fieldEl, buttonEl) {
+  if (!fieldEl || !buttonEl) {
+    return;
+  }
+
+  function updateVisibility() {
+    buttonEl.classList.toggle('hidden', fieldEl.value === '');
+  }
+
+  fieldEl.addEventListener('input', updateVisibility);
+  updateVisibility();
+
+  buttonEl.addEventListener('click', function () {
+    fieldEl.value = '';
+    fieldEl.dispatchEvent(new Event('input', { bubbles: true }));
+    fieldEl.focus();
+  });
+}
+
 // Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed
 // timestamp reads the same as the server-rendered one. Shared by
 // session.js's own live updates and index.js's search results (moved here
