@@ -1219,6 +1219,17 @@ class SessionService
             return ['ok' => false, 'message' => 'Failed to send message: ' . trim($paste['stderr'])];
         }
 
+        // Found live 2026-08-20 (Andres: a sent message sometimes sat stuck
+        // showing "Sending…" client-side, with no thinking indicator ever
+        // appearing - the message never actually got submitted, just typed
+        // into the pane) - this was missing the same TMUX_KEY_STEP_DELAY_USEC
+        // gap answer_prompt_with_text() already has between ITS own
+        // paste-buffer and confirming Enter (see that constant's own doc
+        // comment), for the identical reason: an Enter sent with no gap
+        // right after a paste can be processed before the pane has actually
+        // registered the pasted text, submitting nothing.
+        usleep(self::TMUX_KEY_STEP_DELAY_USEC);
+
         $enter = TmuxService::tmux_run(['send-keys', '-t', $name, 'Enter']);
 
         if ($enter['exit'] !== 0) {

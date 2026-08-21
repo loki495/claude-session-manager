@@ -1465,8 +1465,17 @@
     }
 
     pendingEntries = pendingEntries.filter(function (el) {
+      // Trimmed, not an exact match - Claude Code's own transcript write
+      // isn't guaranteed to preserve incidental leading/trailing
+      // whitespace exactly as typed, and an exact-match requirement here
+      // has no recovery path at all if it ever doesn't: a pending entry
+      // that never matches just sits "Sending…" forever (found live
+      // 2026-08-20 alongside the actual root cause, a missing tmux
+      // paste-then-Enter delay in SessionService::send_message() - this
+      // is a smaller, independent robustness improvement on top of that).
+      var pendingTextTrimmed = el.dataset.pendingText.trim();
       var matched = freshEntries.some(function (entry) {
-        return entry.role === el.dataset.pendingRole && pendingEntryText(entry.blocks) === el.dataset.pendingText;
+        return entry.role === el.dataset.pendingRole && pendingEntryText(entry.blocks).trim() === pendingTextTrimmed;
       });
 
       if (matched && el.parentNode) {

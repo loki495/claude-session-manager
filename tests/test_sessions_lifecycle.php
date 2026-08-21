@@ -1302,6 +1302,33 @@ try {
         'buffer isolation: SessionService.php never uses paste-buffer with no -b (would paste from the shared default buffer)'
     );
 
+    // --- send_message()'s own regression guard (found live 2026-08-20):
+    // sending Enter with no gap right after paste-buffer can be processed
+    // before the pane has actually registered the pasted text, submitting
+    // nothing - the message sits typed but unsent, no thinking indicator
+    // ever appears, and the client's own optimistic bubble is stuck
+    // "Sending…" forever since there's no real transcript entry to ever
+    // match it against. answer_prompt_with_text() already had the fix
+    // (TMUX_KEY_STEP_DELAY_USEC between its own paste-buffer and Enter -
+    // see that constant's own doc comment for the original, already-
+    // proven-live race this same gap fixes elsewhere); send_message() was
+    // simply missing it. Same reasoning as the buffer-isolation checks
+    // above for testing this as a source shape rather than a behavioral
+    // race - real OS-level timing isn't something a test can force
+    // deterministically without an artificial delay hook this app doesn't
+    // have (and shouldn't add just for testability). ---
+    $sendMessageBody = null;
+
+    if (preg_match('/function send_message\(.*?\n    \}\n/s', $sessionServiceSource, $sendMessageMatch) === 1) {
+        $sendMessageBody = $sendMessageMatch[0];
+    }
+
+    assert_true($sendMessageBody !== null, 'send_message(): found in SessionService.php source (sanity check for the assertion below)');
+    assert_true(
+        $sendMessageBody !== null && str_contains($sendMessageBody, 'usleep(self::TMUX_KEY_STEP_DELAY_USEC)'),
+        'send_message(): waits TMUX_KEY_STEP_DELAY_USEC between paste-buffer and the confirming Enter, same as answer_prompt_with_text()'
+    );
+
     // --- Full-feature parity for an adopted (non-cc-*) session: "tracked"
     // is now sidecar-existence, not the cc-* prefix (see TmuxService::
     // list_tracked_tmux_sessions()), so a session session_start.php adopted
