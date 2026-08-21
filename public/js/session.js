@@ -924,7 +924,13 @@
         // toggle - it used to force-open when details were hidden (on the
         // theory that there'd be no result to click into for confirmation),
         // but that's backwards from what's wanted: collapsed either way.
-        return '<div class="tool-use-block' + (isSubagent ? ' subagent-use-block' : '') + '" data-line="' + line + '">' + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
+        // block.description (when present - see TranscriptService::
+        // tool_use_description()) renders as its own always-visible line,
+        // never subject to renderCollapsibleBlock()'s own first-line-only
+        // truncation the rest of the params are.
+        return '<div class="tool-use-block' + (isSubagent ? ' subagent-use-block' : '') + '" data-line="' + line + '">'
+          + (block.description ? '<p class="text-sm lg:text-base text-sky-200 mb-1">' + escapeHtml(block.description) + '</p>' : '')
+          + renderCollapsibleBlock(block.text, 'border-sky-800/40', 'text-sky-300', '&rarr; ') + '</div>';
       case 'tool_result':
         // The image/attachments are SIBLINGS of .tool-detail, not nested
         // inside it - shown regardless of the show/hide-subagent toggle,

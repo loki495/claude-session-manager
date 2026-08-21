@@ -508,29 +508,21 @@ class TranscriptService
     }
 
     /**
-     * "tool: X" (plus, if $headSummary is given, " - <that text>") plus
-     * every param, e.g. "tool: Bash - command: pwd" - joined onto one line
-     * for a short/simple call (mirrors the existing trivial-block rule: no
-     * point in an expand affordance for something already fully visible),
-     * broken out into its own "Params:" list otherwise, one "- key: value"
-     * per line. $headSummary is ALWAYS part of the head line, never
-     * dropped into the Params list even when the rest overflows into that
-     * multi-line form - see summarize_tool_use()'s own doc comment for why
-     * (Andres's own ask, 2026-08-21: a Bash call's human-readable
-     * `description` used to only surface after two levels of expansion,
-     * buried below its own often-much-longer raw `command`).
+     * "tool: X" plus every param, e.g. "tool: Bash - command: pwd" - joined
+     * onto one line for a short/simple call (mirrors the existing
+     * trivial-block rule: no point in an expand affordance for something
+     * already fully visible), broken out into its own "Params:" list
+     * otherwise, one "- key: value" per line.
      *
      * @param string[] $paramLines
      */
-    public static function format_tool_use_summary(string $displayName, array $paramLines, ?string $headSummary = null): string
+    public static function format_tool_use_summary(string $displayName, array $paramLines): string
     {
-        $headLine = 'tool: ' . $displayName . ($headSummary !== null ? ' - ' . $headSummary : '');
-
         if ($paramLines === []) {
-            return $headLine;
+            return "tool: {$displayName}";
         }
 
-        $singleLine = $headLine . ' - ' . implode(', ', $paramLines);
+        $singleLine = "tool: {$displayName} - " . implode(', ', $paramLines);
 
         if (!str_contains($singleLine, "\n") && mb_strlen($singleLine) <= self::TOOL_USE_SUMMARY_LINE_MAX) {
             return $singleLine;
@@ -538,7 +530,26 @@ class TranscriptService
 
         $bulleted = array_map(static fn(string $line): string => "- {$line}", $paramLines);
 
-        return "{$headLine}\nParams:\n" . implode("\n", $bulleted);
+        return "tool: {$displayName}\nParams:\n" . implode("\n", $bulleted);
+    }
+
+    /**
+     * A `description` field (Bash/Glob/Grep and others all commonly carry
+     * one - a short human-readable "what this call is doing", separate
+     * from the often-long/cryptic raw command or pattern). Pulled out as
+     * its own value rather than left to compete as just another
+     * "key: value" entry in the generic param dump - see
+     * summarize_content_block()'s own 'description' field, rendered as its
+     * own always-visible line (transcript/block.php), never subject to
+     * collapsible_summary()'s first-line-only truncation the way the rest
+     * of the params are (found live 2026-08-21, Andres: wanted it visible
+     * right alongside the "tool: ..." line, on its own line, not
+     * competing with a long raw command for the single-line summary's
+     * length budget or buried behind two levels of expansion).
+     */
+    public static function tool_use_description(array $input): ?string
+    {
+        return is_string($input['description'] ?? null) && $input['description'] !== '' ? $input['description'] : null;
     }
 
     /**
@@ -547,20 +558,9 @@ class TranscriptService
      * just the bare tool name, so a Bash entry shows the actual command run,
      * an Edit shows the file touched, etc., instead of requiring a click into
      * `tool_result` to guess what happened. Shows every param, not just one
-     * primary argument.
-     *
-     * A `description` field (Bash/Glob/Grep and others all commonly carry
-     * one - a short human-readable "what this call is doing", separate
-     * from the often-long/cryptic raw command or pattern) is promoted onto
-     * the head line itself (format_tool_use_summary()'s $headSummary),
-     * rather than left to compete as just another "key: value" entry that
-     * a long primary arg (a long shell command, say) could push out of the
-     * single-line form entirely - found live 2026-08-21 (Andres: wanted
-     * the description visible "among the '-> tool: ...' line") that it was
-     * otherwise only reachable after expanding BOTH the tool-group AND the
-     * individual call's own Params list, buried below the raw command
-     * rather than shown as the readable one-liner it's meant to be.
-     * Removed from the param list afterward so it isn't shown twice.
+     * primary argument. `description`, when present, is excluded here - it's
+     * surfaced separately (see tool_use_description()/summarize_content_
+     * block()) rather than duplicated as a param line too.
      */
     public static function summarize_tool_use(array $block): string
     {
@@ -588,10 +588,10 @@ class TranscriptService
             }
         }
 
-        $description = is_string($input['description'] ?? null) && $input['description'] !== '' ? $input['description'] : null;
+        $description = self::tool_use_description($input);
         $paramInput = $description !== null ? array_diff_key($input, ['description' => true]) : $input;
 
-        return self::format_tool_use_summary($displayName, self::tool_use_param_lines($paramInput), $description);
+        return self::format_tool_use_summary($displayName, self::tool_use_param_lines($paramInput));
     }
 
     /**
@@ -619,6 +619,17 @@ class TranscriptService
                 [
                     'kind' => 'tool_use',
                     'text' => self::summarize_tool_use($block),
+                    // Rendered as its own always-visible line (transcript/
+                    // block.php), never subject to the collapsible summary's
+                    // first-line-only truncation the rest of the params are -
+                    // see tool_use_description()'s own doc comment. Excluded
+                    // for Agent specifically - summarize_agent_tool_use()
+                    // already folds its description into the text summary
+                    // itself ("<subagent_type>: <description>"), so adding it
+                    // here too would just show it twice.
+                    'description' => (string)($block['name'] ?? '') !== 'Agent' && is_array($block['input'] ?? null)
+                        ? self::tool_use_description($block['input'])
+                        : null,
                     // Lets session.php color/collapse a subagent launch as its
                     // own distinct kind instead of a generic tool call - see
                     // entry_color_kind() there. Read straight off this block's

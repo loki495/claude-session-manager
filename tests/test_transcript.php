@@ -55,11 +55,13 @@ assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash']], $toolUseLine['blo
 // param, not just one primary argument, joined onto a single line when
 // short enough (mirrors BlockedPromptView::collapsible_summary()'s own single-line
 // threshold - see format_tool_use_summary()) ---
-// description (when present) is promoted onto the head line itself, not
-// left to compete as just another "key: value" param - see
-// format_tool_use_summary()'s own doc comment for why (2026-08-21).
-assert_equal('tool: Bash - Clean up - command: rm -rf /tmp/x', TranscriptService::summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - description promoted onto the head line, command still shown as a param, not duplicated');
-assert_equal('tool: Bash - Just the description, no other params', TranscriptService::summarize_tool_use(['name' => 'Bash', 'input' => ['description' => 'Just the description, no other params']]), 'summarize_tool_use: a description-only input shows just the head line, no dangling "description:" label or empty Params list');
+// description (when present) is excluded from summarize_tool_use()'s own
+// text entirely - it's surfaced separately (see summarize_content_block()'s
+// own 'description' field and tool_use_description()'s doc comment,
+// 2026-08-21) as its own always-visible rendered line, not part of the
+// collapsible param-dump text at all.
+assert_equal('tool: Bash - command: rm -rf /tmp/x', TranscriptService::summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - description excluded from the text (surfaced separately), command still shown as a param');
+assert_equal('tool: Bash', TranscriptService::summarize_tool_use(['name' => 'Bash', 'input' => ['description' => 'Just the description, no other params']]), 'summarize_tool_use: a description-only input has nothing left to show as text once description is excluded - just the bare tool name');
 assert_equal('tool: Read - file_path: /etc/hosts', TranscriptService::summarize_tool_use(['name' => 'Read', 'input' => ['file_path' => '/etc/hosts']]), 'summarize_tool_use: Read - file_path used');
 assert_equal('tool: Grep - pattern: TODO', TranscriptService::summarize_tool_use(['name' => 'Grep', 'input' => ['pattern' => 'TODO']]), 'summarize_tool_use: Grep - pattern used');
 // NotebookEdit's path argument is named notebook_path, not file_path -
@@ -262,7 +264,22 @@ $rejectedBashLine = TranscriptService::parse_transcript_line(
 assert_true(!array_key_exists('plan_status', $rejectedBashLine['blocks'][0]), 'parse_transcript_line: a rejected Bash call (same generic toolUseResult string, but its id is NOT in the plan id map) never gets a plan_status');
 
 $toolUseWithCommand = TranscriptService::parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}');
-assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash - List files - command: ls -la']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it (and the description promoted onto the head line), not just "Bash"');
+assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls -la', 'description' => 'List files']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it, plus its own separate description field (not folded into text)');
+
+// --- summarize_content_block()'s own 'description' field: rendered as its
+// own always-visible line (transcript/block.php/renderBlock() in
+// session.js), never subject to the collapsible summary's first-line-only
+// truncation the rest of the params are (2026-08-21) ---
+$toolUseNoDescription = TranscriptService::parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"/etc/hosts"}}]}}');
+assert_equal(false, array_key_exists('description', $toolUseNoDescription['blocks'][0] ?? []), 'parse_transcript_line: tool_use with no description input has no description key at all, not an empty string');
+
+// Agent is excluded from the separate 'description' field - its own
+// summarize_agent_tool_use() already folds description into the text
+// summary itself ("<subagent_type>: <description>"), so adding it again
+// here would just show it twice.
+$agentToolUse = TranscriptService::parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Agent","input":{"subagent_type":"general-purpose","description":"Reply with pineapple","prompt":"..."}}]}}');
+assert_equal(false, array_key_exists('description', $agentToolUse['blocks'][0] ?? []), 'parse_transcript_line: Agent tool_use has no separate description field - already shown via its own bespoke "<subagent_type>: <description>" text summary');
+assert_contains('Reply with pineapple', $agentToolUse['blocks'][0]['text'] ?? '', 'parse_transcript_line: Agent tool_use still shows its description, just via the text summary rather than a separate field');
 
 $toolResultLine = TranscriptService::parse_transcript_line('{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}]}}');
 assert_equal([['kind' => 'tool_result', 'text' => "file1\nfile2"]], $toolResultLine['blocks'] ?? null, 'parse_transcript_line: tool_result content flattened to text');

@@ -135,6 +135,7 @@ class TranscriptView extends View
         return self::render('transcript/block', [
             'kind' => $block['kind'],
             'text' => $block['text'],
+            'description' => $block['description'] ?? null,
             'line' => $line,
             'collapsibleHtml' => $collapsibleHtml,
             'imageHtml' => $imageHtml,
