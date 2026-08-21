@@ -10,6 +10,9 @@
     return; // session not found - nothing here to wire up
   }
 
+  wireTouchTooltip(headerTitle);
+  wireTouchTooltip(document.getElementById('header-cwd'));
+
   // Session-specific values that vary per page load (real transcript state,
   // not something this static file can know) - set by the small inline
   // bootstrap-data <script> tag session.php renders right before this file

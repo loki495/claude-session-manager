@@ -101,6 +101,72 @@ function wireClearButton(fieldEl, buttonEl) {
   });
 }
 
+// Makes an element's native `title` tooltip also appear on tap, not just
+// hover - iOS Safari (and touch browsers generally) never show a native
+// title="..." tooltip on tap at all, so anything relying on it alone as
+// the "see the full untruncated text" affordance (a truncated header
+// title/cwd, say) is effectively inaccessible on a touch device (Andres's
+// own report, 2026-08-20). Shows a small floating bubble with the same
+// text, centered under the element, dismissed by tapping anywhere else or
+// after a few seconds either way.
+function wireTouchTooltip(el) {
+  if (!el) {
+    return;
+  }
+
+  var bubble = null;
+  var removeBubbleTimer = null;
+
+  function removeBubble() {
+    clearTimeout(removeBubbleTimer);
+
+    if (bubble && bubble.parentNode) {
+      bubble.parentNode.removeChild(bubble);
+    }
+
+    bubble = null;
+    document.removeEventListener('touchstart', dismissIfOutside, true);
+    document.removeEventListener('click', dismissIfOutside, true);
+  }
+
+  function dismissIfOutside(e) {
+    if (e.target !== el && !el.contains(e.target)) {
+      removeBubble();
+    }
+  }
+
+  el.addEventListener('click', function (e) {
+    if (bubble) {
+      removeBubble();
+      return;
+    }
+
+    var text = el.getAttribute('title');
+
+    if (!text) {
+      return;
+    }
+
+    e.stopPropagation();
+
+    bubble = document.createElement('div');
+    bubble.className = 'fixed z-50 left-1/2 -translate-x-1/2 max-w-[90vw] rounded-lg border border-slate-700 bg-slate-800 text-slate-100 text-xs px-2 py-1.5 shadow-lg break-words text-center';
+    bubble.textContent = text;
+    document.body.appendChild(bubble);
+    bubble.style.top = (el.getBoundingClientRect().bottom + 6) + 'px';
+
+    // Listeners added a tick later, not in this same handler - otherwise
+    // this very click (which also bubbles up to document) would
+    // immediately dismiss the bubble it just created.
+    setTimeout(function () {
+      document.addEventListener('touchstart', dismissIfOutside, true);
+      document.addEventListener('click', dismissIfOutside, true);
+    }, 0);
+
+    removeBubbleTimer = setTimeout(removeBubble, 4000);
+  });
+}
+
 // Mirrors App\Views\SessionRowView::relative_time() so a poll-refreshed
 // timestamp reads the same as the server-rendered one. Shared by
 // session.js's own live updates and index.js's search results (moved here

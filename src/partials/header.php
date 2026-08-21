@@ -2,12 +2,12 @@
   <div class="max-w-2xl lg:max-w-4xl mx-auto px-4 py-2 grid grid-cols-[auto_1fr_auto] items-center gap-2">
     <a href="/" class="text-sm text-slate-400 hover:underline whitespace-nowrap">&larr; All sessions</a>
     <div class="min-w-0 text-center">
-      <div id="header-title" class="text-sm font-medium text-slate-200 truncate"
+      <div id="header-title" class="text-sm font-medium text-slate-200 truncate cursor-pointer"
         title="<?= $found ? htmlspecialchars((string)($detail['title'] ?? $detail['name']), ENT_QUOTES) : '' ?>">
         <?= $found ? htmlspecialchars((string)($detail['title'] ?? $detail['name']), ENT_QUOTES) : '' ?>
       </div>
       <?php if ($found && !empty($detail['workdir'])): ?>
-        <div id="header-cwd" class="text-[11px] text-slate-500 truncate" title="<?= htmlspecialchars((string)$detail['workdir'], ENT_QUOTES) ?>"><?= htmlspecialchars((string)$detail['workdir'], ENT_QUOTES) ?></div>
+        <div id="header-cwd" class="text-[11px] text-slate-500 truncate cursor-pointer" title="<?= htmlspecialchars((string)$detail['workdir'], ENT_QUOTES) ?>"><?= htmlspecialchars((string)$detail['workdir'], ENT_QUOTES) ?></div>
       <?php endif ?>
     </div>
     <div class="flex items-center gap-1 justify-self-end">
