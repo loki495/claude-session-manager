@@ -55,7 +55,11 @@ assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash']], $toolUseLine['blo
 // param, not just one primary argument, joined onto a single line when
 // short enough (mirrors BlockedPromptView::collapsible_summary()'s own single-line
 // threshold - see format_tool_use_summary()) ---
-assert_equal('tool: Bash - command: rm -rf /tmp/x, description: Clean up', TranscriptService::summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - command first (primary arg), then every other param');
+// description (when present) is promoted onto the head line itself, not
+// left to compete as just another "key: value" param - see
+// format_tool_use_summary()'s own doc comment for why (2026-08-21).
+assert_equal('tool: Bash - Clean up - command: rm -rf /tmp/x', TranscriptService::summarize_tool_use(['name' => 'Bash', 'input' => ['command' => 'rm -rf /tmp/x', 'description' => 'Clean up']]), 'summarize_tool_use: Bash - description promoted onto the head line, command still shown as a param, not duplicated');
+assert_equal('tool: Bash - Just the description, no other params', TranscriptService::summarize_tool_use(['name' => 'Bash', 'input' => ['description' => 'Just the description, no other params']]), 'summarize_tool_use: a description-only input shows just the head line, no dangling "description:" label or empty Params list');
 assert_equal('tool: Read - file_path: /etc/hosts', TranscriptService::summarize_tool_use(['name' => 'Read', 'input' => ['file_path' => '/etc/hosts']]), 'summarize_tool_use: Read - file_path used');
 assert_equal('tool: Grep - pattern: TODO', TranscriptService::summarize_tool_use(['name' => 'Grep', 'input' => ['pattern' => 'TODO']]), 'summarize_tool_use: Grep - pattern used');
 // NotebookEdit's path argument is named notebook_path, not file_path -
@@ -258,7 +262,7 @@ $rejectedBashLine = TranscriptService::parse_transcript_line(
 assert_true(!array_key_exists('plan_status', $rejectedBashLine['blocks'][0]), 'parse_transcript_line: a rejected Bash call (same generic toolUseResult string, but its id is NOT in the plan id map) never gets a plan_status');
 
 $toolUseWithCommand = TranscriptService::parse_transcript_line('{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la","description":"List files"}}]}}');
-assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash - command: ls -la, description: List files']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it, not just "Bash"');
+assert_equal([['kind' => 'tool_use', 'text' => 'tool: Bash - List files - command: ls -la']], $toolUseWithCommand['blocks'] ?? null, 'parse_transcript_line: tool_use with a command shows it (and the description promoted onto the head line), not just "Bash"');
 
 $toolResultLine = TranscriptService::parse_transcript_line('{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}]}}');
 assert_equal([['kind' => 'tool_result', 'text' => "file1\nfile2"]], $toolResultLine['blocks'] ?? null, 'parse_transcript_line: tool_result content flattened to text');

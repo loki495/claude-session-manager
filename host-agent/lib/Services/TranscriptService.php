@@ -346,11 +346,18 @@ class TranscriptService
      * being the primary arg - the same "wherever it falls in normal param
      * order" problem this whole list exists to avoid).
      *
+     * `description` deliberately isn't in this list (removed 2026-08-21) -
+     * summarize_tool_use() now promotes it onto the summary's head line
+     * directly (format_tool_use_summary()'s $headSummary) whenever present,
+     * ahead of and separate from whichever key here is picked as the
+     * primary arg, rather than treating it as just another equally-ranked
+     * candidate.
+     *
      * @return string[]
      */
     public static function tool_use_primary_arg_keys(): array
     {
-        return ['command', 'file_path', 'notebook_path', 'pattern', 'query', 'url', 'path', 'prompt', 'element', 'description'];
+        return ['command', 'file_path', 'notebook_path', 'pattern', 'query', 'url', 'path', 'prompt', 'element'];
     }
 
     /**
@@ -501,21 +508,29 @@ class TranscriptService
     }
 
     /**
-     * "tool: X" plus every param, e.g. "tool: Bash - command: pwd" - joined
-     * onto one line for a short/simple call (mirrors the existing
-     * trivial-block rule: no point in an expand affordance for something
-     * already fully visible), broken out into its own "Params:" list
-     * otherwise, one "- key: value" per line.
+     * "tool: X" (plus, if $headSummary is given, " - <that text>") plus
+     * every param, e.g. "tool: Bash - command: pwd" - joined onto one line
+     * for a short/simple call (mirrors the existing trivial-block rule: no
+     * point in an expand affordance for something already fully visible),
+     * broken out into its own "Params:" list otherwise, one "- key: value"
+     * per line. $headSummary is ALWAYS part of the head line, never
+     * dropped into the Params list even when the rest overflows into that
+     * multi-line form - see summarize_tool_use()'s own doc comment for why
+     * (Andres's own ask, 2026-08-21: a Bash call's human-readable
+     * `description` used to only surface after two levels of expansion,
+     * buried below its own often-much-longer raw `command`).
      *
      * @param string[] $paramLines
      */
-    public static function format_tool_use_summary(string $displayName, array $paramLines): string
+    public static function format_tool_use_summary(string $displayName, array $paramLines, ?string $headSummary = null): string
     {
+        $headLine = 'tool: ' . $displayName . ($headSummary !== null ? ' - ' . $headSummary : '');
+
         if ($paramLines === []) {
-            return "tool: {$displayName}";
+            return $headLine;
         }
 
-        $singleLine = "tool: {$displayName} - " . implode(', ', $paramLines);
+        $singleLine = $headLine . ' - ' . implode(', ', $paramLines);
 
         if (!str_contains($singleLine, "\n") && mb_strlen($singleLine) <= self::TOOL_USE_SUMMARY_LINE_MAX) {
             return $singleLine;
@@ -523,7 +538,7 @@ class TranscriptService
 
         $bulleted = array_map(static fn(string $line): string => "- {$line}", $paramLines);
 
-        return "tool: {$displayName}\nParams:\n" . implode("\n", $bulleted);
+        return "{$headLine}\nParams:\n" . implode("\n", $bulleted);
     }
 
     /**
@@ -533,6 +548,19 @@ class TranscriptService
      * an Edit shows the file touched, etc., instead of requiring a click into
      * `tool_result` to guess what happened. Shows every param, not just one
      * primary argument.
+     *
+     * A `description` field (Bash/Glob/Grep and others all commonly carry
+     * one - a short human-readable "what this call is doing", separate
+     * from the often-long/cryptic raw command or pattern) is promoted onto
+     * the head line itself (format_tool_use_summary()'s $headSummary),
+     * rather than left to compete as just another "key: value" entry that
+     * a long primary arg (a long shell command, say) could push out of the
+     * single-line form entirely - found live 2026-08-21 (Andres: wanted
+     * the description visible "among the '-> tool: ...' line") that it was
+     * otherwise only reachable after expanding BOTH the tool-group AND the
+     * individual call's own Params list, buried below the raw command
+     * rather than shown as the readable one-liner it's meant to be.
+     * Removed from the param list afterward so it isn't shown twice.
      */
     public static function summarize_tool_use(array $block): string
     {
@@ -560,7 +588,10 @@ class TranscriptService
             }
         }
 
-        return self::format_tool_use_summary($displayName, self::tool_use_param_lines($input));
+        $description = is_string($input['description'] ?? null) && $input['description'] !== '' ? $input['description'] : null;
+        $paramInput = $description !== null ? array_diff_key($input, ['description' => true]) : $input;
+
+        return self::format_tool_use_summary($displayName, self::tool_use_param_lines($paramInput), $description);
     }
 
     /**
