@@ -1,8 +1,12 @@
 (function () {
-  var infoBox = document.getElementById('session-info');
+  // #history-list only renders when $found is true (see session.php) - the
+  // old #session-info card this used to check for is gone (Andres's own
+  // ask, 2026-08-20: dropped in favor of just title+cwd in the fixed
+  // header), so this is the new "was a real session found" sentinel.
+  var list = document.getElementById('history-list');
   var headerTitle = document.getElementById('header-title');
 
-  if (!infoBox) {
+  if (!list) {
     return; // session not found - nothing here to wire up
   }
 
@@ -13,7 +17,6 @@
   var sessionName = window.CSM_BOOTSTRAP.session;
   var csrfToken = window.CSM_BOOTSTRAP.csrfToken;
   var btn = document.getElementById('load-more-btn');
-  var list = document.getElementById('history-list');
   var thinkingIndicator = document.getElementById('thinking-indicator');
   var blockedSection = document.getElementById('blocked-prompt-section');
   var goToBottomBtn = document.getElementById('go-to-bottom-btn');
@@ -53,25 +56,6 @@
   var answerPendingHistoryEl = null;
   var lastRenderedBlockedKey; // undefined, not null - see renderBlockedSection()
   var lastRenderedThinkingShown; // undefined, not null - see renderThinkingIndicator()
-  var lastRenderedStaticInfoKey; // undefined, not null - see renderStaticInfo()
-  // context_used_percentage/git_worktree are a live tmux-pane scrape of
-  // Claude Code's own statusline output (see StatuslineMarkerService on
-  // the host-agent side) - captured fresh every poll from whatever's
-  // CURRENTLY on screen, no scrollback. A single poll landing mid-repaint
-  // (right after a screen clear/resize, or just between Claude Code's own
-  // periodic statusline redraws) can transiently miss the marker and come
-  // back null even though the real value hasn't actually changed - found
-  // live 2026-08-19 (Andres: "context seems to sometimes disappear") that
-  // renderStaticInfo() was treating that one-off null as a real value,
-  // instantly blanking a field that was already known good. These two
-  // remember the last real (non-null) value seen and keep showing it
-  // through a transient miss - only session rotation (a genuinely
-  // different Claude Code session - see resetHistoryForRotatedTranscript())
-  // clears them, since that's the only time a previously-known value
-  // could actually be wrong rather than just momentarily unconfirmed.
-  var lastKnownContextUsedPercentage = null;
-  var lastKnownGitWorktree = null;
-
   // Mirrors the $composeBlocked SSR toggle above - hides the message
   // input (not the whole compose bar; quota/mode stay visible) while a
   // prompt is pending, forcing it to be answered first. The textarea
@@ -1490,82 +1474,23 @@
     });
   }
 
-  // Mirrors TranscriptView::render_session_static_info_html() - kept
-  // alongside renderEntry()/renderBlock() as the JS-side counterpart of
-  // the same PHP renderer, both feeding this one visibility-gated poll.
-  //
-  // Only rebuilds the block when title/name/workdir/attached/context-used%/
-  // worktree actually change - same reasoning as renderBlockedSection()'s
-  // skip-if-unchanged key, here for a lower-stakes reason (no focus/scroll
-  // to protect, just an in-progress text selection inside the box - e.g.
-  // copying the session name or workdir path - that a full innerHTML
-  // replacement would silently clear on every poll for no reason, since
-  // none of this actually changes poll to poll in the common case). The
-  // relative-time label is genuinely time-varying though (its DISPLAYED
-  // text can change even with no new poll data at all), so it's always
-  // updated via its own stable id rather than being covered by the skip.
-  //
-  // found live 2026-08-09: context_used_percentage/git_worktree were read
-  // out of `detail` by the PHP initial render but never by this JS mirror
-  // at all - so the percentage only ever showed up until the FIRST poll
-  // that changed title/name/workdir/attached, at which point this
-  // function's own innerHTML rebuild (missing those two spans entirely)
-  // permanently erased it until a full page reload. Both are now part of
-  // the rebuild key too, so a value showing up/changing/disappearing on
-  // its own also triggers a rebuild, not just the other four fields.
+  // The session-info card (title/name/workdir/attached/context-used%/
+  // worktree/activity) is gone (Andres's own ask, 2026-08-20) - the fixed
+  // header now carries just title + cwd (see header.php), and only the
+  // title half needs live updating here (an AI-generated title can appear/
+  // change mid-session; cwd never changes for a session's lifetime, so
+  // header.php's own server-render is the only place it's ever needed).
+  // Keeps the tooltip (title attribute) in sync with the visible text too,
+  // not just textContent - otherwise a later title change would leave the
+  // hover tooltip showing a stale one from page load.
   function renderStaticInfo(detail) {
-    // A transient miss (this poll's own value is null) falls back to the
-    // last real value seen rather than blanking it - see the block
-    // comment on lastKnownContextUsedPercentage/lastKnownGitWorktree above.
-    if (typeof detail.context_used_percentage === 'number') {
-      lastKnownContextUsedPercentage = detail.context_used_percentage;
-    }
-    if (detail.git_worktree) {
-      lastKnownGitWorktree = detail.git_worktree;
-    }
-    var contextUsedPercentage = lastKnownContextUsedPercentage;
-    var gitWorktree = lastKnownGitWorktree;
-    var key = JSON.stringify([detail.title || null, detail.name, detail.workdir || null, !!detail.attached, contextUsedPercentage, gitWorktree]);
-
-    if (key !== lastRenderedStaticInfoKey) {
-      lastRenderedStaticInfoKey = key;
-
-      var html = '<div class="text-base font-medium truncate">' + escapeHtml(detail.title || detail.name) + '</div>'
-        + '<div class="font-mono text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(detail.name) + '</div>';
-
-      if (detail.workdir) {
-        html += '<div class="text-xs text-slate-500 truncate mt-0.5">' + escapeHtml(detail.workdir) + '</div>';
-      }
-
-      html += '<div class="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">'
-        + '<span id="static-info-activity"></span>'
-        + '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
-        + (detail.attached ? '<span class="text-emerald-400">attached</span>' : '<span class="text-slate-500">idle</span>');
-
-      if (contextUsedPercentage !== null) {
-        html += '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
-          + '<span' + (contextUsedPercentage >= 80 ? ' class="text-amber-400"' : '') + '>context ' + Math.round(contextUsedPercentage) + '% used</span>';
-      }
-
-      if (gitWorktree) {
-        html += '<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>'
-          + '<span>worktree: ' + escapeHtml(gitWorktree) + '</span>';
-      }
-
-      html += '</div>';
-
-      infoBox.innerHTML = html;
-
-      if (headerTitle) {
-        headerTitle.textContent = detail.title || detail.name;
-      }
+    if (!headerTitle) {
+      return;
     }
 
-    var activityEl = document.getElementById('static-info-activity');
-
-    if (activityEl) {
-      activityEl.textContent = relativeTimeLabel(detail.activity);
-    }
+    var title = detail.title || detail.name;
+    headerTitle.textContent = title;
+    headerTitle.title = title;
   }
 
   // Mirrors render_thinking_indicator_html() - a single transient "is it

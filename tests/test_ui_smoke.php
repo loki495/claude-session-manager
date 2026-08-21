@@ -306,6 +306,14 @@ try {
         'GET /session.php: body has overscroll-y-none too (shared layout.php), Y-axis only so the iOS edge-swipe-back gesture is unaffected'
     );
     assert_contains('demo-project', $result['body'], 'GET /session.php: canned workdir shown');
+    assert_true(
+        preg_match('/id="header-cwd"[^>]*>[^<]*demo-project/', $result['body']) === 1,
+        'GET /session.php: the workdir specifically shows up in the fixed header\'s own #header-cwd line (the old session-info card is gone, 2026-08-20)'
+    );
+    assert_true(
+        preg_match('/id="header-title"[^>]*title="Fix the login redirect bug"/', $result['body']) === 1,
+        'GET /session.php: the header title has a title="..." tooltip attribute carrying the full (untruncated) text'
+    );
     assert_contains('Looking into it now.', $result['body'], 'GET /session.php: canned history entry rendered');
 
     // --- desktop-only (lg:) layout: wider content column, bigger text,
@@ -441,13 +449,11 @@ try {
     assert_equal(200, $sessionJs['status'], 'GET /js/session.js?v=...: 200 (served as a static file, no 404)');
     assert_contains('function markNewContent(', $sessionJs['body'], 'GET /js/session.js: markNewContent() (divider + highlight ring on freshly-polled entries) is shipped');
     assert_contains('function resetHistoryForRotatedTranscript(', $sessionJs['body'], 'GET /js/session.js: resetHistoryForRotatedTranscript() (clears the rendered history on /clear, /compact, --resume, --fork-session) is shipped');
-    // found live 2026-08-09: renderStaticInfo() rebuilt the session-info card's
-    // innerHTML on every title/name/workdir/attached change but never read
-    // context_used_percentage/git_worktree out of the poll payload at all, so
-    // the context-used% shown by the initial PHP render silently vanished on
-    // the first such poll and never came back without a full page reload.
-    assert_contains('detail.context_used_percentage', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads context_used_percentage from the poll payload, not just the initial PHP render');
-    assert_contains('detail.git_worktree', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() reads git_worktree from the poll payload, not just the initial PHP render');
+    // renderStaticInfo() no longer carries a session-info card (removed
+    // 2026-08-20 - just title+cwd in the fixed header now, see header.php)
+    // - only the header title/tooltip need live updating (cwd never
+    // changes for a session's lifetime).
+    assert_contains('headerTitle.title = title', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() keeps the header title\'s tooltip (title attribute) in sync too, not just its visible text');
     assert_contains("class=\"copy-block\" data-line=\"' + line + '\"><p class=\"copy-source whitespace-pre-wrap", $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button (and data-line, for search-result jump/highlight) on plain text entries');
     assert_contains("closest('summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
     assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
@@ -650,7 +656,7 @@ try {
     );
     assert_true(
         strpos($result['body'], 'id="blocked-prompt-section"') < strpos($result['body'], 'name="option"'),
-        'GET /session.php: the Approve/Deny option buttons live inside the bottom blocked-prompt section, not the top session-info card'
+        'GET /session.php: the Approve/Deny option buttons live inside the bottom blocked-prompt section, not further up the page'
     );
     $sessionCsrfToken = extract_csrf_token($result['body']);
 

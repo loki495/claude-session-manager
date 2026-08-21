@@ -170,10 +170,6 @@ $this->layout('layout', [
       <p class="mt-1"><?= $this->e((string)($detail['message'] ?? 'Unknown error')) ?></p>
     </div>
   <?php else: ?>
-    <div id="session-info" class="select-none mb-4 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">
-      <?= \App\Views\TranscriptView::render_session_static_info_html($detail) ?>
-    </div>
-
     <?php if ($jumpLine !== null): ?>
       <!-- Landed here from a search result (see sidebar.php's search box/
            session.js) - the page above this loads a window ENDING at
@@ -188,8 +184,6 @@ $this->layout('layout', [
         <a href="/session.php?session=<?= urlencode($sessionName) ?>" class="text-sky-400 active:text-sky-200 font-medium">Back to latest &rarr;</a>
       </div>
     <?php endif; ?>
-
-    <h2 class="select-none text-sm font-medium text-slate-400 mb-2">History</h2>
 
     <!-- #history-list and #load-more-btn are ALWAYS rendered (never
          conditionally, unlike the old version of this template) - both are

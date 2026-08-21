@@ -144,28 +144,6 @@ class TranscriptView extends View
     }
 
     /**
-     * The session-info card's static content (title/name/workdir/activity) -
-     * used for the initial render and mirrored in JS for the visibility-gated
-     * poll that keeps it live without a page reload (see session.js).
-     * The blocked-prompt panel is deliberately NOT part of this card - see
-     * render_blocked_prompt_section_html(), placed after the history list so
-     * the actionable part of the page reads bottom-up like a chat, not stuck
-     * above a scrollable transcript.
-     */
-    public static function render_session_static_info_html(array $detail): string
-    {
-        return self::render('transcript/session-static-info', [
-            'title' => (string)($detail['title'] ?? $detail['name']),
-            'name' => (string)$detail['name'],
-            'workdir' => $detail['workdir'] ?? null,
-            'relativeTime' => SessionRowView::relative_time((int)$detail['activity']),
-            'attached' => (bool)$detail['attached'],
-            'contextUsedPercentage' => $detail['context_used_percentage'] ?? null,
-            'gitWorktree' => $detail['git_worktree'] ?? null,
-        ]);
-    }
-
-    /**
      * The blocked-prompt card (question, the pending command/context in a
      * collapsed-by-default block, Approve/Deny buttons - all one unified
      * card, via the shared BlockedPromptView::blocked_prompt_rich_html()) - empty string when
