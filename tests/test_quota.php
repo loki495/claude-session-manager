@@ -1,0 +1,144 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * QuotaService::quota_from_statusline_state()/get_quota() - pure, no tmux
+ * involved, so this stays a fast isolated unit test focused on malformed-
+ * input edge cases; the real end-to-end flow (a real statusline-state row
+ * written, read back, combined with a live session's own context-window
+ * percentage via a real tmux pane) is covered in test_sessions_lifecycle.php
+ * instead, alongside everything else that needs a real tmux session anyway.
+ *
+ * An earlier version of this file tested a whole cache/background-refresh
+ * subsystem (QuotaService::run_claude_quota()/read_quota_cache()/
+ * trigger_background_quota_refresh(), an external `claude-quota` binary
+ * scrape) - deleted 2026-08-22 as confirmed dead code once
+ * quota_from_statusline_state() became the only source get_quota() ever
+ * reads from (see QuotaService's own class docblock for why). See git
+ * history if any of that ever needs resurrecting.
+ *
+ * quota_from_statusline_state() reads GlobalStateStore's `global_state`
+ * table (Config::push_sqlite_path()) since 2026-08-24, not a plain file -
+ * see write_quota_live_state()/delete_quota_live_state() below for the
+ * fixture-side equivalent of a real write_quota_live_state.php run.
+ */
+
+require __DIR__ . '/lib/assert.php';
+require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
+
+use HostAgent\Services\Config;
+use HostAgent\Services\QuotaService;
+use HostAgent\Stores\GlobalStateStore;
+use HostAgent\Stores\SqliteDb;
+
+const REAL_PUSH_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
+
+$pushSqliteFixture = sys_get_temp_dir() . '/csm-test-quota-live-' . bin2hex(random_bytes(4)) . '/push.sqlite';
+putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
+
+if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_Q) {
+    fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE resolves to the real host state file. Check tests/.env.testing.\n");
+    exit(1);
+}
+
+/**
+ * @param array<string, mixed> $value
+ */
+function write_quota_live_state(array $value): void
+{
+    GlobalStateStore::write(Config::quota_live_state_key(), $value);
+}
+
+function delete_quota_live_state(): void
+{
+    GlobalStateStore::delete(Config::quota_live_state_key());
+}
+
+/**
+ * The one case a plain GlobalStateStore::write() can't simulate - a row
+ * whose value_json is genuinely malformed (GlobalStateStore::write()
+ * always json_encode()s a real PHP value, which can never produce broken
+ * JSON) - so this inserts it directly, the fixture-side equivalent of
+ * disk corruption or a crashed write mid-file for the old plain-file
+ * version of this state.
+ */
+function write_malformed_quota_live_state(): void
+{
+    $pdo = SqliteDb::connect(Config::push_sqlite_path(), SqliteDb::push_schema());
+    $stmt = $pdo->prepare(
+        'INSERT INTO global_state (key, value_json, updated_at) VALUES (:key, :value_json, :updated_at)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at'
+    );
+    $stmt->execute([':key' => Config::quota_live_state_key(), ':value_json' => '{not valid json', ':updated_at' => time()]);
+}
+
+try {
+    // --- QuotaService::quota_from_statusline_state(): sad paths - malformed/incomplete state never crashes, just null or a partial read ---
+
+    assert_equal(null, QuotaService::quota_from_statusline_state(), 'quota_from_statusline_state: null when no row exists at all');
+
+    write_malformed_quota_live_state();
+    assert_equal(null, QuotaService::quota_from_statusline_state(), 'quota_from_statusline_state: null on malformed JSON');
+
+    write_quota_live_state(['session' => ['pct' => 50, 'resets_at' => time()]]);
+    assert_equal(null, QuotaService::quota_from_statusline_state(), 'quota_from_statusline_state: null when captured_at is missing');
+
+    write_quota_live_state(['captured_at' => 'not-an-int', 'session' => ['pct' => 50, 'resets_at' => time()]]);
+    assert_equal(null, QuotaService::quota_from_statusline_state(), 'quota_from_statusline_state: null when captured_at is not an int');
+
+    write_quota_live_state(['captured_at' => time()]);
+    assert_equal(null, QuotaService::quota_from_statusline_state(), 'quota_from_statusline_state: null when neither session nor week_all is present at all');
+
+    write_quota_live_state(['captured_at' => time(), 'session' => ['pct' => '50', 'resets_at' => time()]]);
+    assert_equal(null, QuotaService::quota_from_statusline_state(), 'quota_from_statusline_state: a bucket with pct as a string, not an int, is treated as absent, not coerced');
+
+    write_quota_live_state(['captured_at' => time(), 'session' => ['pct' => 50]]);
+    assert_equal(null, QuotaService::quota_from_statusline_state(), 'quota_from_statusline_state: a bucket missing resets_at is treated as absent - still null overall if it was the only bucket present');
+
+    // --- only ONE of the two buckets present - still a valid partial read, not all-or-nothing ---
+
+    $fetchedAt = time();
+    write_quota_live_state(['captured_at' => $fetchedAt, 'session' => ['pct' => 50, 'resets_at' => $fetchedAt + 3600]]);
+    $sessionOnly = QuotaService::quota_from_statusline_state();
+    assert_true($sessionOnly !== null, 'quota_from_statusline_state: non-null when only one bucket (session) is present and valid');
+    assert_equal(50, $sessionOnly['quota']['session']['pct'] ?? null, 'quota_from_statusline_state: the present bucket round-trips');
+    assert_true(!isset($sessionOnly['quota']['week_all']), 'quota_from_statusline_state: the absent bucket (week_all) is not fabricated');
+
+    // --- happy path: both buckets present and valid ---
+
+    write_quota_live_state([
+        'captured_at' => $fetchedAt,
+        'session' => ['pct' => 70, 'resets_at' => $fetchedAt + 3600],
+        'week_all' => ['pct' => 60, 'resets_at' => $fetchedAt + 86400],
+    ]);
+    $both = QuotaService::quota_from_statusline_state();
+    assert_equal(70, $both['quota']['session']['pct'] ?? null, 'quota_from_statusline_state: session pct');
+    assert_equal($fetchedAt + 3600, $both['quota']['session']['resets_at'] ?? null, 'quota_from_statusline_state: session resets_at is the real epoch from the row, untouched');
+    assert_equal(60, $both['quota']['week_all']['pct'] ?? null, 'quota_from_statusline_state: week_all pct');
+    assert_equal($fetchedAt, $both['fetched_at'] ?? null, 'quota_from_statusline_state: fetched_at is captured_at from the row');
+
+    // --- QuotaService::get_quota(): mirrors quota_from_statusline_state() directly now - no cache/refresh cascade behind it anymore ---
+
+    delete_quota_live_state();
+    $noData = QuotaService::get_quota();
+    assert_equal(false, $noData['ok'] ?? null, 'get_quota(): ok=false with no quota data at all yet');
+    assert_equal(null, $noData['quota'], 'get_quota(): quota is null with no data yet');
+    assert_equal(false, $noData['cached'] ?? null, 'get_quota(): cached is always false now (no cache mechanism left)');
+    assert_equal(false, $noData['refreshing'] ?? null, 'get_quota(): refreshing is always false now (no background-refresh mechanism left)');
+    assert_true(($noData['message'] ?? '') !== '', 'get_quota(): a "no data yet" message is included when ok=false');
+
+    write_quota_live_state([
+        'captured_at' => $fetchedAt,
+        'session' => ['pct' => 70, 'resets_at' => $fetchedAt + 3600],
+        'week_all' => ['pct' => 60, 'resets_at' => $fetchedAt + 86400],
+    ]);
+    $withData = QuotaService::get_quota();
+    assert_equal(true, $withData['ok'] ?? null, 'get_quota(): ok=true once statusline data exists');
+    assert_equal(70, $withData['quota']['session']['pct'] ?? null, 'get_quota(): quota matches quota_from_statusline_state()');
+    assert_equal(false, $withData['cached'] ?? null, 'get_quota(): cached=false for a real statusline reading');
+    assert_equal(false, $withData['stale'] ?? null, 'get_quota(): stale=false for a real statusline reading');
+} finally {
+    @unlink($pushSqliteFixture);
+    @unlink($pushSqliteFixture . '-wal');
+    @unlink($pushSqliteFixture . '-shm');
+}

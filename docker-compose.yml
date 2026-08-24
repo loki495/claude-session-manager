@@ -1,0 +1,91 @@
+name: claude-session-manager
+
+services:
+  app:
+    container_name: csm-app
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1001}
+      dockerfile_inline: |
+        FROM php:8.3-cli-alpine
+        # No tmux client needed here - the container never touches tmux or
+        # the host process table directly. See host-agent/ and README.md.
+        ARG APP_UID=1000
+        ARG APP_GID=1001
+        RUN addgroup -g "${APP_GID}" appgroup \
+            && adduser -D -H -u "${APP_UID}" -G appgroup appuser
+        # Default upload_max_filesize=2M/post_max_size=8M rejects a
+        # typical phone-camera photo (or, worse, a screen-recording video)
+        # outright - raised for the file-uploads feature (upload_file.php).
+        # App-level max_upload_bytes() in host-agent/lib/Services/
+        # UploadService.php independently enforces a friendlier-error 64MB
+        # cap on top of this - these two are set a few MB above that so
+        # multipart/form-data's own framing overhead never trips the ini
+        # limit first with a generic PHP error instead of the app's
+        # friendlier one.
+        RUN { \
+                echo 'upload_max_filesize = 68M'; \
+                echo 'post_max_size = 70M'; \
+            } > /usr/local/etc/php/conf.d/uploads.ini
+        WORKDIR /var/www/public
+        USER appuser
+        ENV HOME=/tmp
+        EXPOSE 80
+        CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/public", "/var/www/public/index.php"]
+    restart: unless-stopped
+    environment:
+      CSM_AGENT_SOCKET: /run/csm-agent.sock
+      # php -S is single-threaded by default, so session.php's 3 parallel poll
+      # requests (history/info/sidebar) were queuing behind each other instead
+      # of actually running concurrently - measured ~165ms serialized vs an
+      # expected ~60-80ms in parallel. This pre-forks worker processes so they
+      # don't share one PHP thread. Supported since PHP 7.4.
+      PHP_CLI_SERVER_WORKERS: 4
+    volumes:
+      # Code is mounted, not copied into the image, so edits show up on the
+      # next request with no rebuild/restart needed. public/ (the docroot -
+      # see WORKDIR/CMD above) is mounted as a sibling of src/ and vendor/,
+      # mirroring the host's own repo_root/{public,src,vendor} layout -
+      # composer's generated autoloader (vendor/composer/autoload_psr4.php)
+      # computes App\'s src/lib/ target as dirname(vendor-dir) . '/src/lib'
+      # at runtime, so src/ and vendor/ specifically must stay siblings for
+      # that resolution to land on the right directory; public/index.php's
+      # own require __DIR__ . '/../vendor/autoload.php' relies on the same
+      # mirroring, one level up from public/ instead of src/.
+      - ./public:/var/www/public
+      - ./src:/var/www/src
+      - ./vendor:/var/www/vendor
+      # The ONLY thing the container can reach on the host: a UNIX socket
+      # served by the host-native agent (see host-agent/). That agent must
+      # already be installed and running (host-agent/install.sh) BEFORE
+      # this container starts, or Docker will bind-mount an empty
+      # directory instead of the real socket file. See README.md.
+      - ${CSM_AGENT_SOCKET_HOST:-/run/user/1000/csm-agent.sock}:/run/csm-agent.sock
+    ports:
+      # Bind explicitly to a LAN interface IP, never 0.0.0.0. See README.
+      - "${BIND_ADDR:-127.0.0.1}:${APP_PORT:-8091}:80"
+    # Optional: if you front this with your own reverse proxy (for a
+    # friendlier hostname, and/or HTTPS - a hard requirement for Web Push,
+    # see the README's "Web Push notifications" section), add its labels/
+    # network here. Deliberately not wired up by default - it'd otherwise
+    # require an external Docker network and reverse proxy that don't
+    # exist on a fresh clone, and the README's own security guidance is to
+    # prefer the direct BIND_ADDR:APP_PORT route over routing through a
+    # shared reverse proxy anyway, unless you've specifically confirmed
+    # that proxy is ALSO LAN-only. A Traefik example, for reference:
+    #   labels:
+    #     - "traefik.enable=true"
+    #     - "traefik.http.routers.csm.rule=Host(`csm.example.lan`)"
+    #     - "traefik.http.routers.csm.entrypoints=web"
+    #     - "traefik.http.routers.csm-secure.rule=Host(`csm.example.lan`)"
+    #     - "traefik.http.routers.csm-secure.entrypoints=websecure"
+    #     - "traefik.http.routers.csm-secure.tls=true"
+    #     - "traefik.http.routers.csm-secure.service=csm"
+    #     - "traefik.http.services.csm.loadbalancer.server.port=80"
+    #   networks:
+    #     - web
+    # networks:
+    #   web:
+    #     external: true

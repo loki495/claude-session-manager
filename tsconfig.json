@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2015",
+    "lib": ["ES2018", "DOM", "DOM.Iterable"],
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false
+  },
+  "include": ["public/js/**/*.js", "public/js/types.d.ts"]
+}

@@ -1,0 +1,28 @@
+{
+    "name": "loki495/claude-session-manager",
+    "description": "A self-hosted web UI for managing tmux sessions running Claude Code - see blocked prompts, answer them, send messages, view transcripts, all from a phone or any browser on your LAN.",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "minishlink/web-push": "^9.0",
+        "league/plates": "^3.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "HostAgent\\": "host-agent/lib/",
+            "App\\": "src/lib/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Andres Crucitti",
+            "email": "dasc495@gmail.com"
+        }
+    ],
+    "require-dev": {
+        "phpstan/phpstan": "^2.2"
+    },
+    "scripts": {
+        "phpstan": "phpstan analyse --memory-limit=1G"
+    }
+}

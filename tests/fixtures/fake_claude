@@ -1,0 +1,19 @@
+#!/bin/bash
+# Stand-in for the real `claude` binary (see tests/.env.testing's CLAUDE_BIN).
+# Used to be a plain symlink to /bin/cat - simplest possible "blocks on
+# stdin forever, like an idle claude pane" behavior. Now a script instead,
+# because create_cc_session() passes real flags (e.g. --session-id <uuid>)
+# that /bin/cat and every other coreutils/interpreter binary reject outright
+# as an unrecognized option (verified: cat, tee, sh, dd, tail, xargs, env,
+# sleep, perl, python3, node, php, lua all exit nonzero immediately instead
+# of blocking). This script just drops whatever args it was called with
+# ($@ unused) and always behaves like `cat` with no arguments.
+#
+# `exec -a "$0" cat` is what keeps find_claude_processes()'s argv[0] match
+# working despite this now being a script: a plain shebang exec rewrites
+# argv[0] to the interpreter (e.g. /bin/bash), which is why this used to
+# have to be a symlink - but `exec -a` explicitly re-asserts argv[0] back
+# to "$0" (the path this script was invoked as, i.e. CLAUDE_BIN) on the
+# final exec into cat, so /proc/<pid>/cmdline's argv[0] still matches
+# claude_bin() exactly.
+exec -a "$0" cat

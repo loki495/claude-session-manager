@@ -1,0 +1,6 @@
+.env
+.playwright-mcp/
+/vendor/
+/host-agent/state/
+/docker-compose.override.yml
+/node_modules/
