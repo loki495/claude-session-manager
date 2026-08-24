@@ -69,12 +69,21 @@ Larger architecture / consolidation work (bigger surface area):
 - IN PROGRESS (started 2026-08-24, superseding the earlier "long-term, not
   near-term" sequencing below - Andres asked to start directly): support
   Google's Antigravity CLI (`agy`) as a second agent alongside Claude Code,
-  via a real AgentAdapter interface. Full research findings (live-verified
-  transcript format, real hooks.json schema, CLI flags) and the phased
-  implementation plan live in docs/antigravity-adapter-plan.md - read that
-  before touching anything here. Currently on Phase 1 (AgentAdapter
-  interface + ClaudeCodeAdapter extraction, pure refactor, no behavior
-  change yet).
+  via a real AgentAdapter interface. Full research findings, phased plan,
+  and an up-to-date "Status at a glance" section (read this first - it's
+  kept current, most recently 2026-08-24) live in
+  docs/antigravity-adapter-plan.md - read that before touching anything
+  here, including a coordination note since Andres runs Claude and his
+  own `agy` session against this same repo (not simultaneously, but
+  independently). Spawn/identity/hooks/transcript-rendering/quota-polling
+  are done and verified live; agent-name + per-agent quota DISPLAY is
+  also done (built by Andres's own `agy` session, finished/reviewed/
+  committed by Claude after it hit its account quota mid-task). Still
+  open: permission-mode display, blocked-prompt detection (the harder
+  one - needs pane-text parsing), reading this app's own CLAUDE.md-style
+  conventions into Antigravity sessions somehow, and verifying whether
+  plain assistant text messages render correctly (flagged by Andres,
+  status unconfirmed either way as of the last update to the plan doc).
 - Multi-socket tmux discovery: today the whole app is wired to exactly one
   tmux socket path (Config::tmux_socket(), defaulting to
   /tmp/tmux-<uid>/default - tmux's own standard default path, not an app

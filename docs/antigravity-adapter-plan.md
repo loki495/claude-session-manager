@@ -3,24 +3,70 @@
 Status: **in progress**, started 2026-08-24. Supersedes the "long-term,
 explicitly not near-term" sequencing note in `todo` — Andres asked to start
 this directly, ahead of the CSM-own-plugin-hooks item it was previously
-queued behind. Phase 0 (groundwork), Phase 1 (AgentAdapter interface +
-ClaudeCodeAdapter), Phase 2 (AntigravityAdapter spawn + identity + New
-Session UI picker), Phase 3 (hooks - working/idle tracking), and Phase 4
-(transcript rendering) are done - **an Antigravity session spawned through
-the real dashboard now shows up, tracks working/idle status, reports its
-last message correctly, and renders its full transcript (text, tool
-calls, tool results, collapsible tool-call pairing) on session.php using
-the exact same render layer Claude Code sessions already use, no View-layer
-changes needed**. Confirmed live end-to-end against Andres's real account
-(spawn → real prompt → a real approved tool call → session.php screenshot
-showing a correctly paired/collapsed "Ran echo ..." entry and the
-assistant's own follow-up text → killed cleanly). Phase 7 (quota polling)
-is also done - `agy -p "/usage"` confirmed free/instant live, polled by an
-opt-in systemd timer into `GlobalStateStore`, verified against Andres's
-real account. "Blocked" status does not work yet - see Phase 6, next up,
-then Phase 5 (mode display). Quota DISPLAY (showing the polled numbers
-somewhere in the UI, not just capturing them) is not built yet - out of
-scope for what was asked.
+queued behind.
+
+## Status at a glance (read this first before resuming - Claude or `agy`)
+
+**Done, committed, verified live:**
+- Phase 0 (groundwork - `agent` column, `Config::antigravity_bin()`)
+- Phase 1 (`AgentAdapter` interface + `ClaudeCodeAdapter`)
+- Phase 2 (`AntigravityAdapter` spawn + identity + New Session UI picker)
+- Phase 3 (hooks - working/idle tracking, reactive session-id binding)
+- Phase 4 (transcript rendering - text/tool_use/tool_result, no View-layer
+  changes needed)
+- Phase 7 (quota polling - `agy -p "/usage"`, opt-in systemd timer, into
+  `GlobalStateStore`)
+- **Phase 5, partial** (2026-08-24, see commit `b17c056`): agent name shown
+  above each assistant reply (`TranscriptView`/`session.js`/
+  `archived-session.js`), and real per-agent quota display - a per-session
+  quota footer AND a per-agent comparison table on the dashboard
+  (`QuotaService::antigravity_quota_state()`/`get_quota()`'s new
+  per-agent + dashboard routing, `quota-footer.js`'s
+  `renderDashboardTable()`). **This half of Phase 5 was built by Andres's
+  own live `agy` session** (a real, separate coding session against this
+  same repo, not Claude) - it hit Antigravity's account-wide quota limit
+  (165h reset) mid-task before it could commit, so Claude reviewed the
+  full diff, fixed 2 real issues (an over-strict return type on
+  `antigravity_quota_state()` that didn't match its own intentional data
+  shape; a missing `CsmBootstrap.agent`/`agentLabel` type declaration -
+  confirmed the ONLY genuinely new tsc error via a clean-stash diff), and
+  committed it. Verified live in a real browser (dashboard quota table +
+  session-page agent label, real data, zero console errors) before
+  committing.
+
+**Not done yet:**
+- Phase 5's OTHER half - permission-MODE display (agent-aware mode
+  control on the dashboard/session page, not just agent-name/quota) is
+  still unbuilt.
+- Phase 6 (blocked-prompt detection + real interactive answering) -
+  unbuilt. This is the one Andres's own `agy` session flagged too (see
+  its queued, unprocessed message: "looks like blocked prompt or
+  permissions are not being displayed correctly in this UI. Fix that
+  too") - same gap, independently noticed from two directions.
+- Two more queued-but-unprocessed asks from Andres to that `agy` session,
+  not yet acted on by anyone: (1) "read the global ~/.claude/ setup to
+  try to match it, in particular global memory and requirements, and
+  maybe skills or something analogous" - i.e. give Antigravity sessions
+  something like this app's own CLAUDE.md-awareness; (2) "regular text
+  messages from agy are not showing" - **status unverified** - Phase 4's
+  transcript rendering (committed before this was raised) may already
+  cover this; needs a fresh live check before assuming either way, don't
+  assume it's fixed just because Phase 4 landed.
+
+## Coordination note (2026-08-24, Andres's own instruction)
+
+Andres runs a live `agy` session against this SAME repo/branch
+independently of Claude sessions, sometimes on overlapping work (this
+Phase 5 partial is a real example - both are aware of it, but built it
+"blind" to the other's parallel progress until Claude reviewed &
+committed it after `agy` hit its quota wall). He's confirmed he won't run
+Claude and `agy` on this repo AT THE SAME TIME going forward, but expects
+this doc to stay accurate about exactly what's committed vs. not, so
+whichever picks it up next doesn't duplicate or fight the other's work.
+**Whoever resumes this**: re-read "Status at a glance" above, run
+`git log --oneline -10` and `git status` to confirm the repo matches what
+this doc claims, THEN start work - don't trust this doc blindly if the
+repo state looks different.
 
 Goal: get a second agent (Google's Antigravity CLI, binary `agy`) working
 through this same tmux/web-UI/SQLite pipeline, via a real `AgentAdapter`
