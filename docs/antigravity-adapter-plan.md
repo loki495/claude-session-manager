@@ -14,9 +14,13 @@ the exact same render layer Claude Code sessions already use, no View-layer
 changes needed**. Confirmed live end-to-end against Andres's real account
 (spawn → real prompt → a real approved tool call → session.php screenshot
 showing a correctly paired/collapsed "Ran echo ..." entry and the
-assistant's own follow-up text → killed cleanly). "Blocked" status does
-not work yet - see Phase 6. Quota display (Phase 7) is next, then Phase 5
-(mode display) and Phase 6 (blocked detection).
+assistant's own follow-up text → killed cleanly). Phase 7 (quota polling)
+is also done - `agy -p "/usage"` confirmed free/instant live, polled by an
+opt-in systemd timer into `GlobalStateStore`, verified against Andres's
+real account. "Blocked" status does not work yet - see Phase 6, next up,
+then Phase 5 (mode display). Quota DISPLAY (showing the polled numbers
+somewhere in the UI, not just capturing them) is not built yet - out of
+scope for what was asked.
 
 Goal: get a second agent (Google's Antigravity CLI, binary `agy`) working
 through this same tmux/web-UI/SQLite pipeline, via a real `AgentAdapter`
@@ -159,6 +163,28 @@ session's first turn instead of only on a rotation.
 Confirmed real (not a trial): Free tier includes Gemini 3.x models, plus
 Claude Sonnet 4.6/Opus 4.6/GPT-OSS-120b on Free+Pro. Model selection via
 `--model`.
+
+### Quota (`/usage`, aliased `/quota`) - live-verified 2026-08-24
+
+Not in the transcript or any hook payload. Is a real slash command,
+confirmed genuinely free (`duration_seconds:0`, all-zero token usage,
+empty `conversation_id`, writes nothing to the transcript/brain
+directory) and fully structured via headless mode:
+
+```
+agy -p "/usage" --output-format json
+```
+
+```json
+{"command":{"name":"usage","data":{"groups":[
+  {"name":"Gemini Models","buckets":[{"id":"gemini-weekly","window":"weekly","remaining_fraction":0.955,"reset_time":"2026-08-31T20:07:27Z"}]},
+  {"name":"Claude and GPT models","buckets":[{"id":"3p-weekly","window":"weekly","remaining_fraction":1,"reset_time":"2026-08-31T21:21:33Z"}]}
+]}}}
+```
+
+`remaining_fraction` (0-1, how much is LEFT) is the opposite orientation
+from Claude Code's own `used_percentage` convention - converted at write
+time (see Phase 7) so nothing downstream has to handle both.
 
 ## Open questions — RESOLVED 2026-08-24, live, against a real interactive
 tmux-attached `agy` session (not headless mode - see below for why that
@@ -405,9 +431,50 @@ past MVP, scope expanded per the live findings above)**
   Worth deciding between these two approaches when this phase starts, not
   assuming the harder one is required.
 
-**Phase 7 — statusline/quota (defer)**
-- Docs mention "Status Line Customization" for the TUI but give no detail.
-  Not required; revisit later.
+**Phase 7 — quota polling — DONE (built ahead of Phase 5/6, Andres's own
+call - "transcript first, then quota")**
+- Real research finding that unlocked this (see "Open questions" for the
+  full detail): quota is NOT part of the transcript or any hook payload,
+  but Antigravity's `/usage` slash command (aliased `/quota`) IS - and
+  confirmed live it's genuinely free (`duration_seconds:0`, all-zero token
+  usage, empty `conversation_id`, no transcript entry written) and gives
+  fully structured JSON via `agy -p "/usage" --output-format json`:
+  `command.data.groups[].buckets[]`, each with `id`/`remaining_fraction`
+  (0-1)/`reset_time` - structurally a twin of Claude Code's own
+  `rate_limits.five_hour/seven_day`, just grouped by model family (Gemini
+  vs Claude/GPT) instead of session/week windows.
+- `host-agent/antigravity_quota_poll.php` (new, standalone, mirrors
+  `quota_live_state_write.php`'s role) runs that command via the existing
+  `ProcessRunner` primitive, converts each bucket's `remaining_fraction`
+  to a USED percentage (`(1 - remaining_fraction) * 100`) - Antigravity
+  reports the opposite orientation from Claude Code's own `pct` convention,
+  converted here so any future shared display code only ever handles one
+  convention - and writes straight to `GlobalStateStore` under
+  `Config::antigravity_quota_live_state_key()`
+  (`antigravity_quota_live_state`, its own key, separate from Claude
+  Code's `quota_live_state`). No merge-against-previous logic needed here
+  (unlike the Claude Code side) - this script is the ONLY writer, so every
+  successful poll is already the full current truth, a plain overwrite is
+  correct.
+- New `csm-antigravity-quota-check.service`/`.timer` systemd unit pair
+  (`host-agent/systemd/`), `OnUnitActiveSec=60s` (Andres's own ask - free
+  call, no cost pressure to poll less often). Wired into `install.sh`
+  exactly like the existing push-check timer - units installed but **not
+  auto-enabled** (opt-in, same reasoning: a no-op until `ANTIGRAVITY_BIN`
+  is set anyway, and starting a new recurring background service
+  shouldn't happen silently on every install.sh run).
+- `tests/fixtures/fake_agy` extended to distinguish `-p`/`--print` (a
+  canned `/usage` JSON response, matching the real shape) from the
+  existing interactive-TUI-spawn shape (still blocks like `cat`) - the two
+  are genuinely different invocation modes this app now uses for real.
+- **Confirmed live against Andres's real account**: ran the real script
+  with his real `ANTIGRAVITY_BIN`, captured real numbers into his real
+  `push.sqlite` (`gemini-weekly` pct=8, `3p-weekly` pct=0, real
+  `resets_at` epochs, real group names).
+- **Not done**: actually DISPLAYING this anywhere in the UI (a quota
+  footer entry, dashboard widget, etc.) - only asked to build the
+  capture/storage side this pass. The data is sitting in `GlobalStateStore`
+  ready for whenever that's wanted.
 
 ## Testing conventions
 

@@ -78,6 +78,20 @@ echo "Push-notification timer units installed but NOT enabled - see the"
 echo "README's \"Web Push notifications\" section, then run:"
 echo "  systemctl --user enable --now csm-push-check.timer"
 
+# Antigravity quota-poll timer: same "installed, not auto-enabled" reasoning
+# as the push-check timer above - a no-op until ANTIGRAVITY_BIN is set in
+# .env anyway (see antigravity_quota_poll.php), and starting a new
+# recurring background service is worth a deliberate opt-in.
+render_unit csm-antigravity-quota-check.service
+cp "$SCRIPT_DIR/systemd/csm-antigravity-quota-check.timer" "$UNIT_DIR/csm-antigravity-quota-check.timer"
+systemctl --user daemon-reload
+
+echo
+echo "Antigravity quota-poll timer units installed but NOT enabled - only"
+echo "useful if you've set ANTIGRAVITY_BIN in .env (see"
+echo "docs/antigravity-adapter-plan.md), then run:"
+echo "  systemctl --user enable --now csm-antigravity-quota-check.timer"
+
 echo
 echo "Lingering must be enabled for this user so the socket survives"
 echo "logouts/reboots without an active login session:"

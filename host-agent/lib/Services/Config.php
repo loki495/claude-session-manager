@@ -143,6 +143,26 @@ class Config
     }
 
     /**
+     * GlobalStateStore key holding Antigravity's own account-wide quota -
+     * a genuinely different mechanism from Claude Code's above: there is
+     * no statusline-JSON equivalent, so this is written by
+     * host-agent/antigravity_quota_poll.php, run periodically by the
+     * (opt-in, not auto-enabled) csm-antigravity-quota-check systemd
+     * timer - a real, free, headless `agy -p "/usage" --output-format
+     * json` call (confirmed live 2026-08-24: duration_seconds=0,
+     * zero token usage, no real model turn), not an event-driven capture.
+     * Own separate key, own separate table row, from quota_live_state_key()
+     * above - the two agents' quota shapes don't overlap (Antigravity has
+     * no five_hour/week_all session split, just per-model-group weekly
+     * buckets), and there's no reason a display surface couldn't show
+     * both independently once one exists.
+     */
+    public static function antigravity_quota_live_state_key(): string
+    {
+        return 'antigravity_quota_live_state';
+    }
+
+    /**
      * SidecarStore/SessionStatusStore/PendingToolStore's shared SQLite DB -
      * ephemeral, same tmpfs directory (and same wiped-on-reboot lifetime)
      * as the plain JSON sidecar files this replaced (2026-08-24). One file,

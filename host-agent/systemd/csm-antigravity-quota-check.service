@@ -1,0 +1,8 @@
+[Unit]
+Description=Claude Session Manager Antigravity quota check (one run)
+
+[Service]
+Type=oneshot
+# Optional (leading "-" = don't fail if missing). See host-agent/.env.example.
+EnvironmentFile=-@REPO_ROOT@/host-agent/.env
+ExecStart=@PHP_BIN@ @REPO_ROOT@/host-agent/antigravity_quota_poll.php
