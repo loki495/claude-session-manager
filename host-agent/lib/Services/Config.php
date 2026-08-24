@@ -233,6 +233,44 @@ class Config
     }
 
     /**
+     * Antigravity's real hooks config file (see
+     * docs/antigravity-adapter-plan.md's "Hooks" research section) - the
+     * SHARED global location (confirmed via the CLI's own embedded
+     * changelog: a past bug wrote to the wrong, non-shared path and was
+     * fixed to write here instead), not the per-workspace
+     * `<workspace>/.agents/hooks.json` override (not needed for MVP).
+     */
+    public static function antigravity_hooks_path(): string
+    {
+        return self::home_root() . '/.gemini/config/hooks.json';
+    }
+
+    /**
+     * Same convention as session_start_hook_command() etc, for the
+     * Antigravity hook scripts under host-agent/hooks/antigravity/ - see
+     * AntigravityHookService.
+     */
+    public static function antigravity_pre_tool_use_hook_command(): string
+    {
+        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/pre_tool_use.php';
+    }
+
+    public static function antigravity_post_tool_use_hook_command(): string
+    {
+        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/post_tool_use.php';
+    }
+
+    public static function antigravity_pre_invocation_hook_command(): string
+    {
+        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/pre_invocation.php';
+    }
+
+    public static function antigravity_stop_hook_command(): string
+    {
+        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/stop.php';
+    }
+
+    /**
      * Same convention as session_start_hook_command() etc, for
      * host-agent/quota_live_state_write.php - not a Claude Code hook
      * (never registered in settings.json), but invoked the same shape by

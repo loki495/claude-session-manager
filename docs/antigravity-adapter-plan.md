@@ -4,8 +4,15 @@ Status: **in progress**, started 2026-08-24. Supersedes the "long-term,
 explicitly not near-term" sequencing note in `todo` — Andres asked to start
 this directly, ahead of the CSM-own-plugin-hooks item it was previously
 queued behind. Phase 0 (groundwork), Phase 1 (AgentAdapter interface +
-ClaudeCodeAdapter), and Phase 2 (AntigravityAdapter spawn + identity + New
-Session UI picker) are done. Next up: Phase 3 (hooks).
+ClaudeCodeAdapter), Phase 2 (AntigravityAdapter spawn + identity + New
+Session UI picker), and Phase 3 (hooks - working/idle tracking) are done -
+**an Antigravity session spawned through the real dashboard now shows up,
+tracks working/idle status, and reports its last message correctly**,
+confirmed live end-to-end against Andres's real account (spawn → real
+prompt → status flips idle → `last_message` shows the real reply → shows
+correctly in the actual dashboard HTML → killed cleanly via the normal UI
+action). "Blocked" status does not work yet - see Phase 6. Next up: Phase 4
+(transcript rendering).
 
 Goal: get a second agent (Google's Antigravity CLI, binary `agy`) working
 through this same tmux/web-UI/SQLite pipeline, via a real `AgentAdapter`
@@ -149,18 +156,55 @@ Confirmed real (not a trial): Free tier includes Gemini 3.x models, plus
 Claude Sonnet 4.6/Opus 4.6/GPT-OSS-120b on Free+Pro. Model selection via
 `--model`.
 
-## Open questions (flagged, not blocking Phase 1)
+## Open questions — RESOLVED 2026-08-24, live, against a real interactive
+tmux-attached `agy` session (not headless mode - see below for why that
+distinction mattered)
 
-1. **Does `PostToolUse` fire on a denied tool call?** Never observed live —
-   every tool-call attempt in this research hit a *headless-mode-specific*
-   hard wall ("headless mode cannot prompt for permission", independent of
-   our own hook's `decision`). This wall may simply not apply the same way
-   to an *interactive* TUI session running attached to a real pty inside
-   tmux (which is what CSM actually spawns) — headless (`-p`) was only used
-   here for convenience during research. Needs a real interactive-mode test
-   in Phase 3, not more headless testing.
-2. ~~Conversation-id binding timing~~ — **resolved above**: no pre-assignment
-   possible, bind reactively off the first hook firing.
+1. **Does `PostToolUse` fire on a denied/approved tool call?** Yes, confirmed
+   live for an APPROVED call - fires with `toolCall` echoed back plus
+   `error: ""` on success (a real failure presumably populates `error`,
+   not directly observed). Denial specifically wasn't tested (see finding
+   below on why "denial" isn't really the right frame for MVP).
+2. ~~Conversation-id binding timing~~ — resolved earlier: no pre-assignment
+   possible, bind reactively off the first hook firing. Confirmed live:
+   `PreInvocation` fires with a real `conversationId` before any tool call,
+   exactly as planned.
+
+**Major finding, changes Phase 3/6's scope**: a `PreToolUse` hook returning
+`{"decision":"allow"}` does **NOT** suppress Antigravity's own interactive
+approval UI. Live test: hooks.json configured with `PreToolUse` always
+returning `allow`, a real interactive `agy` session asked to run `echo
+csm-live-test-marker` - `PreToolUse` fired (confirmed via the logged
+payload) and returned `allow`, and the pane **still** showed a real
+"Do you want to proceed?" prompt with 4 numbered options (`1. Yes`, `2. Yes,
+and always allow in this conversation for commands that start with 'echo'`,
+`3. ...(Persist to settings.json)`, `4. No`), blocking until answered by
+hand. `PostToolUse` only fired after that manual approval.
+
+Unlike Claude Code (where `PermissionRequest` is a SEPARATE hook that only
+fires when a decision is genuinely needed - a pre-allowlisted command gets
+`PreToolUse` but no `PermissionRequest` at all), Antigravity has no such
+second hook. `PreToolUse` fires for every tool call regardless of whether
+it ends up needing approval, and its `decision` field does not appear to
+override the interactive confirmation UI (at least not as tested here -
+`agy 1.1.19`, default settings). **Consequence**: telling "genuinely
+blocked, waiting on a human" apart from "running normally" for an
+Antigravity session cannot be done from hooks alone - it needs pane-text
+detection (parsing the literal "Do you want to proceed?" prompt + its
+numbered options), the same category of work `PromptParser` already does
+for Claude Code's `AskUserQuestion`/trust-dialog cases. This is real,
+not-yet-built work, folded into Phase 6 below (renamed to cover detection,
+not just answering) rather than Phase 3 - Phase 3 ships working/idle
+tracking correctly; "blocked" status for Antigravity sessions stays
+unimplemented (always reports not-blocked) until Phase 6.
+
+**Bonus finding for Phase 4**: confirmed the tool-result entry shape the
+original research never observed - `{"type":"GENERIC","source":"MODEL",
+"content":"Created At: ...\nCompleted At: ...\n\nThe command exited with
+code 0.\nOutput:\n<stdout>"}`, a single formatted plain-text block, not
+structured JSON. Sits between the `PLANNER_RESPONSE` that issued
+`tool_calls` and whatever `PLANNER_RESPONSE` comes next. A `PLANNER_RESPONSE`
+that only carries `tool_calls` (no text yet) has `content: null`.
 
 ## Adjustted plan vs. the original chat draft
 
@@ -229,25 +273,62 @@ earlier commit this plan doc already described)**
   script binds it - confirmed via a real end-to-end test against a new
   `tests/fixtures/fake_agy` stand-in (mirrors `fake_claude`).
 
-**Phase 3 — hooks**
-- Write `~/.gemini/config/hooks.json` in the confirmed nested schema.
+**Phase 3 — hooks — DONE, scope adjusted per the live findings above**
+- `AntigravityHookService` (`host-agent/lib/Services/AntigravityHookService.php`)
+  writes `~/.gemini/config/hooks.json` under a `claude-session-manager`
+  named group, in the confirmed nested schema (grouped-with-matcher for
+  PreToolUse/PostToolUse, flat for PreInvocation/Stop) - same data-driven,
+  never-touch-other-hook-groups discipline as `HookService`. Wired into
+  `AntigravityAdapter::check_hooks()`/`install_hooks()`, replacing the
+  Phase 2 stubs.
 - New scripts under `host-agent/hooks/antigravity/`: `pre_tool_use.php`
-  (MVP: always returns `{"decision":"allow"}`, stays observe-only —
-  matches Claude Code's own philosophy for now), `pre_invocation.php`
-  (~`UserPromptSubmit` + first-hook session bind), `post_tool_use.php`
-  (clears `PendingToolStore`), `stop.php` (marks idle — note: `Stop`'s own
-  payload carries no message text, so "last message" has to come from
-  tailing `transcript_full.jsonl`'s last `PLANNER_RESPONSE` entry instead
-  of a hook field the way Claude Code's `stop.php` gets it directly).
-- Resolve open question #1 here, with a real interactive tmux-attached
-  session, not headless mode.
+  (records `PendingToolStore`, **always returns `{"decision":"ask"}`, not
+  `"allow"`** - deliberate: confirmed live `"allow"` does NOT suppress the
+  real approval UI in this version, and this hook is registered GLOBALLY
+  (fires for every `agy` invocation on the machine, not just CSM-spawned
+  ones) - `"ask"` matches today's real no-hook-installed behavior exactly,
+  so it's a genuine no-op rather than a dormant global auto-approve
+  waiting to activate itself the moment a future Antigravity version fixes
+  that bug), `pre_invocation.php` (~`UserPromptSubmit` + first-hook
+  reactive session-id bind, marks working - only writes when the id
+  actually needs to change, not on every turn), `post_tool_use.php`
+  (clears `PendingToolStore`, returns `{}`), `stop.php` (marks idle,
+  `last_message` from tailing `transcript_full.jsonl`'s last
+  `PLANNER_RESPONSE` entry via the same bounded-tail-read pattern
+  `TranscriptService::find_latest_ai_title()` already uses - `Stop`'s own
+  payload carries no message text, unlike Claude Code's - returns
+  `{"decision":"allow_stop"}`, a fixed non-"continue" sentinel).
+- **Confirmed live, end-to-end, against Andres's real account**: installed
+  the real hooks, spawned a real `ag-*` session through
+  `SessionLifecycleService::create_cc_session()` (the actual code path the
+  dashboard uses), sent it a real prompt via `PromptInteractionService::
+  send_message()`, watched `SessionStatusStore` flip to `idle` with
+  `last_message` correctly showing the real reply, confirmed the sidecar's
+  `claude_session_id` got bound to the real `conversationId`, confirmed
+  the session renders correctly in the real dashboard HTML, killed it
+  cleanly via the normal kill action. Full loop works.
+- **Deployment gotcha found live**: `ANTIGRAVITY_BIN` (like `CLAUDE_BIN`)
+  only reaches `Config` when host-agent runs as the real systemd service
+  (`EnvironmentFile=` loads `host-agent/.env`) - a bare `php -r`/manual CLI
+  invocation never sees it, since nothing auto-loads `.env` outside that
+  service definition. Not a bug, just worth remembering when testing
+  host-agent code directly instead of through the real service.
+- Ships working/idle tracking correctly. Does **not** ship "blocked" status
+  for Antigravity sessions - confirmed live a hook's `"ask"`/`"allow"`
+  decision doesn't suppress the interactive approval prompt either way,
+  and Antigravity has no `PermissionRequest`-equivalent second hook to
+  distinguish "needs a decision" from "every tool call" the way Claude
+  Code's setup does. An Antigravity session sitting on a real "Do you want
+  to proceed?" prompt
+  will report status=working until Phase 6 adds pane-text detection.
 
 **Phase 4 — transcript rendering**
 - Tail `transcript_full.jsonl` the same append-only-polling way
   `TranscriptService` already tails Claude Code's file — different, simpler
   field mapping, same underlying mechanism.
 - `CHECKPOINT` entries: render as a subtle divider or skip for v1.
-- Confirm the tool-result entry shape once Phase 3 can run a real tool.
+- Tool-result entry shape confirmed live (see "Open questions" above):
+  `{"type":"GENERIC","source":"MODEL","content":"<formatted text>"}`.
 
 **Phase 5 — permission mode + display**
 - Small map: confirmed `--mode` values are `accept-edits`/`plan` (plus the
@@ -255,14 +336,28 @@ earlier commit this plan doc already described)**
 - Dashboard/session-page mode control becomes agent-aware (don't show
   Claude-only modes for an Antigravity session or vice versa).
 
-**Phase 6 — real interactive permission answering (defer past MVP)**
-- The hard one: `PreToolUse`'s `decision` gates execution, and per the
-  docs, hooks run **synchronously and block the agent loop**. Answering
-  "allow/deny" from the web UI means the hook process itself has to wait on
-  a real browser click before it can exit — a genuinely new request/response
-  mechanism (nothing like it exists today; Claude Code's hooks are never
-  blocking-decision-capable in the first place). Phase 3's MVP sidesteps
-  this by always auto-allowing. Build this only once the rest works.
+**Phase 6 — blocked-prompt detection + real interactive answering (defer
+past MVP, scope expanded per the live findings above)**
+- Two layers, both missing today: (a) DETECTING that an Antigravity
+  session is genuinely blocked on a real approval prompt at all - confirmed
+  live a hook's `allow` decision doesn't suppress that UI, and there's no
+  `PermissionRequest`-equivalent hook to signal "this one actually needs a
+  decision" the way Claude Code's setup does, so this needs pane-text
+  detection (parsing "Do you want to proceed?" + its numbered options),
+  the same category of work `PromptParser` already does for Claude Code's
+  `AskUserQuestion`/trust-dialog cases; (b) ANSWERING it from the web UI -
+  `PreToolUse`'s `decision` gates execution, and per the docs, hooks run
+  **synchronously and block the agent loop**, so answering "allow/deny"
+  from a browser click means the hook process itself has to wait on that
+  click before it can exit - a genuinely new request/response mechanism
+  (nothing like it exists today; Claude Code's hooks are never
+  blocking-decision-capable in the first place) - OR, simpler and possibly
+  sufficient, just keep answering via tmux send-keys against the real pane
+  (same mechanism Claude Code's answer_prompt() already uses) once (a)
+  above can detect the prompt is showing, sidestepping the hook-blocking
+  problem entirely by never routing the answer through the hook at all.
+  Worth deciding between these two approaches when this phase starts, not
+  assuming the harder one is required.
 
 **Phase 7 — statusline/quota (defer)**
 - Docs mention "Status Line Customization" for the TUI but give no detail.

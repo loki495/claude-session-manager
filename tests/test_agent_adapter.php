@@ -22,6 +22,7 @@ require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 use HostAgent\Agents\AgentRegistry;
 use HostAgent\Agents\AntigravityAdapter;
 use HostAgent\Agents\ClaudeCodeAdapter;
+use HostAgent\Services\AntigravityHookService;
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
 use HostAgent\Services\PermissionMode;
@@ -136,14 +137,21 @@ try {
     $agWithTaskTools = $antigravity->build_spawn_argv(['enable_task_tools' => true]);
     assert_true(!in_array('--allowedTools', $agWithTaskTools['argv'], true), 'build_spawn_argv(enable_task_tools): a Claude-Code-only option is silently ignored, per the AgentAdapter interface\'s own "read only what you understand" contract');
 
-    $agHooksCheck = $antigravity->check_hooks();
-    assert_equal(false, $agHooksCheck['installed'], 'AntigravityAdapter::check_hooks(): honestly reports not installed (Phase 3 not built yet), rather than pretending');
+    // Phase 3: check_hooks()/install_hooks() delegate to
+    // AntigravityHookService, same "identical to calling the real service
+    // directly" proof as ClaudeCodeAdapter's own tests above.
+    assert_equal(AntigravityHookService::check_session_hook(), $antigravity->check_hooks(), 'AntigravityAdapter::check_hooks(): identical result to calling AntigravityHookService::check_session_hook() directly');
 
-    $agHooksInstall = $antigravity->install_hooks();
-    assert_equal(false, $agHooksInstall['ok'], 'AntigravityAdapter::install_hooks(): honestly refuses rather than silently no-opping');
+    $agInstall = $antigravity->install_hooks();
+    assert_equal(true, $agInstall['ok'], 'AntigravityAdapter::install_hooks(): succeeds against a fresh fixture hooks.json');
+    assert_true(is_file(Config::antigravity_hooks_path()), 'AntigravityAdapter::install_hooks(): actually wrote ~/.gemini/config/hooks.json, proving this reached the real AntigravityHookService, not a stub');
+    assert_equal(AntigravityHookService::check_session_hook(), $antigravity->check_hooks(), 'AntigravityAdapter::check_hooks(): still identical to AntigravityHookService::check_session_hook() after installing');
 } finally {
     @unlink($settingsPath);
     @rmdir(dirname($settingsPath));
+    @unlink(Config::antigravity_hooks_path());
+    @rmdir(dirname(Config::antigravity_hooks_path()));
+    @rmdir(dirname(dirname(Config::antigravity_hooks_path())));
     @rmdir($fixtureHome);
 }
 

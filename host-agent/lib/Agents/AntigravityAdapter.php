@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 namespace HostAgent\Agents;
 
+use HostAgent\Services\AntigravityHookService;
 use HostAgent\Services\Config;
 
 /**
  * Second AgentAdapter implementation, for Google's Antigravity CLI
  * (binary `agy`) - see docs/antigravity-adapter-plan.md for the research
  * this is built against (live-verified 2026-08-24 on a real `agy 1.1.19`
- * install). Phase 2 of that plan: spawn argv + identity only. Hook
- * registration/status is a Phase 3 stub below - installing hooks that
- * point at scripts which don't exist yet would just break things, so
- * check_hooks()/install_hooks() are honest "not built yet" no-ops for now
- * rather than pretending to work.
+ * install). Phase 2: spawn argv + identity. Phase 3: hook registration -
+ * ships working/idle tracking; "blocked" detection is a later phase (see
+ * that plan doc's "Open questions" finding on why a hook's own decision
+ * doesn't suppress Antigravity's real approval UI).
  */
 class AntigravityAdapter implements AgentAdapter
 {
@@ -104,7 +104,7 @@ class AntigravityAdapter implements AgentAdapter
      */
     public function check_hooks(): array
     {
-        return ['ok' => true, 'installed' => false, 'message' => 'Antigravity hook registration is not implemented yet (docs/antigravity-adapter-plan.md Phase 3)'];
+        return AntigravityHookService::check_session_hook();
     }
 
     /**
@@ -112,7 +112,7 @@ class AntigravityAdapter implements AgentAdapter
      */
     public function install_hooks(): array
     {
-        return ['ok' => false, 'installed' => false, 'message' => 'Antigravity hook registration is not implemented yet (docs/antigravity-adapter-plan.md Phase 3)'];
+        return AntigravityHookService::install_session_hook();
     }
 
     /**
