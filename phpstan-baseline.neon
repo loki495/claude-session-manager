@@ -7,6 +7,18 @@ parameters:
 			path: host-agent/hooks/session_start.php
 
 		-
+			message: '#^Method HostAgent\\Services\\AntigravityTranscriptService\:\:read_transcript_page\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/AntigravityTranscriptService.php
+
+		-
+			message: '#^Method HostAgent\\Services\\AntigravityTranscriptService\:\:read_transcript_page_since\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/AntigravityTranscriptService.php
+
+		-
 			message: '#^Method HostAgent\\Services\\ArchivedSessionService\:\:archived_session_transcript_search\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -251,6 +263,18 @@ parameters:
 			identifier: isset.offset
 			count: 1
 			path: host-agent/lib/Services/StatuslineMarkerService.php
+
+		-
+			message: '#^Method HostAgent\\Services\\TranscriptRouter\:\:read_transcript_page\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/TranscriptRouter.php
+
+		-
+			message: '#^Method HostAgent\\Services\\TranscriptRouter\:\:read_transcript_page_since\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/TranscriptRouter.php
 
 		-
 			message: '#^Method HostAgent\\Services\\TranscriptService\:\:read_transcript_page\(\) return type has no value type specified in iterable type array\.$#'

@@ -112,6 +112,20 @@ class Config
     }
 
     /**
+     * An Antigravity conversation's real, confirmed-live transcript file
+     * path (docs/antigravity-adapter-plan.md's "Transcript format"
+     * research) - unlike Claude Code's find_transcript_path() (a glob
+     * against an encoded-cwd directory Claude Code names itself), this is
+     * a direct, deterministic path from the conversationId alone, no
+     * search needed. See AntigravityTranscriptService::find_transcript_path()
+     * for the UUID-shape validation this is paired with.
+     */
+    public static function antigravity_transcript_path(string $conversationId): string
+    {
+        return self::home_root() . '/.gemini/antigravity-cli/brain/' . $conversationId . '/.system_generated/logs/transcript_full.jsonl';
+    }
+
+    /**
      * GlobalStateStore key (Config::push_sqlite_path(), NOT a file, since
      * 2026-08-24) holding account-wide rate-limit quota (session/week_all
      * pct + real epoch resets_at, straight from Claude Code's own

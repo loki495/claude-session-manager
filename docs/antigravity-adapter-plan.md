@@ -5,14 +5,18 @@ explicitly not near-term" sequencing note in `todo` — Andres asked to start
 this directly, ahead of the CSM-own-plugin-hooks item it was previously
 queued behind. Phase 0 (groundwork), Phase 1 (AgentAdapter interface +
 ClaudeCodeAdapter), Phase 2 (AntigravityAdapter spawn + identity + New
-Session UI picker), and Phase 3 (hooks - working/idle tracking) are done -
-**an Antigravity session spawned through the real dashboard now shows up,
-tracks working/idle status, and reports its last message correctly**,
-confirmed live end-to-end against Andres's real account (spawn → real
-prompt → status flips idle → `last_message` shows the real reply → shows
-correctly in the actual dashboard HTML → killed cleanly via the normal UI
-action). "Blocked" status does not work yet - see Phase 6. Next up: Phase 4
-(transcript rendering).
+Session UI picker), Phase 3 (hooks - working/idle tracking), and Phase 4
+(transcript rendering) are done - **an Antigravity session spawned through
+the real dashboard now shows up, tracks working/idle status, reports its
+last message correctly, and renders its full transcript (text, tool
+calls, tool results, collapsible tool-call pairing) on session.php using
+the exact same render layer Claude Code sessions already use, no View-layer
+changes needed**. Confirmed live end-to-end against Andres's real account
+(spawn → real prompt → a real approved tool call → session.php screenshot
+showing a correctly paired/collapsed "Ran echo ..." entry and the
+assistant's own follow-up text → killed cleanly). "Blocked" status does
+not work yet - see Phase 6. Quota display (Phase 7) is next, then Phase 5
+(mode display) and Phase 6 (blocked detection).
 
 Goal: get a second agent (Google's Antigravity CLI, binary `agy`) working
 through this same tmux/web-UI/SQLite pipeline, via a real `AgentAdapter`
@@ -322,13 +326,55 @@ earlier commit this plan doc already described)**
   to proceed?" prompt
   will report status=working until Phase 6 adds pane-text detection.
 
-**Phase 4 — transcript rendering**
-- Tail `transcript_full.jsonl` the same append-only-polling way
-  `TranscriptService` already tails Claude Code's file — different, simpler
-  field mapping, same underlying mechanism.
-- `CHECKPOINT` entries: render as a subtle divider or skip for v1.
+**Phase 4 — transcript rendering — DONE**
+- `AntigravityTranscriptService` (`host-agent/lib/Services/AntigravityTranscriptService.php`)
+  tails `transcript_full.jsonl` the same append-only-polling way
+  `TranscriptService` already tails Claude Code's file (`read_transcript_page()`/
+  `read_transcript_page_since()`, identical contracts) - different, simpler
+  field mapping, same underlying mechanism, own small class rather than
+  teaching `TranscriptService` a second JSONL schema inline. `CHECKPOINT`
+  entries are skipped entirely for v1 (not rendered as a divider - simpler,
+  and nothing has asked for the divider treatment yet).
+- `TranscriptRouter` (`host-agent/lib/Services/TranscriptRouter.php`) is the
+  new dispatch seam - routes to `TranscriptService` or
+  `AntigravityTranscriptService` by PATH SHAPE (`/antigravity-cli/brain/`
+  vs `/.claude/projects/`), not a passed-in agent id, so the ~6 real call
+  sites (`SessionDetailService`'s live-session paths, `SessionService::
+  session_title()`/`session_last_message()`) needed only a one-line
+  swap each (`TranscriptService::` → `TranscriptRouter::`), no new
+  parameter threading. Archived-session paths were deliberately left
+  Claude-Code-only for now (session archival isn't extended to Antigravity
+  yet - out of scope).
+- **The View layer needed zero changes.** Both parsers produce the exact
+  same canonical `{type, role, timestamp, blocks:[{kind, text, ...}]}`
+  shape `TranscriptView`/`src/partials/transcript/*` already render, and
+  `TranscriptView::entry_color_kind()`'s existing "colored by block kind,
+  not literal role" logic plus `render_transcript_entries_html()`'s
+  existing PURELY POSITIONAL tool_use/tool_result pairing (next entry,
+  not a `tool_use_id` correlation) both turned out to already generalize
+  perfectly - confirmed by reading them before writing any Antigravity
+  parsing code, not by trial and error.
+- Tool-call summaries prefer Antigravity's own `toolSummary`/`toolAction`
+  fields (human-written one-liners present on nearly every real call)
+  over hand-formatting each tool name's own args the way `TranscriptService`
+  does for Claude Code's fixed vocabulary - Antigravity's own tool set
+  hasn't been fully enumerated yet. `run_command` specifically also maps
+  to `tool_name: 'Bash'` + the real command, so it renders as "Ran
+  `<command>`" - identical to Claude Code's own Bash summary, confirmed
+  live.
+- **Confirmed live, end-to-end**: spawned a real session, sent a prompt
+  that triggered a real (manually-approved) `run_command` tool call,
+  screenshotted the real rendered `session.php` - the tool call/result
+  paired and collapsed correctly ("Ran echo transcript-render-test"),
+  expanding it showed the full real formatted output, the assistant's
+  own follow-up text rendered as a free-flowing bubble, zero console
+  errors. Full loop, real render layer, no shortcuts.
 - Tool-result entry shape confirmed live (see "Open questions" above):
   `{"type":"GENERIC","source":"MODEL","content":"<formatted text>"}`.
+- Not done: attachments (no mechanism observed yet in Antigravity's own
+  tool calls/results - `read_attachment()` is an honest stub), ai-title/
+  todo-list/task-list equivalents (Claude-Code-specific features with
+  nothing to port to yet - harmlessly find nothing rather than crashing).
 
 **Phase 5 — permission mode + display**
 - Small map: confirmed `--mode` values are `accept-edits`/`plan` (plus the

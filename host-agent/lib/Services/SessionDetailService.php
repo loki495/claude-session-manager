@@ -42,7 +42,7 @@ class SessionDetailService
         }
 
         $entry = SessionService::build_session_entry($tmuxSession, ProcessInspector::find_claude_processes(), ProcessInspector::build_ppid_map());
-        $transcriptPath = $entry['claude_session_id'] !== null ? TranscriptService::find_transcript_path($entry['claude_session_id']) : null;
+        $transcriptPath = $entry['claude_session_id'] !== null ? TranscriptRouter::find_transcript_path($entry['claude_session_id']) : null;
 
         // Scoped to session_detail() (the sidebar's own poll), not
         // build_session_entry() itself - that function also backs the
@@ -130,17 +130,17 @@ class SessionDetailService
      */
     private static function transcript_page_for_claude_session(string $claudeSessionId, ?int $before, int $limit, ?int $after, bool $untilRealUserMessage = false): array
     {
-        $path = TranscriptService::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];
         }
 
         if ($after !== null) {
-            return TranscriptService::read_transcript_page_since($path, $after, max(1, min($limit, 200)));
+            return TranscriptRouter::read_transcript_page_since($path, $after, max(1, min($limit, 200)));
         }
 
-        return TranscriptService::read_transcript_page($path, $before, max(1, min($limit, 200)), $untilRealUserMessage);
+        return TranscriptRouter::read_transcript_page($path, $before, max(1, min($limit, 200)), $untilRealUserMessage);
     }
 
     /**
@@ -218,12 +218,12 @@ class SessionDetailService
      */
     private static function read_attachment_for_claude_session(string $claudeSessionId, int $line, string $fileUuid): array
     {
-        $path = TranscriptService::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];
         }
 
-        return TranscriptService::read_attachment($path, $line, $fileUuid);
+        return TranscriptRouter::read_attachment($path, $line, $fileUuid);
     }
 }

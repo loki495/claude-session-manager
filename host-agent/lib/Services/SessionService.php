@@ -65,8 +65,13 @@ class SessionService
      */
     public static function session_title(?string $claudeSessionId, ?string $livePaneTitle, ?string $workdir, string $name): string
     {
-        $transcriptPath = $claudeSessionId !== null ? TranscriptService::find_transcript_path($claudeSessionId) : null;
-        $aiTitle = $transcriptPath !== null ? TranscriptService::find_latest_ai_title($transcriptPath) : null;
+        $transcriptPath = $claudeSessionId !== null ? TranscriptRouter::find_transcript_path($claudeSessionId) : null;
+        // find_latest_ai_title() is Claude-Code-specific (Antigravity has
+        // no ai-title-equivalent transcript entry) - harmlessly finds
+        // nothing for an Antigravity path, falling through the cascade
+        // below to livePaneTitle/workdir/name, same as a Claude Code
+        // session with no ai-title yet.
+        $aiTitle = $transcriptPath !== null && !TranscriptRouter::is_antigravity_path($transcriptPath) ? TranscriptService::find_latest_ai_title($transcriptPath) : null;
 
         return self::title_cascade($aiTitle, $livePaneTitle, $workdir, $name);
     }
@@ -269,13 +274,13 @@ class SessionService
             return null;
         }
 
-        $path = TranscriptService::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
             return null;
         }
 
-        $page = TranscriptService::read_transcript_page($path, null, 1);
+        $page = TranscriptRouter::read_transcript_page($path, null, 1);
 
         if (!($page['ok'] ?? false) || empty($page['entries'])) {
             return null;
