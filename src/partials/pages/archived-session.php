@@ -83,7 +83,7 @@ $this->layout('layout', [
         Load older messages
       </button>
       <div id="history-list" class="flex flex-col gap-2">
-        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $claudeSessionId, true, is_string($detail['cwd'] ?? null) ? $detail['cwd'] : null) ?>
+        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $claudeSessionId, true, is_string($detail['cwd'] ?? null) ? $detail['cwd'] : null, 'Claude Code') ?>
       </div>
     <?php endif; ?>
   <?php endif; ?>

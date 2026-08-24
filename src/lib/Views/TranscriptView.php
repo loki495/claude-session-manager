@@ -437,7 +437,7 @@ class TranscriptView extends View
      *
      * @param array<int, array{role?:?string, timestamp?:?string, line?:int, blocks:array<int, array{kind:string, text:string}>}> $entries
      */
-    public static function render_transcript_entries_html(array $entries, string $sessionIdentifier, bool $isArchived = false, ?string $cwd = null): string
+    public static function render_transcript_entries_html(array $entries, string $sessionIdentifier, bool $isArchived = false, ?string $cwd = null, ?string $agentLabel = null): string
     {
         $html = '';
         $count = count($entries);
@@ -447,7 +447,7 @@ class TranscriptView extends View
             $entry = $entries[$index];
 
             if (!self::entry_is_groupable_tool_call($entry)) {
-                $html .= self::render_transcript_entry($entry, $sessionIdentifier, $isArchived);
+                $html .= self::render_transcript_entry($entry, $sessionIdentifier, $isArchived, $agentLabel);
                 $index++;
 
                 continue;
@@ -654,7 +654,7 @@ class TranscriptView extends View
      *
      * @param array{role:?string, timestamp:?string, line?:int, blocks:array<int, array{kind:string, text:string}>} $entry
      */
-    public static function render_transcript_entry(array $entry, string $sessionIdentifier, bool $isArchived = false): string
+    public static function render_transcript_entry(array $entry, string $sessionIdentifier, bool $isArchived = false, ?string $agentLabel = null): string
     {
         $role = $entry['role'] ?? 'system';
         $colorKind = self::entry_color_kind($entry);
@@ -662,13 +662,9 @@ class TranscriptView extends View
         // because that's how Claude Code's own message format works, not
         // because it's meaningfully "the user" or "the assistant" talking -
         // labeling it "Tool" instead matches how it's actually colored.
-        // A free-flowing assistant entry (see entry_wrapper_class()) skips
-        // the label entirely - Andres's own call: no border/bubble to tell
-        // it apart from a user message already, so "Assistant" on every
-        // single one just repeats what the free-flowing treatment (plus
-        // left alignment) already says, and the timestamp alone is enough.
+        // An assistant entry shows the agent's name (Claude Code / Antigravity).
         $roleLabel = match ($colorKind) {
-            'assistant' => '',
+            'assistant' => $agentLabel ?? 'Claude Code',
             'tool_use' => 'Tool call',
             'tool_result' => 'Tool output',
             'subagent_call' => 'Subagent call',

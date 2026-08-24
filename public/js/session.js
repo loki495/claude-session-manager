@@ -42,6 +42,8 @@
   // call errors before this is ever set) - deliberately never treated as
   // a change on its own, only a real id -> a DIFFERENT real id is.
   var currentClaudeSessionId = window.CSM_BOOTSTRAP.claudeSessionId || null;
+  var sessionAgent = window.CSM_BOOTSTRAP.agent || 'claude';
+  var sessionAgentLabel = window.CSM_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : 'Claude Code');
 
   // --- optimistic UI state: entries appended locally right after sending,
   // before a poll has confirmed they actually landed. See appendPendingEntry()
@@ -500,10 +502,9 @@
     var colorKind = entryColorKind(entry);
     // See TranscriptView::entry_color_kind()'s label comment (PHP) - a
     // tool_use/tool_result entry is labeled "Tool", not its literal
-    // user/assistant role, to match how it's actually colored. A plain
-    // assistant entry gets no label at all (see the wrapperClass comment
-    // below) - the free-flowing treatment already says "this is Claude".
-    var roleLabel = colorKind === 'assistant' ? ''
+    // user/assistant role, to match how it's actually colored. An
+    // assistant entry shows the agent's name (Claude Code / Antigravity).
+    var roleLabel = colorKind === 'assistant' ? sessionAgentLabel
       : colorKind === 'tool_use' ? 'Tool call'
       : colorKind === 'tool_result' ? 'Tool output'
       : colorKind === 'subagent_call' ? 'Subagent call'

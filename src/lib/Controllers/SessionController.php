@@ -169,7 +169,7 @@ class SessionController extends Controller
             return;
         }
 
-        $html = TranscriptView::render_transcript_entries_html($history['entries'] ?? [], $claudeSessionId, true, is_string($history['cwd'] ?? null) ? $history['cwd'] : null);
+        $html = TranscriptView::render_transcript_entries_html($history['entries'] ?? [], $claudeSessionId, true, is_string($history['cwd'] ?? null) ? $history['cwd'] : null, 'Claude Code');
 
         echo json_encode([
             'ok' => true,

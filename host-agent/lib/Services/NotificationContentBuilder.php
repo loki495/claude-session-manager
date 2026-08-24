@@ -287,6 +287,14 @@ class NotificationContentBuilder
             return 'Week';
         }
 
+        if ($key === 'gemini-weekly') {
+            return 'Gemini';
+        }
+
+        if ($key === '3p-weekly') {
+            return 'Claude & GPT';
+        }
+
         $name = ucwords(str_replace('_', ' ', preg_replace('/^week_/', '', $key) ?? $key));
 
         return "{$name} (week)";

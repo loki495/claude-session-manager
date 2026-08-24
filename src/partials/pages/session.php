@@ -262,7 +262,12 @@ $this->layout('layout', [
           Nothing recorded yet.
         </p>
       <?php else: ?>
-        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $sessionName, false, is_string($detail['workdir'] ?? null) ? $detail['workdir'] : null) ?>
+        <?php
+        $agentLabel = is_string($detail['agent_label'] ?? null) && $detail['agent_label'] !== ''
+            ? $detail['agent_label']
+            : (isset($detail['agent']) && $detail['agent'] === 'antigravity' ? 'Antigravity' : 'Claude Code');
+        ?>
+        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $sessionName, false, is_string($detail['workdir'] ?? null) ? $detail['workdir'] : null, $agentLabel) ?>
       <?php endif; ?>
     </div>
 
@@ -330,7 +335,16 @@ $this->layout('layout', [
 </button>
 
 <script>
-window.CSM_BOOTSTRAP = <?= json_encode(['session' => $sessionName, 'csrfToken' => $csrfToken, 'newestLine' => $newestLine, 'claudeSessionId' => $detail['claude_session_id'] ?? null, 'jumpLine' => $jumpLine, 'workdir' => is_string($detail['workdir'] ?? null) ? $detail['workdir'] : null]) ?>;
+window.CSM_BOOTSTRAP = <?= json_encode([
+    'session' => $sessionName,
+    'csrfToken' => $csrfToken,
+    'newestLine' => $newestLine,
+    'claudeSessionId' => $detail['claude_session_id'] ?? null,
+    'jumpLine' => $jumpLine,
+    'workdir' => is_string($detail['workdir'] ?? null) ? $detail['workdir'] : null,
+    'agent' => $detail['agent'] ?? 'claude',
+    'agentLabel' => $agentLabel ?? 'Claude Code',
+]) ?>;
 </script>
 <script src="<?= \App\Assets::versioned_url('/js/common.js') ?>"></script>
 <script src="<?= \App\Assets::versioned_url('/js/markdown.js') ?>"></script>

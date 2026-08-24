@@ -119,7 +119,7 @@
     }
 
     results.innerHTML = matches.map(function (m) {
-      var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
+      var roleLabel = m.role === 'user' ? 'User' : (m.role === 'assistant' ? 'Claude Code' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
       var timeHtml = typeof m.timestamp === 'number' ? '<span class="text-slate-600"> &middot; ' + escapeHtml(relativeTimeLabel(m.timestamp)) + '</span>' : '';
       return '<a href="/archived_session.php?claude_session_id=' + encodeURIComponent(bootstrap.claudeSessionId) + '&jump_line=' + encodeURIComponent(m.line) + '"'
         + ' class="block rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 px-2 py-1.5">'

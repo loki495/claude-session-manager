@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace HostAgent\Services;
 
+use HostAgent\Agents\AgentRegistry;
 use HostAgent\Stores\SidecarStore;
 use HostAgent\Stores\PendingToolStore;
 use HostAgent\Stores\SessionStatusStore;
@@ -181,6 +182,13 @@ class SessionService
         $rawModel = $transcriptPathForModel !== null ? TranscriptService::find_latest_model($transcriptPathForModel) : null;
         $currentModel = $rawModel !== null ? SelectableModel::family_from_raw_model($rawModel) : null;
 
+        $agentId = is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : 'claude';
+        try {
+            $agentLabel = AgentRegistry::get($agentId)->label();
+        } catch (\Throwable) {
+            $agentLabel = 'Claude Code';
+        }
+
         return [
             'name' => $tmuxSession['name'],
             'activity' => $tmuxSession['activity'],
@@ -188,6 +196,8 @@ class SessionService
             'pid' => $matchedPid,
             'workdir' => $workdir,
             'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
+            'agent' => $agentId,
+            'agent_label' => $agentLabel,
             'title' => self::session_title($claudeSessionId, $panes['title'], $workdir, $tmuxSession['name']),
             'working' => $working,
             'blocked_reason' => $prompt['question'] ?? null,

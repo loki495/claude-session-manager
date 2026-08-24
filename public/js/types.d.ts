@@ -11,6 +11,8 @@ interface CsmBootstrap {
   claudeSessionId?: string | null;
   jumpLine?: number | null;
   workdir?: string | null;
+  agent?: string;
+  agentLabel?: string;
 }
 
 interface Window {

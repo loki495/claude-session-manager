@@ -31,13 +31,18 @@ use HostAgent\Services\QuotaService;
 use HostAgent\Stores\GlobalStateStore;
 use HostAgent\Stores\SqliteDb;
 
+use HostAgent\Stores\SidecarStore;
+
 const REAL_PUSH_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
+const REAL_SESSIONS_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-agent/state/sessions.sqlite';
 
 $pushSqliteFixture = sys_get_temp_dir() . '/csm-test-quota-live-' . bin2hex(random_bytes(4)) . '/push.sqlite';
+$sessionsSqliteFixture = sys_get_temp_dir() . '/csm-test-quota-sessions-' . bin2hex(random_bytes(4)) . '/sessions.sqlite';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
+putenv("SESSIONS_SQLITE_FILE={$sessionsSqliteFixture}");
 
-if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_Q) {
-    fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE resolves to the real host state file. Check tests/.env.testing.\n");
+if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_Q || Config::sessions_sqlite_path() === REAL_SESSIONS_SQLITE_FILE_Q) {
+    fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE or SESSIONS_SQLITE_FILE resolves to real host state file. Check tests/.env.testing.\n");
     exit(1);
 }
 
@@ -52,6 +57,19 @@ function write_quota_live_state(array $value): void
 function delete_quota_live_state(): void
 {
     GlobalStateStore::delete(Config::quota_live_state_key());
+}
+
+/**
+ * @param array<string, mixed> $value
+ */
+function write_antigravity_quota_live_state(array $value): void
+{
+    GlobalStateStore::write(Config::antigravity_quota_live_state_key(), $value);
+}
+
+function delete_antigravity_quota_live_state(): void
+{
+    GlobalStateStore::delete(Config::antigravity_quota_live_state_key());
 }
 
 /**
@@ -117,9 +135,26 @@ try {
     assert_equal(60, $both['quota']['week_all']['pct'] ?? null, 'quota_from_statusline_state: week_all pct');
     assert_equal($fetchedAt, $both['fetched_at'] ?? null, 'quota_from_statusline_state: fetched_at is captured_at from the row');
 
-    // --- QuotaService::get_quota(): mirrors quota_from_statusline_state() directly now - no cache/refresh cascade behind it anymore ---
+    // --- QuotaService::antigravity_quota_state(): Antigravity quota reading ---
+
+    assert_equal(null, QuotaService::antigravity_quota_state(), 'antigravity_quota_state: null when no row exists');
+
+    write_antigravity_quota_live_state([
+        'captured_at' => $fetchedAt,
+        'gemini-weekly' => ['pct' => 25, 'resets_at' => $fetchedAt + 5 * 86400, 'group_name' => 'Gemini Models'],
+        '3p-weekly' => ['pct' => 0, 'resets_at' => $fetchedAt + 5 * 86400, 'group_name' => 'Claude and GPT models'],
+    ]);
+    $agState = QuotaService::antigravity_quota_state();
+    assert_true($agState !== null, 'antigravity_quota_state: non-null when valid data exists');
+    assert_equal(25, $agState['quota']['gemini-weekly']['pct'] ?? null, 'antigravity_quota_state: gemini-weekly pct');
+    assert_equal('Gemini Models', $agState['quota']['gemini-weekly']['group_name'] ?? null, 'antigravity_quota_state: gemini group_name preserved');
+    assert_equal(0, $agState['quota']['3p-weekly']['pct'] ?? null, 'antigravity_quota_state: 3p-weekly pct');
+    assert_equal('Claude and GPT models', $agState['quota']['3p-weekly']['group_name'] ?? null, 'antigravity_quota_state: 3p group_name preserved');
+
+    // --- QuotaService::get_quota(): per-agent session and dashboard responses ---
 
     delete_quota_live_state();
+    delete_antigravity_quota_live_state();
     $noData = QuotaService::get_quota();
     assert_equal(false, $noData['ok'] ?? null, 'get_quota(): ok=false with no quota data at all yet');
     assert_equal(null, $noData['quota'], 'get_quota(): quota is null with no data yet');
@@ -127,18 +162,47 @@ try {
     assert_equal(false, $noData['refreshing'] ?? null, 'get_quota(): refreshing is always false now (no background-refresh mechanism left)');
     assert_true(($noData['message'] ?? '') !== '', 'get_quota(): a "no data yet" message is included when ok=false');
 
+    // Set up sidecars for sessions
+    SidecarStore::write_sidecar('test-claude-sess', ['agent' => 'claude', 'workdir' => '/tmp']);
+    SidecarStore::write_sidecar('test-agy-sess', ['agent' => 'antigravity', 'workdir' => '/tmp']);
+
+    // Claude Code session with Claude Code quota present
     write_quota_live_state([
         'captured_at' => $fetchedAt,
         'session' => ['pct' => 70, 'resets_at' => $fetchedAt + 3600],
         'week_all' => ['pct' => 60, 'resets_at' => $fetchedAt + 86400],
     ]);
-    $withData = QuotaService::get_quota();
-    assert_equal(true, $withData['ok'] ?? null, 'get_quota(): ok=true once statusline data exists');
-    assert_equal(70, $withData['quota']['session']['pct'] ?? null, 'get_quota(): quota matches quota_from_statusline_state()');
-    assert_equal(false, $withData['cached'] ?? null, 'get_quota(): cached=false for a real statusline reading');
-    assert_equal(false, $withData['stale'] ?? null, 'get_quota(): stale=false for a real statusline reading');
+    $ccSessionQuota = QuotaService::get_quota('test-claude-sess');
+    assert_equal(true, $ccSessionQuota['ok'] ?? null, 'get_quota(cc-session): ok=true');
+    assert_equal('claude', $ccSessionQuota['agent'] ?? null, 'get_quota(cc-session): agent is claude');
+    assert_equal('Claude Code', $ccSessionQuota['agent_label'] ?? null, 'get_quota(cc-session): agent_label is Claude Code');
+    assert_equal(70, $ccSessionQuota['quota']['session']['pct'] ?? null, 'get_quota(cc-session): session pct');
+
+    // Antigravity session with Antigravity quota present
+    write_antigravity_quota_live_state([
+        'captured_at' => $fetchedAt,
+        'gemini-weekly' => ['pct' => 25, 'resets_at' => $fetchedAt + 5 * 86400, 'group_name' => 'Gemini Models'],
+        '3p-weekly' => ['pct' => 0, 'resets_at' => $fetchedAt + 5 * 86400, 'group_name' => 'Claude and GPT models'],
+    ]);
+    $agSessionQuota = QuotaService::get_quota('test-agy-sess');
+    assert_equal(true, $agSessionQuota['ok'] ?? null, 'get_quota(agy-session): ok=true');
+    assert_equal('antigravity', $agSessionQuota['agent'] ?? null, 'get_quota(agy-session): agent is antigravity');
+    assert_equal('Antigravity', $agSessionQuota['agent_label'] ?? null, 'get_quota(agy-session): agent_label is Antigravity');
+    assert_equal(25, $agSessionQuota['quota']['gemini-weekly']['pct'] ?? null, 'get_quota(agy-session): gemini-weekly pct');
+    assert_equal(0, $agSessionQuota['quota']['3p-weekly']['pct'] ?? null, 'get_quota(agy-session): 3p-weekly pct');
+
+    // Dashboard (no session given): returns both agents in `agents` map
+    $dashQuota = QuotaService::get_quota();
+    assert_equal(true, $dashQuota['ok'] ?? null, 'get_quota(dashboard): ok=true when at least one agent has quota');
+    assert_true(isset($dashQuota['agents']['claude']), 'get_quota(dashboard): contains agents.claude');
+    assert_true(isset($dashQuota['agents']['antigravity']), 'get_quota(dashboard): contains agents.antigravity');
+    assert_equal(70, $dashQuota['agents']['claude']['quota']['session']['pct'] ?? null, 'get_quota(dashboard): claude session pct');
+    assert_equal(25, $dashQuota['agents']['antigravity']['quota']['gemini-weekly']['pct'] ?? null, 'get_quota(dashboard): antigravity gemini pct');
 } finally {
     @unlink($pushSqliteFixture);
     @unlink($pushSqliteFixture . '-wal');
     @unlink($pushSqliteFixture . '-shm');
+    @unlink($sessionsSqliteFixture);
+    @unlink($sessionsSqliteFixture . '-wal');
+    @unlink($sessionsSqliteFixture . '-shm');
 }

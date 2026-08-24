@@ -4,8 +4,18 @@
   var toggleBtn = document.getElementById('quota-toggle-btn');
   var toggleIcon = document.getElementById('quota-toggle-icon');
   var el = document.getElementById('quota-info');
-  var sessionName = footer.dataset.session || '';
+  var sessionName = (footer && footer.dataset.session) ? footer.dataset.session : '';
   var STORAGE_KEY = 'csm-quota-collapsed';
+
+  if (!footer || !toggleBtn || !toggleIcon || !el) {
+    return;
+  }
+
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
 
   function applyCollapsed(collapsed) {
     el.classList.toggle('hidden', collapsed);
@@ -36,11 +46,14 @@
     return 'text-slate-300';
   }
 
-  function label(key) {
+  function label(key, bar) {
+    if (bar && bar.group_name) return bar.group_name;
     if (key === 'context') return 'Context';
     if (key === 'session') return 'Session';
     if (key === 'week_all') return 'Week';
-    return key.replace(/^week_/, '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }) + ' (week)';
+    if (key === 'gemini-weekly') return 'Gemini';
+    if (key === '3p-weekly') return 'Claude & GPT';
+    return key.replace(/^week_/, '').replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }) + ' (week)';
   }
 
   // No leading zeros by construction (Math.floor results are used bare).
@@ -94,6 +107,20 @@
     return d + ' day' + (d > 1 ? 's' : '') + ' ago';
   }
 
+  function renderBucketText(bar, kind) {
+    if (!bar || typeof bar.pct !== 'number') return null;
+    var nowSeconds = Math.floor(Date.now() / 1000);
+    var text = bar.pct + '%';
+    var absolute = null;
+
+    if (typeof bar.resets_at === 'number') {
+      text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind);
+      absolute = formatAbsolute(bar.resets_at);
+    }
+
+    return { pct: bar.pct, text: text, absolute: absolute };
+  }
+
   function showUnavailable(data) {
     el.title = '';
     el.innerHTML = '';
@@ -103,20 +130,132 @@
     el.appendChild(line);
   }
 
-  function render(data) {
-    if (!data || !data.quota) {
+  function renderDashboardTable(data) {
+    var agents = data.agents || {};
+    var claude = agents.claude;
+    var ag = agents.antigravity;
+
+    var hasClaude = claude && claude.quota;
+    var hasAg = ag && ag.quota;
+
+    if (!hasClaude && !hasAg) {
       showUnavailable(data);
       return;
     }
 
+    var container = document.createElement('div');
+    container.className = 'w-full overflow-x-auto';
+
+    var table = document.createElement('table');
+    table.className = 'w-full text-xs text-left border-collapse';
+
+    var thead = document.createElement('thead');
+    thead.innerHTML = '<tr class="text-slate-500 border-b border-slate-800">'
+      + '<th class="py-1 pr-3 font-medium">Agent</th>'
+      + '<th class="py-1 px-3 font-medium">Session</th>'
+      + '<th class="py-1 pl-3 font-medium">Weekly</th>'
+      + '</tr>';
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    tbody.className = 'divide-y divide-slate-800/60 font-medium';
+
+    // Claude Code row
+    var trClaude = document.createElement('tr');
+    var claudeLabel = (claude && claude.label) ? claude.label : 'Claude Code';
+    var tdC1 = document.createElement('td');
+    tdC1.className = 'py-1.5 pr-3 text-slate-300 whitespace-nowrap font-medium';
+    tdC1.textContent = claudeLabel;
+    trClaude.appendChild(tdC1);
+
+    var tdC2 = document.createElement('td');
+    tdC2.className = 'py-1.5 px-3 whitespace-nowrap';
+    if (claude && claude.quota && claude.quota.session) {
+      var sInfo = renderBucketText(claude.quota.session, 'session');
+      tdC2.innerHTML = '<span class="' + pctColorClass(sInfo.pct) + '">' + escapeHtml(sInfo.text) + '</span>'
+        + (sInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(sInfo.absolute) + ')</span>' : '');
+    } else {
+      tdC2.innerHTML = '<span class="text-slate-600 font-normal">' + (claude && claude.message ? 'No data' : '—') + '</span>';
+    }
+    trClaude.appendChild(tdC2);
+
+    var tdC3 = document.createElement('td');
+    tdC3.className = 'py-1.5 pl-3 whitespace-nowrap';
+    if (claude && claude.quota && claude.quota.week_all) {
+      var wInfo = renderBucketText(claude.quota.week_all, 'week');
+      tdC3.innerHTML = '<span class="' + pctColorClass(wInfo.pct) + '">' + escapeHtml(wInfo.text) + '</span>'
+        + (wInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(wInfo.absolute) + ')</span>' : '');
+    } else {
+      tdC3.innerHTML = '<span class="text-slate-600 font-normal">' + (claude && claude.message ? 'No data' : '—') + '</span>';
+    }
+    trClaude.appendChild(tdC3);
+    tbody.appendChild(trClaude);
+
+    // Antigravity row
+    var trAg = document.createElement('tr');
+    var agLabel = (ag && ag.label) ? ag.label : 'Antigravity';
+    var tdA1 = document.createElement('td');
+    tdA1.className = 'py-1.5 pr-3 text-slate-300 whitespace-nowrap font-medium';
+    tdA1.textContent = agLabel;
+    trAg.appendChild(tdA1);
+
+    var tdA2 = document.createElement('td');
+    tdA2.className = 'py-1.5 px-3 text-slate-600 whitespace-nowrap font-normal';
+    tdA2.textContent = '—';
+    trAg.appendChild(tdA2);
+
+    var tdA3 = document.createElement('td');
+    tdA3.className = 'py-1.5 pl-3 whitespace-nowrap';
+    if (ag && ag.quota && (ag.quota['gemini-weekly'] || ag.quota['3p-weekly'])) {
+      var agItems = [];
+      if (ag.quota['gemini-weekly']) {
+        var gInfo = renderBucketText(ag.quota['gemini-weekly'], 'week');
+        agItems.push('<div><span class="text-slate-400 font-normal">Gemini: </span><span class="' + pctColorClass(gInfo.pct) + '">' + escapeHtml(gInfo.text) + '</span>' + (gInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(gInfo.absolute) + ')</span>' : '') + '</div>');
+      }
+      if (ag.quota['3p-weekly']) {
+        var pInfo = renderBucketText(ag.quota['3p-weekly'], 'week');
+        agItems.push('<div class="mt-0.5"><span class="text-slate-400 font-normal">Claude & GPT: </span><span class="' + pctColorClass(pInfo.pct) + '">' + escapeHtml(pInfo.text) + '</span>' + (pInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(pInfo.absolute) + ')</span>' : '') + '</div>');
+      }
+      tdA3.innerHTML = agItems.join('');
+    } else {
+      tdA3.innerHTML = '<span class="text-slate-600 font-normal">' + (ag && ag.message ? 'No data' : '—') + '</span>';
+    }
+    trAg.appendChild(tdA3);
+    tbody.appendChild(trAg);
+
+    table.appendChild(tbody);
+    container.appendChild(table);
+
+    var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at);
+    el.title = capturedAt ? 'Captured ' + relativeTimeAgo(capturedAt) : '';
+    el.innerHTML = '';
+    el.appendChild(container);
+  }
+
+  function render(data) {
+    if (!data || (!data.quota && !data.agents)) {
+      showUnavailable(data);
+      return;
+    }
+
+    if (sessionName === '' && data.agents) {
+      renderDashboardTable(data);
+      return;
+    }
+
     var q = data.quota;
+    if (!q) {
+      showUnavailable(data);
+      return;
+    }
+
     // 'context' (per-session, no reset timer) leads, ahead of the
     // account-wide session/week buckets - only ever present when this
     // footer was given a session name (see sessionName above) and that
     // session's own pane currently has a status line to read; otherwise
     // simply absent from q, same graceful omission as the week_* buckets.
-    var order = ['context', 'session', 'week_all'].concat(Object.keys(q).filter(function (k) {
-      return k.indexOf('week_') === 0 && k !== 'week_all';
+    var order = ['context', 'session', 'week_all', 'gemini-weekly', '3p-weekly'].concat(Object.keys(q).filter(function (k) {
+      return k !== 'context' && k !== 'session' && k !== 'week_all' && k !== 'gemini-weekly' && k !== '3p-weekly' && k !== 'captured_at';
     }).sort());
 
     var nowSeconds = Math.floor(Date.now() / 1000);
@@ -126,7 +265,7 @@
       var bar = q[key];
       if (!bar || typeof bar.pct !== 'number') return;
 
-      var text = label(key) + ' ' + bar.pct + '%';
+      var text = label(key, bar) + ' ' + bar.pct + '%';
       var absolute = null;
 
       if (typeof bar.resets_at === 'number') {
@@ -144,6 +283,7 @@
     }
 
     var metaParts = [];
+    if (data.agent_label) metaParts.push(data.agent_label);
     if (data.cached) metaParts.push(data.stale ? 'cached, stale' : 'cached');
     if (data.refreshing) metaParts.push('refreshing in background…');
 
@@ -151,11 +291,7 @@
     el.innerHTML = '';
 
     // Each bucket always gets its own full-width line (#quota-info is a
-    // column flex, not a wrapping row) - crammed onto shared lines at
-    // mobile widths was the whole problem before this. The absolute reset
-    // time is a visually secondary detail, not the main scannable fact (the
-    // percentage + relative duration is), so it's a separate, smaller/muted
-    // span rather than folded into the same colored text.
+    // column flex, not a wrapping row).
     lines.forEach(function (line) {
       var item = document.createElement('div');
       item.className = pctColorClass(line.pct);

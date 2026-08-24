@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HostAgent\Services;
 
 use HostAgent\Stores\GlobalStateStore;
+use HostAgent\Stores\SidecarStore;
 
 /**
  * Claude usage/rate-limit quota - read straight from the file this app's
@@ -112,62 +113,173 @@ class QuotaService
     }
 
     /**
-     * $sessionName, when given, additionally overlays that ONE session's own
+     * Reads Antigravity quota state from GlobalStateStore under
+     * Config::antigravity_quota_live_state_key() (written by antigravity_quota_poll.php).
+     *
+     * `quota` is a bare `array`, not a stricter per-bucket shape - it holds
+     * one `captured_at` string entry (an ISO-8601 timestamp, read by
+     * quota-footer.js for its "Captured X ago" tooltip) alongside the real
+     * bucket entries, same convention quota_from_statusline_state() above
+     * already uses for the same reason.
+     *
+     * @return array{quota:array, fetched_at:int}|null
+     */
+    public static function antigravity_quota_state(): ?array
+    {
+        $decoded = GlobalStateStore::read(Config::antigravity_quota_live_state_key());
+
+        if (!is_array($decoded) || !isset($decoded['captured_at']) || !is_int($decoded['captured_at'])) {
+            return null;
+        }
+
+        $quota = [];
+
+        foreach ($decoded as $key => $bucket) {
+            if ($key === 'captured_at') {
+                continue;
+            }
+
+            if (is_array($bucket) && isset($bucket['pct'], $bucket['resets_at']) && is_int($bucket['pct']) && is_int($bucket['resets_at'])) {
+                $quota[$key] = [
+                    'pct' => $bucket['pct'],
+                    'resets_at' => $bucket['resets_at'],
+                    'group_name' => is_string($bucket['group_name'] ?? null) ? $bucket['group_name'] : null,
+                ];
+            }
+        }
+
+        if ($quota === []) {
+            return null;
+        }
+
+        $fetchedAt = $decoded['captured_at'];
+        $quota['captured_at'] = date('c', $fetchedAt);
+
+        return ['quota' => $quota, 'fetched_at' => $fetchedAt];
+    }
+
+    /**
+     * When $sessionName is given, returns the real quota for that session's
+     * specific agent (Claude Code or Antigravity, looked up from its sidecar).
+     * For a Claude Code session, additionally overlays that ONE session's own
      * context-window percentage (see live_context_pct()) as a 'context'
-     * bucket - independent of where the rest of the quota data came from,
-     * since context is a completely separate, per-session concept from the
-     * account-wide session/week_all buckets. Omitted entirely (not merged)
-     * when null/not live - the caller (the dashboard, which has no single
-     * relevant session) simply doesn't pass one, and session.php's footer
-     * degrades to showing session/week only if its own session's pane
-     * doesn't currently have a status line to read.
+     * bucket.
+     *
+     * When $sessionName is omitted/empty (dashboard request), returns an
+     * `agents` map with both Claude Code and Antigravity quotas so the
+     * dashboard footer can render a multi-agent comparison table.
      *
      * `cached`/`stale`/`refreshing` are always false now - kept in the
-     * return shape (rather than dropped) purely so the existing frontend
-     * (quota-footer.js's "cached, stale"/"refreshing in background…" meta
-     * text) doesn't need a matching change; they can never actually be
-     * true anymore now that quota_from_statusline_state() is the only
-     * source (see this class's own docblock for why the cache/refresh
-     * cascade behind them was deleted).
+     * return shape for frontend compatibility.
      *
-     * @return array{ok:bool, quota:?array, fetched_at:?int, cached:bool, stale:bool, refreshing:bool, message?:string}
+     * @return array{ok:bool, quota:?array, agents?:array<string, array{label:string, ok:bool, quota:?array, fetched_at:?int, message:?string}>, fetched_at:?int, cached:bool, stale:bool, refreshing:bool, agent?:string, agent_label?:string, message?:?string}
      */
     public static function get_quota(?string $sessionName = null): array
     {
-        $contextPct = $sessionName !== null && $sessionName !== '' ? self::live_context_pct($sessionName) : null;
+        if ($sessionName !== null && $sessionName !== '') {
+            $sidecar = SidecarStore::read_sidecar($sessionName);
+            $agent = is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : 'claude';
 
-        $live = self::quota_from_statusline_state();
+            if ($agent === 'antigravity') {
+                $agLive = self::antigravity_quota_state();
 
-        if ($live !== null) {
-            $result = [
-                'ok' => true,
-                'quota' => $live['quota'],
-                'fetched_at' => $live['fetched_at'],
-                'cached' => false,
-                'stale' => false,
-                'refreshing' => false,
-            ];
-        } else {
-            $result = [
-                'ok' => false,
-                'quota' => null,
-                'fetched_at' => null,
-                'cached' => false,
-                'stale' => false,
-                'refreshing' => false,
-                'message' => 'No quota data yet - open a Claude Code session to populate it',
-            ];
-        }
+                if ($agLive !== null) {
+                    return [
+                        'ok' => true,
+                        'quota' => $agLive['quota'],
+                        'fetched_at' => $agLive['fetched_at'],
+                        'cached' => false,
+                        'stale' => false,
+                        'refreshing' => false,
+                        'agent' => 'antigravity',
+                        'agent_label' => 'Antigravity',
+                    ];
+                }
 
-        if ($contextPct === null) {
+                return [
+                    'ok' => false,
+                    'quota' => null,
+                    'fetched_at' => null,
+                    'cached' => false,
+                    'stale' => false,
+                    'refreshing' => false,
+                    'agent' => 'antigravity',
+                    'agent_label' => 'Antigravity',
+                    'message' => 'No Antigravity quota data yet - csm-antigravity-quota-check timer has not run',
+                ];
+            }
+
+            // Claude Code session
+            $contextPct = self::live_context_pct($sessionName);
+            $live = self::quota_from_statusline_state();
+
+            if ($live !== null) {
+                $result = [
+                    'ok' => true,
+                    'quota' => $live['quota'],
+                    'fetched_at' => $live['fetched_at'],
+                    'cached' => false,
+                    'stale' => false,
+                    'refreshing' => false,
+                    'agent' => 'claude',
+                    'agent_label' => 'Claude Code',
+                ];
+            } else {
+                $result = [
+                    'ok' => false,
+                    'quota' => null,
+                    'fetched_at' => null,
+                    'cached' => false,
+                    'stale' => false,
+                    'refreshing' => false,
+                    'agent' => 'claude',
+                    'agent_label' => 'Claude Code',
+                    'message' => 'No quota data yet - open a Claude Code session to populate it',
+                ];
+            }
+
+            if ($contextPct !== null) {
+                $contextBucket = ['context' => ['pct' => $contextPct]];
+                $result['quota'] = is_array($result['quota']) ? $contextBucket + $result['quota'] : $contextBucket;
+                $result['ok'] = true;
+                $result['fetched_at'] ??= time();
+            }
+
             return $result;
         }
 
-        $contextBucket = ['context' => ['pct' => $contextPct]];
-        $result['quota'] = is_array($result['quota']) ? $contextBucket + $result['quota'] : $contextBucket;
-        $result['ok'] = true;
-        $result['fetched_at'] ??= time();
+        // Dashboard request (no single session) - returns per-agent breakdown for table rendering
+        $claudeLive = self::quota_from_statusline_state();
+        $agLive = self::antigravity_quota_state();
 
-        return $result;
+        $agents = [
+            'claude' => [
+                'label' => 'Claude Code',
+                'ok' => $claudeLive !== null,
+                'quota' => $claudeLive['quota'] ?? null,
+                'fetched_at' => $claudeLive['fetched_at'] ?? null,
+                'message' => $claudeLive === null ? 'No quota data yet - open a Claude Code session to populate it' : null,
+            ],
+            'antigravity' => [
+                'label' => 'Antigravity',
+                'ok' => $agLive !== null,
+                'quota' => $agLive['quota'] ?? null,
+                'fetched_at' => $agLive['fetched_at'] ?? null,
+                'message' => $agLive === null ? 'No quota data yet - csm-antigravity-quota-check timer has not run' : null,
+            ],
+        ];
+
+        $hasAnyData = $claudeLive !== null || $agLive !== null;
+
+        return [
+            'ok' => $hasAnyData,
+            'quota' => $claudeLive['quota'] ?? ($agLive['quota'] ?? null),
+            'agents' => $agents,
+            'fetched_at' => $claudeLive['fetched_at'] ?? ($agLive['fetched_at'] ?? null),
+            'cached' => false,
+            'stale' => false,
+            'refreshing' => false,
+            'message' => $hasAnyData ? null : 'No quota data yet - open a session or wait for the quota timer',
+        ];
     }
 }
