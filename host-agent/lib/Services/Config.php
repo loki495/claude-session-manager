@@ -40,6 +40,18 @@ class Config
     }
 
     /**
+     * Same reasoning as claude_bin() above - no safe universal guess for
+     * where the Antigravity CLI (binary name `agy`) was installed, so this
+     * is empty until ANTIGRAVITY_BIN is set explicitly. Run `which agy` to
+     * find the real path. Added 2026-08-24 for AntigravityAdapter, see
+     * docs/antigravity-adapter-plan.md.
+     */
+    public static function antigravity_bin(): string
+    {
+        return self::csm_config('ANTIGRAVITY_BIN', '');
+    }
+
+    /**
      * Starting folder for the New Session browser - home_root() itself is
      * a reasonable generic default (always exists, always readable by
      * this process); set WWW_ROOT explicitly to wherever projects

@@ -76,6 +76,30 @@ class SqliteDb
     }
 
     /**
+     * One-off transitional migration for a column added to an existing
+     * table after real rows already exist (sidecars.agent, added
+     * 2026-08-24 for multi-agent support - see
+     * docs/antigravity-adapter-plan.md Phase 0) - CREATE TABLE IF NOT
+     * EXISTS alone never retroactively adds a column to a table that was
+     * already created under the old schema. sidecars is tmpfs (wiped on
+     * reboot, see Config::sessions_sqlite_path()), so this self-resolves
+     * on the next reboot regardless, but a running instance shouldn't
+     * start failing every sidecar write until then. Cheap: ADD COLUMN
+     * fails harmlessly (caught, ignored) once the column already exists,
+     * same "duplicate column name" every SQLite version reports - no need
+     * to PRAGMA table_info() first just to avoid it.
+     */
+    public static function add_column_if_missing(\PDO $pdo, string $table, string $column, string $definition): void
+    {
+        try {
+            $pdo->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        } catch (\PDOException $e) {
+            // Already has the column - the expected steady-state case for
+            // every connection after the first one following a deploy.
+        }
+    }
+
+    /**
      * Test-only: drops every cached connection so a test that points these
      * paths at a fresh fixture location (putenv() + a new tmp file) doesn't
      * keep reading/writing through a PDO handle opened against the PREVIOUS
@@ -96,7 +120,8 @@ class SqliteDb
                 workdir TEXT,
                 spawned_at INTEGER,
                 claude_session_id TEXT,
-                spawned_by_csm INTEGER
+                spawned_by_csm INTEGER,
+                agent TEXT
             );
             CREATE TABLE IF NOT EXISTS session_status (
                 session_name TEXT PRIMARY KEY,

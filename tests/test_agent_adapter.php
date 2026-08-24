@@ -2,20 +2,25 @@
 declare(strict_types=1);
 
 /**
- * Exercises HostAgent\Agents\AgentRegistry/ClaudeCodeAdapter - the seam
- * introduced 2026-08-24 (docs/antigravity-adapter-plan.md Phase 1) ahead
- * of a second AgentAdapter implementation. build_spawn_argv() must produce
- * BYTE-IDENTICAL argv to what SessionLifecycleService::create_cc_session()
- * built inline before this extraction - this file is what proves that, not
- * a rewrite of HookService's own coverage (see test_session_hook.php for
- * that; check_hooks()/install_hooks() here only confirm delegation, not
- * every edge case HookService itself already covers).
+ * Exercises HostAgent\Agents\AgentRegistry/ClaudeCodeAdapter/
+ * AntigravityAdapter - the seam introduced 2026-08-24
+ * (docs/antigravity-adapter-plan.md Phase 1) and its second real
+ * implementation (Phase 2). ClaudeCodeAdapter::build_spawn_argv() must
+ * produce BYTE-IDENTICAL argv to what SessionLifecycleService::
+ * create_cc_session() built inline before this extraction - this file is
+ * what proves that, not a rewrite of HookService's own coverage (see
+ * test_session_hook.php for that; check_hooks()/install_hooks() here only
+ * confirm delegation, not every edge case HookService itself already
+ * covers). AntigravityAdapter's own hooks are deliberately unimplemented
+ * stubs so far (Phase 3) - covered here as "honestly reports not
+ * installed", not "works".
  */
 
 require __DIR__ . '/lib/assert.php';
 require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 
 use HostAgent\Agents\AgentRegistry;
+use HostAgent\Agents\AntigravityAdapter;
 use HostAgent\Agents\ClaudeCodeAdapter;
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
@@ -37,7 +42,7 @@ try {
     // --- AgentRegistry: identity/lookup ---
 
     assert_equal('claude', AgentRegistry::default_agent_id(), 'default_agent_id: claude, unchanged from every existing caller before this class existed');
-    assert_equal(['claude'], AgentRegistry::known_agent_ids(), 'known_agent_ids: only claude registered so far');
+    assert_equal(['claude', 'antigravity'], AgentRegistry::known_agent_ids(), 'known_agent_ids: claude and antigravity registered');
 
     $adapter = AgentRegistry::get('claude');
     assert_true($adapter instanceof ClaudeCodeAdapter, 'AgentRegistry::get(\'claude\'): returns a ClaudeCodeAdapter instance');
@@ -93,6 +98,49 @@ try {
     assert_equal(true, $adapterInstall['ok'], 'install_hooks(): succeeds against a fresh fixture settings.json');
     assert_true(is_file($settingsPath), 'install_hooks(): actually wrote ~/.claude/settings.json, proving this reached the real HookService::install_session_hook(), not a stub');
     assert_equal(HookService::check_session_hook(), $adapter->check_hooks(), 'check_hooks(): still identical to HookService::check_session_hook() after installing');
+
+    // --- AntigravityAdapter (docs/antigravity-adapter-plan.md Phase 2) ---
+
+    $antigravity = AgentRegistry::get('antigravity');
+    assert_true($antigravity instanceof AntigravityAdapter, "AgentRegistry::get('antigravity'): returns an AntigravityAdapter instance");
+    assert_equal('antigravity', $antigravity->id(), 'AntigravityAdapter::id(): antigravity');
+    assert_equal('Antigravity', $antigravity->label(), 'AntigravityAdapter::label(): Antigravity');
+    assert_equal('ag', $antigravity->session_name_prefix(), 'AntigravityAdapter::session_name_prefix(): ag, distinct from Claude Code\'s cc');
+
+    $agBare = $antigravity->build_spawn_argv([]);
+    assert_equal([Config::antigravity_bin()], $agBare['argv'], 'AntigravityAdapter::build_spawn_argv([]): bare argv is just the binary, no flags');
+    assert_equal(null, $agBare['assigned_id'], 'AntigravityAdapter::build_spawn_argv(): assigned_id is always null - no --session-id/--conversation-id equivalent exists for a fresh interactive session (confirmed live against `agy --help`)');
+
+    $agWithModel = $antigravity->build_spawn_argv(['model' => 'gemini-3.7-flash-high']);
+    $modelIdx = array_search('--model', $agWithModel['argv'], true);
+    assert_true($modelIdx !== false, 'build_spawn_argv(model): includes --model when given');
+    assert_equal('gemini-3.7-flash-high', $agWithModel['argv'][$modelIdx + 1] ?? null, 'build_spawn_argv(model): passes the model name straight through');
+
+    $agWithBadEffort = $antigravity->build_spawn_argv(['effort' => 'ludicrous']);
+    assert_true(!in_array('--effort', $agWithBadEffort['argv'], true), 'build_spawn_argv(effort): an unrecognized effort value is ignored, not passed through raw');
+
+    $agWithEffort = $antigravity->build_spawn_argv(['effort' => 'high']);
+    assert_true(in_array('--effort', $agWithEffort['argv'], true), 'build_spawn_argv(effort): a recognized low/medium/high value is included');
+
+    $agWithMode = $antigravity->build_spawn_argv(['starting_mode' => 'accept edits']);
+    $agModeIdx = array_search('--mode', $agWithMode['argv'], true);
+    assert_true($agModeIdx !== false, 'build_spawn_argv(starting_mode): includes --mode for a recognized mode');
+    assert_equal('accept-edits', $agWithMode['argv'][$agModeIdx + 1] ?? null, 'build_spawn_argv(starting_mode): translates this app\'s "accept edits" to Antigravity\'s real "accept-edits" CLI flag value');
+
+    $agWithManual = $antigravity->build_spawn_argv(['starting_mode' => 'manual']);
+    assert_true(!in_array('--mode', $agWithManual['argv'], true), 'build_spawn_argv(starting_mode: manual): omits --mode entirely - manual/default has no explicit flag, same as a plain `agy` with neither flag');
+
+    $agWithAutoMode = $antigravity->build_spawn_argv(['starting_mode' => 'auto']);
+    assert_true(!in_array('--mode', $agWithAutoMode['argv'], true), 'build_spawn_argv(starting_mode: auto): Claude Code\'s "auto" has no Antigravity equivalent, silently ignored rather than passed through raw');
+
+    $agWithTaskTools = $antigravity->build_spawn_argv(['enable_task_tools' => true]);
+    assert_true(!in_array('--allowedTools', $agWithTaskTools['argv'], true), 'build_spawn_argv(enable_task_tools): a Claude-Code-only option is silently ignored, per the AgentAdapter interface\'s own "read only what you understand" contract');
+
+    $agHooksCheck = $antigravity->check_hooks();
+    assert_equal(false, $agHooksCheck['installed'], 'AntigravityAdapter::check_hooks(): honestly reports not installed (Phase 3 not built yet), rather than pretending');
+
+    $agHooksInstall = $antigravity->install_hooks();
+    assert_equal(false, $agHooksInstall['ok'], 'AntigravityAdapter::install_hooks(): honestly refuses rather than silently no-opping');
 } finally {
     @unlink($settingsPath);
     @rmdir(dirname($settingsPath));

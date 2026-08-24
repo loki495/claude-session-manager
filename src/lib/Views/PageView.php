@@ -13,6 +13,19 @@ namespace App\Views;
  */
 class PageView extends View
 {
+    /**
+     * New Session form's agent picker - deliberately a plain view-layer
+     * constant, not reached in from HostAgent\Agents\AgentRegistry (this
+     * class renders inside the Docker container, which never touches
+     * host-agent's own env/config - see CLAUDE.md's architecture section
+     * on why - so this mirrors AgentRegistry::known_agent_ids()/label()
+     * rather than calling them, same pattern TranscriptView::MODE_OPTIONS
+     * already uses for Claude Code's own mode vocabulary). Keep in sync
+     * with HostAgent\Agents\AgentRegistry's own ADAPTERS list by hand when
+     * a new adapter is added - see docs/antigravity-adapter-plan.md.
+     */
+    public const AGENT_OPTIONS = ['claude' => 'Claude Code', 'antigravity' => 'Antigravity'];
+
     public static function render_session_page(array $data): string
     {
         return self::render('pages/session', $data);

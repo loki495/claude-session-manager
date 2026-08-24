@@ -28,15 +28,18 @@ class SidecarStore
 {
     private static function db(): \PDO
     {
-        return SqliteDb::connect(Config::sessions_sqlite_path(), SqliteDb::sessions_schema());
+        $pdo = SqliteDb::connect(Config::sessions_sqlite_path(), SqliteDb::sessions_schema());
+        SqliteDb::add_column_if_missing($pdo, 'sidecars', 'agent', 'TEXT');
+
+        return $pdo;
     }
 
     /**
-     * @return array{workdir:?string, spawned_at:?int, claude_session_id?:?string, spawned_by_csm?:bool}|null
+     * @return array{workdir:?string, spawned_at:?int, claude_session_id?:?string, spawned_by_csm?:bool, agent?:?string}|null
      */
     public static function read_sidecar(string $sessionName): ?array
     {
-        $stmt = self::db()->prepare('SELECT workdir, spawned_at, claude_session_id, spawned_by_csm FROM sidecars WHERE session_name = ?');
+        $stmt = self::db()->prepare('SELECT workdir, spawned_at, claude_session_id, spawned_by_csm, agent FROM sidecars WHERE session_name = ?');
         $stmt->execute([$sessionName]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -53,22 +56,43 @@ class SidecarStore
                 // made that ?? see an already-"set" value and never fall
                 // through to the hook's own CSM_SESSION_NAME-based default).
                 'spawned_by_csm' => $row['spawned_by_csm'] !== null ? (bool)$row['spawned_by_csm'] : null,
+                // Added 2026-08-24 (docs/antigravity-adapter-plan.md Phase
+                // 0) for multi-agent support - a row written before this
+                // column existed reads back null here (add_column_if_missing()
+                // never backfills existing rows), which every real caller
+                // treats as "claude" (the only agent that existed before
+                // this column did), same convention as write_sidecar()'s
+                // own default below.
+                'agent' => $row['agent'],
             ];
         }
 
         return null;
     }
 
+    /**
+     * $data['agent'] defaults to 'claude' when omitted entirely (not
+     * array_key_exists-preserved the way spawned_by_csm is) - every real
+     * caller as of this column's introduction either knows its own agent
+     * explicitly (SessionLifecycleService) or reads-and-re-passes the
+     * existing sidecar's own agent field to preserve it across a partial
+     * update (session_start.php, self_heal_claude_session_id() - same
+     * established pattern those already use for workdir/spawned_at). This
+     * default only matters for a caller that genuinely never mentions
+     * agent at all, which today means "it's a Claude Code sidecar" - the
+     * only kind that existed before AgentAdapter did.
+     */
     public static function write_sidecar(string $sessionName, array $data): void
     {
         $stmt = self::db()->prepare(
-            'INSERT INTO sidecars (session_name, workdir, spawned_at, claude_session_id, spawned_by_csm)
-             VALUES (:session_name, :workdir, :spawned_at, :claude_session_id, :spawned_by_csm)
+            'INSERT INTO sidecars (session_name, workdir, spawned_at, claude_session_id, spawned_by_csm, agent)
+             VALUES (:session_name, :workdir, :spawned_at, :claude_session_id, :spawned_by_csm, :agent)
              ON CONFLICT(session_name) DO UPDATE SET
                 workdir = excluded.workdir,
                 spawned_at = excluded.spawned_at,
                 claude_session_id = excluded.claude_session_id,
-                spawned_by_csm = excluded.spawned_by_csm'
+                spawned_by_csm = excluded.spawned_by_csm,
+                agent = excluded.agent'
         );
 
         $stmt->execute([
@@ -80,6 +104,7 @@ class SidecarStore
             // read_sidecar()'s own comment on why this three-state
             // (true/false/absent) distinction matters to callers.
             ':spawned_by_csm' => array_key_exists('spawned_by_csm', $data) ? (!empty($data['spawned_by_csm']) ? 1 : 0) : null,
+            ':agent' => $data['agent'] ?? 'claude',
         ]);
     }
 

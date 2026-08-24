@@ -98,7 +98,8 @@ class DashboardController extends Controller
                 $workdir = trim((string)($_POST['workdir'] ?? ''));
                 $enableTaskTools = ($_POST['enable_task_tools'] ?? '') === '1';
                 $startingMode = trim((string)($_POST['starting_mode'] ?? ''));
-                $result = AgentClient::agent_call(['action' => 'create', 'workdir' => $workdir, 'enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode]);
+                $agent = trim((string)($_POST['agent'] ?? ''));
+                $result = AgentClient::agent_call(['action' => 'create', 'workdir' => $workdir, 'enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode, 'agent' => $agent]);
                 $ok = (bool)($result['ok'] ?? false);
                 $message = (string)($result['message'] ?? 'Unknown error');
                 break;

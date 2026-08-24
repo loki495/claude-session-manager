@@ -97,8 +97,14 @@ function dispatch_action(array $request): array
 
         case 'create':
             $startingMode = $request['starting_mode'] ?? null;
+            $agentId = $request['agent'] ?? null;
 
-            return SessionLifecycleService::create_cc_session((string)($request['workdir'] ?? ''), (bool)($request['enable_task_tools'] ?? false), is_string($startingMode) && $startingMode !== '' ? $startingMode : null);
+            return SessionLifecycleService::create_cc_session(
+                (string)($request['workdir'] ?? ''),
+                (bool)($request['enable_task_tools'] ?? false),
+                is_string($startingMode) && $startingMode !== '' ? $startingMode : null,
+                is_string($agentId) && $agentId !== '' ? $agentId : null
+            );
 
         case 'resume':
             return SessionLifecycleService::resume_cc_session((string)($request['workdir'] ?? ''), (string)($request['claude_session_id'] ?? ''));

@@ -91,9 +91,9 @@ $dualBareAdhocNames = [];
 /**
  * @return array{ok:bool, name:?string, message:string}
  */
-function create_and_track(string $workdir, array &$createdSessions, bool $enableTaskTools = false, ?string $startingMode = null): array
+function create_and_track(string $workdir, array &$createdSessions, bool $enableTaskTools = false, ?string $startingMode = null, ?string $agentId = null): array
 {
-    $result = SessionLifecycleService::create_cc_session($workdir, $enableTaskTools, $startingMode);
+    $result = SessionLifecycleService::create_cc_session($workdir, $enableTaskTools, $startingMode, $agentId);
     $name = null;
 
     if (preg_match('/Created session (cc-\S+) in/', (string)($result['message'] ?? ''), $m) === 1) {
@@ -854,6 +854,55 @@ try {
     $bad = create_and_track(Config::www_root() . '/project-a', $createdSessions);
     putenv("CLAUDE_BIN={$originalClaudeBin}");
     assert_true(!$bad['ok'], 'create: a claude binary that fails to start is reported as failure');
+
+    // --- AgentAdapter: create_cc_session() with an $agentId
+    // (docs/antigravity-adapter-plan.md Phase 2) ---
+
+    // Same failure shape as the CLAUDE_BIN case above, for antigravity.
+    $originalAntigravityBin = Config::antigravity_bin();
+    putenv('ANTIGRAVITY_BIN=/definitely/does/not/exist/csm-test-agy-binary');
+    $badAg = SessionLifecycleService::create_cc_session(Config::www_root() . '/project-a', false, null, 'antigravity');
+    putenv("ANTIGRAVITY_BIN={$originalAntigravityBin}");
+    assert_true(!($badAg['ok'] ?? true), 'create(agent: antigravity): an agy binary that fails to start is reported as failure, same as the Claude Code path');
+
+    // Unrecognized agent id falls back to Claude Code's own default,
+    // whitelisted rather than trusted straight through (same discipline
+    // create_cc_session()'s own docblock already documents for
+    // $startingMode) - proves this against a REAL spawn, not just
+    // AgentRegistry::get()'s own unit-level behavior in test_agent_adapter.php.
+    $fallback = create_and_track(Config::www_root() . '/project-a', $createdSessions, false, null, 'not-a-real-agent');
+    assert_true($fallback['ok'], 'create(agent: not-a-real-agent): falls back to the default agent rather than failing outright');
+    assert_true($fallback['name'] !== null && str_starts_with($fallback['name'], 'cc-'), 'create(agent: not-a-real-agent): uses Claude Code\'s cc- prefix, proving the fallback actually happened');
+    if ($fallback['name'] !== null) {
+        SessionLifecycleService::kill_cc_session($fallback['name']);
+        $createdSessions = array_values(array_diff($createdSessions, [$fallback['name']]));
+    }
+
+    // Real happy path: a genuine Antigravity-flavored session, spawned
+    // through the same tests/fixtures/fake_agy stand-in fake_claude uses
+    // for Claude Code (see tests/.env.testing) - proves the whole
+    // spawn -> tmux -> sidecar round-trip, not just build_spawn_argv()'s
+    // own argv shape (already covered in test_agent_adapter.php).
+    $agSession = SessionLifecycleService::create_cc_session(Config::www_root() . '/project-a', false, null, 'antigravity');
+    assert_true($agSession['ok'] ?? false, 'create(agent: antigravity): succeeds against the fake_agy fixture binary');
+    $agName = null;
+    if (preg_match('/Created session (ag-\S+) in/', (string)($agSession['message'] ?? ''), $agMatch) === 1) {
+        $agName = $agMatch[1];
+        $createdSessions[] = $agName;
+    }
+    assert_true($agName !== null, 'create(agent: antigravity): the created session name uses the ag- prefix, distinct from Claude Code\'s cc-');
+
+    if ($agName !== null) {
+        $agSidecar = SidecarStore::read_sidecar($agName);
+        assert_equal('antigravity', $agSidecar['agent'] ?? null, 'create(agent: antigravity): the sidecar records agent=antigravity');
+        assert_equal(null, $agSidecar['claude_session_id'], 'create(agent: antigravity): claude_session_id is null - no pre-assignable id exists for a fresh interactive Antigravity session (see AntigravityAdapter::build_spawn_argv())');
+
+        $agListed = find_session($agName);
+        assert_true($agListed !== null, 'create(agent: antigravity): the new session shows up in list_all_sessions() like any other tracked session');
+
+        SessionLifecycleService::kill_cc_session($agName);
+        $createdSessions = array_values(array_diff($createdSessions, [$agName]));
+    }
 
     // --- cleanup respects the (short, test-only) inactivity threshold ---
     $created = create_and_track(Config::www_root() . '/project-b', $createdSessions);

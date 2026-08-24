@@ -3,7 +3,9 @@
 Status: **in progress**, started 2026-08-24. Supersedes the "long-term,
 explicitly not near-term" sequencing note in `todo` — Andres asked to start
 this directly, ahead of the CSM-own-plugin-hooks item it was previously
-queued behind.
+queued behind. Phase 0 (groundwork), Phase 1 (AgentAdapter interface +
+ClaudeCodeAdapter), and Phase 2 (AntigravityAdapter spawn + identity + New
+Session UI picker) are done. Next up: Phase 3 (hooks).
 
 Goal: get a second agent (Google's Antigravity CLI, binary `agy`) working
 through this same tmux/web-UI/SQLite pipeline, via a real `AgentAdapter`
@@ -182,31 +184,50 @@ Claude Sonnet 4.6/Opus 4.6/GPT-OSS-120b on Free+Pro. Model selection via
 
 ## Phases
 
-**Phase 0 — groundwork**
-- Add an `agent` column to the `sidecars` table (every row today implicitly
-  means `claude`); default existing rows to `'claude'` in the migration.
-- Generalize `Config::claude_bin()` → `Config::agent_bin(string $agent)`,
-  add `ANTIGRAVITY_BIN` env var (same `csm_config()` override convention as
-  every other path in `Config`).
+**Phase 0 — groundwork — DONE**
+- Added an `agent` column to the `sidecars` table (`SqliteDb::sessions_schema()`),
+  plus `SqliteDb::add_column_if_missing()` so an existing (tmpfs, but not
+  guaranteed-fresh-since-last-reboot) `sessions.sqlite` gets it retroactively
+  rather than breaking every write until the next reboot. Every real
+  `write_sidecar()` call site now passes `agent` explicitly (either the
+  resolved adapter's id, or `$existingSidecar['agent'] ?? 'claude'` when
+  preserving across a partial rebind - same established pattern already
+  used for `workdir`/`spawned_at`).
+- Added `Config::antigravity_bin()` (`ANTIGRAVITY_BIN` env var), mirroring
+  `claude_bin()` exactly. **Deviation from the original plan text above**:
+  skipped the generalized `Config::agent_bin(string $agent)` dispatcher -
+  each adapter already owns calling its own binary getter directly
+  (`ClaudeCodeAdapter` → `Config::claude_bin()`, `AntigravityAdapter` →
+  `Config::antigravity_bin()`), so a `Config`-level dispatcher would've
+  been a redundant extra indirection layer with nothing left to decide.
 
-**Phase 1 — `AgentAdapter` interface, Claude-only refactor (this session)**
-- Define `HostAgent\Agents\AgentAdapter` covering: session-name prefix,
-  binary resolution, spawn argv building, hook status/install (reusing
-  `HookService`'s existing data-driven shape), permission-mode
-  mapping, and hook-payload → store-write normalization for the 5 events.
-- Extract today's Claude-Code-specific logic (out of
-  `SessionLifecycleService::create_cc_session()`, `HookService`, the 5
-  `host-agent/hooks/*.php` scripts, `PermissionMode`) into a
-  `ClaudeCodeAdapter` implementing it.
-- Pure refactor — no behavior change. Full test suite must stay green
-  before moving on; this is what de-risks the abstraction before a second
-  implementation leans on it.
+**Phase 1 — `AgentAdapter` interface, Claude-only refactor — DONE (see the
+earlier commit this plan doc already described)**
 
-**Phase 2 — Antigravity adapter: spawn + identity**
-- `AntigravityAdapter::spawn_args()` for the interactive TUI.
-- Reactive sidecar binding off the first hook payload's `conversationId`
-  (see resolved open question above) instead of spawn-time UUID assignment.
-- Agent picker in the New Session UI, defaulting to Claude Code.
+**Phase 2 — Antigravity adapter: spawn + identity — DONE**
+- `AntigravityAdapter::build_spawn_argv()` for the interactive TUI -
+  `--model`/`--effort`/`--mode` when given, `assigned_id` always null (see
+  the resolved open question above). `check_hooks()`/`install_hooks()` are
+  deliberate honest stubs (`installed: false`, refuses) rather than fake
+  success - Phase 3's job, not this one's.
+- `SessionLifecycleService::create_cc_session()` gained a 4th `?string
+  $agentId = null` parameter, whitelisted against `AgentRegistry::
+  known_agent_ids()` (unrecognized/omitted falls back to Claude Code,
+  byte-identical to every pre-Phase-2 caller). Wired through `Sessions.php`'s
+  `dispatch_action()` case `'create'` (`request['agent']`) and
+  `DashboardController::handleAction()`'s `case 'new'` (`$_POST['agent']`).
+- Agent picker added to the New Session form (`PageView::AGENT_OPTIONS`,
+  a plain view-layer constant mirroring `AgentRegistry`'s known ids rather
+  than reaching into `HostAgent\` classes from container-side view code -
+  see that constant's own docblock for why), defaulting to Claude Code.
+  Verified live in a real browser (screenshot via the existing CDP test
+  helper) - renders correctly, both options present, zero console errors.
+- Reactive sidecar binding off the first hook's `conversationId` is NOT
+  built yet - it's a Phase 3 concern (needs a real hook script to react
+  from). A freshly-spawned Antigravity session today gets a sidecar with
+  `claude_session_id: null` and sits there until Phase 3's first hook
+  script binds it - confirmed via a real end-to-end test against a new
+  `tests/fixtures/fake_agy` stand-in (mirrors `fake_claude`).
 
 **Phase 3 — hooks**
 - Write `~/.gemini/config/hooks.json` in the confirmed nested schema.

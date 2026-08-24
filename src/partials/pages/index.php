@@ -113,6 +113,19 @@ $this->layout('layout', [
            find_current_task_list(), cascaded alongside the older TodoWrite
            reader in SessionDetailService::session_detail() - see that method's
            own docblock. -->
+      <!-- AgentAdapter picker (docs/antigravity-adapter-plan.md Phase 2) -
+           Claude Code stays the pre-selected default so an untouched
+           dropdown behaves exactly as before this existed. Antigravity
+           sessions currently only get as far as spawning - status
+           tracking needs the hook scripts Phase 3 adds. -->
+      <label class="flex items-center gap-2 text-sm text-slate-300">
+        Agent
+        <select name="agent" class="rounded-lg border border-slate-700 bg-slate-800 text-sm text-slate-200 px-2 py-1.5">
+          <?php foreach (\App\Views\PageView::AGENT_OPTIONS as $agentKey => $agentLabel): ?>
+            <option value="<?= $this->e($agentKey) ?>"<?= $agentKey === 'claude' ? ' selected' : '' ?>><?= $this->e($agentLabel) ?></option>
+          <?php endforeach ?>
+        </select>
+      </label>
       <label class="flex items-center gap-2 text-sm text-slate-300">
         <input type="checkbox" name="enable_task_tools" value="1" class="rounded border-slate-600 bg-slate-800">
         Enable task tracking tools

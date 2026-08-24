@@ -1,0 +1,7 @@
+#!/bin/bash
+# Stand-in for the real `agy` binary (see tests/.env.testing's
+# ANTIGRAVITY_BIN) - same "blocks on stdin forever, like an idle pane"
+# behavior as tests/fixtures/fake_claude, for the same reason (real flags
+# like --model/--mode would trip up a plain coreutils binary). See that
+# file's own comment for why `exec -a` is used instead of a plain shebang.
+exec -a "$0" cat

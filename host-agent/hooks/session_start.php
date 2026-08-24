@@ -140,6 +140,7 @@ SidecarStore::write_sidecar($sessionName, [
     'workdir' => $existingSidecar['workdir'] ?? $cwd,
     'spawned_at' => $existingSidecar['spawned_at'] ?? time(),
     'claude_session_id' => $claudeSessionId,
+    'agent' => $existingSidecar['agent'] ?? 'claude',
     // Lets the dashboard tell "this app spawned the pane" apart from "this
     // app adopted a pane Andres started by hand" without re-deriving it
     // from the session name later (e.g. to decide whether Kill should

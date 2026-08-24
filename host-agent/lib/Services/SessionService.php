@@ -245,6 +245,7 @@ class SessionService
             'spawned_at' => $sidecar['spawned_at'] ?? time(),
             'claude_session_id' => $liveId,
             'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
+            'agent' => $sidecar['agent'] ?? 'claude',
         ]);
 
         return $liveId;

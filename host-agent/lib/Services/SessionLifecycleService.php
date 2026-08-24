@@ -35,22 +35,31 @@ class SessionLifecycleService
     }
 
     /**
-     * $enableTaskTools/$startingMode are passed straight through to
-     * ClaudeCodeAdapter::build_spawn_argv() (see that method's own
+     * $agentId picks which AgentAdapter governs the new session (see
+     * docs/antigravity-adapter-plan.md Phase 2) - whitelisted against
+     * AgentRegistry::known_agent_ids() rather than trusted from the
+     * caller, same discipline $startingMode already uses below; null,
+     * empty, or unrecognized all fall back to AgentRegistry::
+     * default_agent_id() ('claude'), so every existing caller from before
+     * this parameter existed keeps working unchanged.
+     *
+     * $enableTaskTools/$startingMode are passed straight through to the
+     * resolved adapter's build_spawn_argv() (see ClaudeCodeAdapter's own
      * docblock for --allowedTools/--permission-mode's exact reasoning -
      * this method used to build that argv inline until the AgentAdapter
      * extraction, 2026-08-24, see docs/antigravity-adapter-plan.md Phase 1;
-     * behavior is unchanged, only where the logic lives moved).
-     * $startingMode is this app's own manual/accept edits/plan/auto
-     * vocabulary (TranscriptView::MODE_OPTIONS), whitelisted against
-     * PermissionMode::HOOK_PERMISSION_MODE_MAP's keys inside the adapter
-     * rather than trusted from the caller, same discipline as every other
-     * state-changing action in this app (kill, answer_prompt, set_mode
-     * itself). null (the default) omits the flag entirely.
+     * behavior is unchanged for Claude Code, only where the logic lives
+     * moved). $startingMode is this app's own manual/accept edits/plan/auto
+     * vocabulary (TranscriptView::MODE_OPTIONS) - each adapter whitelists
+     * it against its own real mode values internally (see
+     * ClaudeCodeAdapter::build_spawn_argv()/AntigravityAdapter::
+     * build_spawn_argv()), an unsupported value for the chosen agent is
+     * silently ignored rather than passed through raw. null (the default)
+     * omits the flag entirely.
      *
      * @return array{ok:bool, message:string}
      */
-    public static function create_cc_session(string $workdir, bool $enableTaskTools = false, ?string $startingMode = null): array
+    public static function create_cc_session(string $workdir, bool $enableTaskTools = false, ?string $startingMode = null, ?string $agentId = null): array
     {
         if ($workdir === '' || $workdir[0] !== '/') {
             return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
@@ -62,10 +71,11 @@ class SessionLifecycleService
         // collide on an identical name and the second `tmux new-session`
         // fails outright ("duplicate session"). resume_cc_session() already
         // uses second-level Ymd-His for the same reason - matched here too.
-        $agent = AgentRegistry::get(AgentRegistry::default_agent_id());
+        $resolvedAgentId = $agentId !== null && in_array($agentId, AgentRegistry::known_agent_ids(), true) ? $agentId : AgentRegistry::default_agent_id();
+        $agent = AgentRegistry::get($resolvedAgentId);
         $name = $agent->session_name_prefix() . '-' . date('Ymd-His');
         $spawn = $agent->build_spawn_argv(['enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode]);
-        $claudeArgs = $spawn['argv'];
+        $agentArgv = $spawn['argv'];
         $claudeSessionId = $spawn['assigned_id'];
 
         $result = TmuxService::tmux_run(array_merge([
@@ -80,7 +90,7 @@ class SessionLifecycleService
             '-e', "CSM_SESSION_NAME={$name}",
             '-x', (string)Config::new_session_pane_width(),
             '-y', (string)Config::new_session_pane_height(),
-        ], $claudeArgs));
+        ], $agentArgv));
 
         if ($result['exit'] !== 0) {
             return ['ok' => false, 'message' => 'Failed to create session: ' . trim($result['stderr'])];
@@ -99,7 +109,7 @@ class SessionLifecycleService
         if (!$stillThere) {
             return [
                 'ok' => false,
-                'message' => "Session {$name} did not stay running - check the working directory is valid and the claude binary starts correctly",
+                'message' => "Session {$name} did not stay running - check the working directory is valid and the {$agent->label()} binary starts correctly",
             ];
         }
 
@@ -108,7 +118,7 @@ class SessionLifecycleService
         // fire moments later, and a dashboard poll landing in that gap would
         // otherwise see this brand-new, definitely-app-spawned session
         // reported as spawned_by_csm=false.
-        SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true]);
+        SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true, 'agent' => $agent->id()]);
 
         return ['ok' => true, 'message' => "Created session {$name} in {$workdir}"];
     }
@@ -252,7 +262,10 @@ class SessionLifecycleService
                 ];
             }
 
-            SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true]);
+            // --resume is a Claude Code CLI concept - this whole method is
+            // Claude-only for now (Antigravity resume support is a
+            // stretch goal, see docs/antigravity-adapter-plan.md).
+            SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true, 'agent' => 'claude']);
 
             return ['ok' => true, 'message' => "Resumed session {$name} in {$workdir}", 'name' => $name];
         } finally {

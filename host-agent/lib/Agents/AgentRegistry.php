@@ -17,6 +17,7 @@ class AgentRegistry
     /** @var array<string, class-string<AgentAdapter>> */
     private const ADAPTERS = [
         'claude' => ClaudeCodeAdapter::class,
+        'antigravity' => AntigravityAdapter::class,
     ];
 
     /** @var array<string, AgentAdapter> */
