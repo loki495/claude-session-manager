@@ -159,6 +159,83 @@ class QuotaService
     }
 
     /**
+     * Reads OpenCode usage stats directly from opencode.db (cost + token
+     * counters). Unlike Claude Code (statusLine rate_limits.*) and
+     * Antigravity (periodically polled `agy -p "/usage"`), opencode's
+     * closest quota-like data is cumulative per-session cost and token
+     * counts (session.cost, tokens_input/output/reasoning/cache_*), summed
+     * for the dashboard or for one specific ses_* when $sessionId is given.
+     *
+     * Opened read-only (SQLITE_OPEN_READONLY) like OpenCodeTranscriptService,
+     * so a live TUI writer is never blocked. No GlobalStateStore/polling
+     * needed — the DB itself is the source of truth, read on every request.
+     *
+     * @return array{quota:array, fetched_at:int}|null null when the DB is missing/empty
+     */
+    public static function opencode_quota_state(?string $sessionId = null): ?array
+    {
+        $path = Config::opencode_db_path();
+
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            $pdo = new \PDO('sqlite:' . $path, null, null, [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY,
+            ]);
+            $pdo->exec('PRAGMA busy_timeout=5000');
+        } catch (\PDOException $e) {
+            return null;
+        }
+
+        if ($sessionId !== null && $sessionId !== '' && OpenCodeTranscriptService::is_opencode_id($sessionId)) {
+            $stmt = $pdo->prepare('SELECT cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, time_updated FROM session WHERE id = ? LIMIT 1');
+            $stmt->execute([$sessionId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if ($row === false || !is_array($row)) {
+                return null;
+            }
+
+            $quota = [
+                'cost' => (float)($row['cost'] ?? 0),
+                'tokens_input' => (int)($row['tokens_input'] ?? 0),
+                'tokens_output' => (int)($row['tokens_output'] ?? 0),
+                'tokens_reasoning' => (int)($row['tokens_reasoning'] ?? 0),
+                'tokens_cache_read' => (int)($row['tokens_cache_read'] ?? 0),
+                'tokens_cache_write' => (int)($row['tokens_cache_write'] ?? 0),
+            ];
+            $fetchedAt = is_numeric($row['time_updated'] ?? null) ? (int)($row['time_updated'] / 1000) : time();
+            $quota['captured_at'] = date('c', $fetchedAt);
+
+            return ['quota' => $quota, 'fetched_at' => $fetchedAt];
+        }
+
+        // Dashboard: aggregate across all sessions (mirrors `opencode stats` totals)
+        $row = $pdo->query('SELECT COUNT(*) as cnt, COALESCE(SUM(cost),0) as sum_cost, COALESCE(SUM(tokens_input),0) as sum_in, COALESCE(SUM(tokens_output),0) as sum_out, COALESCE(SUM(tokens_reasoning),0) as sum_reason, COALESCE(SUM(tokens_cache_read),0) as sum_cr, COALESCE(SUM(tokens_cache_write),0) as sum_cw FROM session')->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false || !is_array($row) || (int)($row['cnt'] ?? 0) === 0) {
+            return null;
+        }
+
+        $fetchedAt = time();
+        $quota = [
+            'cost' => (float)($row['sum_cost'] ?? 0),
+            'tokens_input' => (int)($row['sum_in'] ?? 0),
+            'tokens_output' => (int)($row['sum_out'] ?? 0),
+            'tokens_reasoning' => (int)($row['sum_reason'] ?? 0),
+            'tokens_cache_read' => (int)($row['sum_cr'] ?? 0),
+            'tokens_cache_write' => (int)($row['sum_cw'] ?? 0),
+            'session_count' => (int)($row['cnt'] ?? 0),
+            'captured_at' => date('c', $fetchedAt),
+        ];
+
+        return ['quota' => $quota, 'fetched_at' => $fetchedAt];
+    }
+
+    /**
      * When $sessionName is given, returns the real quota for that session's
      * specific agent (Claude Code or Antigravity, looked up from its sidecar).
      * For a Claude Code session, additionally overlays that ONE session's own
@@ -209,6 +286,36 @@ class QuotaService
                 ];
             }
 
+            if ($agent === 'opencode') {
+                $opencodeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
+                $ocLive = self::opencode_quota_state($opencodeSessionId);
+
+                if ($ocLive !== null) {
+                    return [
+                        'ok' => true,
+                        'quota' => $ocLive['quota'],
+                        'fetched_at' => $ocLive['fetched_at'],
+                        'cached' => false,
+                        'stale' => false,
+                        'refreshing' => false,
+                        'agent' => 'opencode',
+                        'agent_label' => 'OpenCode',
+                    ];
+                }
+
+                return [
+                    'ok' => false,
+                    'quota' => null,
+                    'fetched_at' => null,
+                    'cached' => false,
+                    'stale' => false,
+                    'refreshing' => false,
+                    'agent' => 'opencode',
+                    'agent_label' => 'OpenCode',
+                    'message' => 'No OpenCode quota data yet - no opencode sessions recorded',
+                ];
+            }
+
             // Claude Code session
             $contextPct = self::live_context_pct($sessionName);
             $live = self::quota_from_statusline_state();
@@ -251,6 +358,7 @@ class QuotaService
         // Dashboard request (no single session) - returns per-agent breakdown for table rendering
         $claudeLive = self::quota_from_statusline_state();
         $agLive = self::antigravity_quota_state();
+        $ocLive = self::opencode_quota_state();
 
         $agents = [
             'claude' => [
@@ -267,15 +375,22 @@ class QuotaService
                 'fetched_at' => $agLive['fetched_at'] ?? null,
                 'message' => $agLive === null ? 'No quota data yet - csm-antigravity-quota-check timer has not run' : null,
             ],
+            'opencode' => [
+                'label' => 'OpenCode',
+                'ok' => $ocLive !== null,
+                'quota' => $ocLive['quota'] ?? null,
+                'fetched_at' => $ocLive['fetched_at'] ?? null,
+                'message' => $ocLive === null ? 'No OpenCode sessions yet' : null,
+            ],
         ];
 
-        $hasAnyData = $claudeLive !== null || $agLive !== null;
+        $hasAnyData = $claudeLive !== null || $agLive !== null || $ocLive !== null;
 
         return [
             'ok' => $hasAnyData,
-            'quota' => $claudeLive['quota'] ?? ($agLive['quota'] ?? null),
+            'quota' => $claudeLive['quota'] ?? ($agLive['quota'] ?? ($ocLive['quota'] ?? null)),
             'agents' => $agents,
-            'fetched_at' => $claudeLive['fetched_at'] ?? ($agLive['fetched_at'] ?? null),
+            'fetched_at' => $claudeLive['fetched_at'] ?? ($agLive['fetched_at'] ?? ($ocLive['fetched_at'] ?? null)),
             'cached' => false,
             'stale' => false,
             'refreshing' => false,

@@ -236,16 +236,22 @@ class SessionLifecycleService
                 return ['ok' => false, 'message' => 'This session already has a live pane - refusing to open a second one on the same transcript'];
             }
 
-            $name = AgentRegistry::get(AgentRegistry::default_agent_id())->session_name_prefix() . '-' . date('Ymd-His');
+            $isOpencodeResume = OpenCodeTranscriptService::is_opencode_id($claudeSessionId);
+            $resumeAgentId = $isOpencodeResume ? 'opencode' : 'claude';
+            $resumeAgent = AgentRegistry::get($resumeAgentId);
+            $name = $resumeAgent->session_name_prefix() . '-' . date('Ymd-His');
 
-            $result = TmuxService::tmux_run([
+            $resumeArgv = $isOpencodeResume
+                ? [Config::opencode_bin(), '--session', $claudeSessionId]
+                : [Config::claude_bin(), '--resume', $claudeSessionId];
+
+            $result = TmuxService::tmux_run(array_merge([
                 'new-session', '-d', '-s', $name,
                 '-c', $workdir,
                 '-e', "CSM_SESSION_NAME={$name}",
                 '-x', (string)Config::new_session_pane_width(),
                 '-y', (string)Config::new_session_pane_height(),
-                Config::claude_bin(), '--resume', $claudeSessionId,
-            ]);
+            ], $resumeArgv));
 
             if ($result['exit'] !== 0) {
                 return ['ok' => false, 'message' => 'Failed to resume session: ' . trim($result['stderr'])];
@@ -258,14 +264,11 @@ class SessionLifecycleService
             if (!$stillThere) {
                 return [
                     'ok' => false,
-                    'message' => "Session {$name} did not stay running - check the working directory still exists and the claude binary starts correctly",
+                    'message' => "Session {$name} did not stay running - check the working directory still exists and the {$resumeAgent->label()} binary starts correctly",
                 ];
             }
 
-            // --resume is a Claude Code CLI concept - this whole method is
-            // Claude-only for now (Antigravity resume support is a
-            // stretch goal, see docs/antigravity-adapter-plan.md).
-            SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true, 'agent' => 'claude']);
+            SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true, 'agent' => $resumeAgentId]);
 
             return ['ok' => true, 'message' => "Resumed session {$name} in {$workdir}", 'name' => $name];
         } finally {

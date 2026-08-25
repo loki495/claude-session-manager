@@ -39,7 +39,9 @@ if (Config::tmux_socket() === REAL_TMUX_SOCKET) {
 }
 
 $pushSqliteFixture = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/push.sqlite';
+$opencodeDbFixtureLc = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/opencode.db';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
+putenv("OPENCODE_DB_PATH={$opencodeDbFixtureLc}");
 
 if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_LC) {
     fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE resolves to the real host state file.\n");
@@ -1897,6 +1899,9 @@ try {
     @unlink($pushSqliteFixture);
     @unlink($pushSqliteFixture . '-wal');
     @unlink($pushSqliteFixture . '-shm');
+    @unlink($opencodeDbFixtureLc);
+    @rmdir(dirname($opencodeDbFixtureLc));
+    putenv('OPENCODE_DB_PATH');
     foreach ($createdSessions as $leftover) {
         SessionLifecycleService::kill_cc_session($leftover);
     }

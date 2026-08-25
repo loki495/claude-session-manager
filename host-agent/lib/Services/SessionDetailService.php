@@ -84,6 +84,21 @@ class SessionDetailService
         $sidecar = SidecarStore::read_sidecar($name);
         $claudeSessionId = $sidecar['claude_session_id'] ?? null;
 
+        // Opencode reactive binding: sidecar starts with null, learns ses_* on next poll
+        if (!is_string($claudeSessionId) && is_string($sidecar['agent'] ?? null) && $sidecar['agent'] === 'opencode' && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
+            $healed = OpenCodeTranscriptService::find_session_for_workdir($sidecar['workdir'], $sidecar['spawned_at']);
+            if ($healed !== null && !SessionLifecycleService::claude_session_id_already_live($healed, $name)) {
+                SidecarStore::write_sidecar($name, [
+                    'workdir' => $sidecar['workdir'],
+                    'spawned_at' => $sidecar['spawned_at'],
+                    'claude_session_id' => $healed,
+                    'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? true,
+                    'agent' => 'opencode',
+                ]);
+                $claudeSessionId = $healed;
+            }
+        }
+
         if (!is_string($claudeSessionId)) {
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];
         }
@@ -190,6 +205,20 @@ class SessionDetailService
     {
         $sidecar = SidecarStore::read_sidecar($name);
         $claudeSessionId = $sidecar['claude_session_id'] ?? null;
+
+        if (!is_string($claudeSessionId) && is_string($sidecar['agent'] ?? null) && $sidecar['agent'] === 'opencode' && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
+            $healed = OpenCodeTranscriptService::find_session_for_workdir($sidecar['workdir'], $sidecar['spawned_at']);
+            if ($healed !== null && !SessionLifecycleService::claude_session_id_already_live($healed, $name)) {
+                SidecarStore::write_sidecar($name, [
+                    'workdir' => $sidecar['workdir'],
+                    'spawned_at' => $sidecar['spawned_at'],
+                    'claude_session_id' => $healed,
+                    'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? true,
+                    'agent' => 'opencode',
+                ]);
+                $claudeSessionId = $healed;
+            }
+        }
 
         if (!is_string($claudeSessionId)) {
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];

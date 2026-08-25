@@ -52,6 +52,17 @@ class Config
     }
 
     /**
+     * Same reasoning as claude_bin() above - no safe universal guess for
+     * where the OpenCode TUI CLI (binary name `opencode`) was installed, so
+     * this is empty until OPENCODE_BIN is set explicitly. Run `which
+     * opencode` to find the real path. Added 2026-08-25 for OpenCodeAdapter.
+     */
+    public static function opencode_bin(): string
+    {
+        return self::csm_config('OPENCODE_BIN', '');
+    }
+
+    /**
      * Starting folder for the New Session browser - home_root() itself is
      * a reasonable generic default (always exists, always readable by
      * this process); set WWW_ROOT explicitly to wherever projects
@@ -195,6 +206,18 @@ class Config
     public static function push_sqlite_path(): string
     {
         return self::csm_config('PUSH_SQLITE_FILE', self::csm_repo_root() . '/host-agent/state/push.sqlite');
+    }
+
+    /**
+     * OpenCode's own SQLite database - lives at ~/.local/share/opencode/opencode.db
+     * by default (see `opencode debug paths`'s `data` entry), WAL mode
+     * (confirmed live 2026-08-25: PRAGMA journal_mode=wal, concurrent
+     * readers safe while the TUI runs). Overridable via env for tests so a
+     * canned fixture DB can be pointed at without touching the real host data.
+     */
+    public static function opencode_db_path(): string
+    {
+        return self::csm_config('OPENCODE_DB_PATH', self::home_root() . '/.local/share/opencode/opencode.db');
     }
 
     /**

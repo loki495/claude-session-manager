@@ -20,14 +20,16 @@ class TranscriptRouter
 {
     /**
      * Tries Claude Code's own resolution first (a glob), then
-     * Antigravity's (a direct deterministic path) - the two id spaces
-     * are both v4-ish UUIDs with no realistic collision risk between
-     * them, and only one will ever actually resolve to a real file for
-     * any given id.
+     * Antigravity's (a direct deterministic path), then OpenCode's
+     * (a DB row check for ses_* shape) - the three id spaces are
+     * distinct (UUID-with-dashes vs ses_* prefix) with no collision
+     * risk, and only one will ever actually resolve for any given id.
      */
     public static function find_transcript_path(string $sessionId): ?string
     {
-        return TranscriptService::find_transcript_path($sessionId) ?? AntigravityTranscriptService::find_transcript_path($sessionId);
+        return TranscriptService::find_transcript_path($sessionId)
+            ?? AntigravityTranscriptService::find_transcript_path($sessionId)
+            ?? OpenCodeTranscriptService::find_transcript_path($sessionId);
     }
 
     public static function is_antigravity_path(string $path): bool
@@ -35,11 +37,20 @@ class TranscriptRouter
         return str_contains($path, '/antigravity-cli/brain/');
     }
 
+    public static function is_opencode_path(string $path): bool
+    {
+        return OpenCodeTranscriptService::is_opencode_id($path);
+    }
+
     /**
      * @return array{ok:bool, entries:array<int, array>, next_before:?int, has_more:bool, message?:string}
      */
     public static function read_transcript_page(string $path, ?int $before, int $limit, bool $untilRealUserMessage = false): array
     {
+        if (self::is_opencode_path($path)) {
+            return OpenCodeTranscriptService::read_transcript_page($path, $before, $limit, $untilRealUserMessage);
+        }
+
         return self::is_antigravity_path($path)
             ? AntigravityTranscriptService::read_transcript_page($path, $before, $limit, $untilRealUserMessage)
             : TranscriptService::read_transcript_page($path, $before, $limit, $untilRealUserMessage);
@@ -50,6 +61,10 @@ class TranscriptRouter
      */
     public static function read_transcript_page_since(string $path, int $afterLine, int $limit): array
     {
+        if (self::is_opencode_path($path)) {
+            return OpenCodeTranscriptService::read_transcript_page_since($path, $afterLine, $limit);
+        }
+
         return self::is_antigravity_path($path)
             ? AntigravityTranscriptService::read_transcript_page_since($path, $afterLine, $limit)
             : TranscriptService::read_transcript_page_since($path, $afterLine, $limit);
@@ -60,6 +75,10 @@ class TranscriptRouter
      */
     public static function read_attachment(string $path, int $line, string $fileUuid): array
     {
+        if (self::is_opencode_path($path)) {
+            return OpenCodeTranscriptService::read_attachment($path, $line, $fileUuid);
+        }
+
         return self::is_antigravity_path($path)
             ? AntigravityTranscriptService::read_attachment($path, $line, $fileUuid)
             : TranscriptService::read_attachment($path, $line, $fileUuid);

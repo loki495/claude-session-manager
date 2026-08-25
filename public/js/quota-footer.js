@@ -134,11 +134,13 @@
     var agents = data.agents || {};
     var claude = agents.claude;
     var ag = agents.antigravity;
+    var oc = agents.opencode;
 
     var hasClaude = claude && claude.quota;
     var hasAg = ag && ag.quota;
+    var hasOc = oc && oc.quota;
 
-    if (!hasClaude && !hasAg) {
+    if (!hasClaude && !hasAg && !hasOc) {
       showUnavailable(data);
       return;
     }
@@ -223,10 +225,39 @@
     trAg.appendChild(tdA3);
     tbody.appendChild(trAg);
 
+    // OpenCode row — cost/tokens (not pct), so different rendering
+    var trOc = document.createElement('tr');
+    var ocLabel = (oc && oc.label) ? oc.label : 'OpenCode';
+    var tdO1 = document.createElement('td');
+    tdO1.className = 'py-1.5 pr-3 text-slate-300 whitespace-nowrap font-medium';
+    tdO1.textContent = ocLabel;
+    trOc.appendChild(tdO1);
+
+    var tdO2 = document.createElement('td');
+    tdO2.className = 'py-1.5 px-3 whitespace-nowrap text-xs';
+    if (oc && oc.quota) {
+      var ocQ = oc.quota;
+      var costStr = typeof ocQ.cost === 'number' ? ('$' + ocQ.cost.toFixed(2)) : '—';
+      var tokStr = typeof ocQ.tokens_input === 'number' ? (Math.round((ocQ.tokens_input + (ocQ.tokens_output || 0)) / 1000) + 'k') : '';
+      tdO2.innerHTML = '<span class="text-slate-300">' + escapeHtml(costStr) + '</span>' + (tokStr ? '<span class="text-slate-500 ml-1">' + escapeHtml(tokStr) + ' tok</span>' : '');
+      if (ocQ.session_count) {
+        tdO2.innerHTML += '<span class="text-slate-500 ml-1">· ' + ocQ.session_count + ' sess</span>';
+      }
+    } else {
+      tdO2.innerHTML = '<span class="text-slate-600 font-normal">' + (oc && oc.message ? 'No data' : '—') + '</span>';
+    }
+    trOc.appendChild(tdO2);
+
+    var tdO3 = document.createElement('td');
+    tdO3.className = 'py-1.5 pl-3 whitespace-nowrap text-xs text-slate-600';
+    tdO3.textContent = '—';
+    trOc.appendChild(tdO3);
+    tbody.appendChild(trOc);
+
     table.appendChild(tbody);
     container.appendChild(table);
 
-    var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at);
+    var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at) || (oc && oc.quota && oc.quota.captured_at);
     el.title = capturedAt ? 'Captured ' + relativeTimeAgo(capturedAt) : '';
     el.innerHTML = '';
     el.appendChild(container);
@@ -246,6 +277,33 @@
     var q = data.quota;
     if (!q) {
       showUnavailable(data);
+      return;
+    }
+
+    // OpenCode per-session quota is cost/tokens (not pct) — render differently
+    if (data.agent === 'opencode' && (typeof q.cost === 'number' || typeof q.tokens_input === 'number')) {
+      el.title = q.captured_at ? 'Captured ' + relativeTimeAgo(q.captured_at) : '';
+      el.innerHTML = '';
+      var costLine = document.createElement('div');
+      costLine.className = 'text-slate-300';
+      var tokTotal = (q.tokens_input || 0) + (q.tokens_output || 0);
+      var tokStr = tokTotal > 0 ? (' · ' + Math.round(tokTotal / 1000) + 'k tok') : '';
+      var costStr = typeof q.cost === 'number' ? ('$' + q.cost.toFixed(2)) : '$0.00';
+      costLine.textContent = costStr + tokStr + (q.session_count ? (' · ' + q.session_count + ' sessions') : '');
+      el.appendChild(costLine);
+      if (q.tokens_input || q.tokens_output) {
+        var tokDetail = document.createElement('div');
+        tokDetail.className = 'text-xs font-normal text-slate-500';
+        tokDetail.textContent = 'in ' + (q.tokens_input || 0).toLocaleString() + ' · out ' + (q.tokens_output || 0).toLocaleString()
+          + (q.tokens_cache_read ? (' · cache ' + Math.round(q.tokens_cache_read / 1000) + 'k') : '');
+        el.appendChild(tokDetail);
+      }
+      if (data.agent_label) {
+        var meta2 = document.createElement('span');
+        meta2.className = 'text-xs font-normal text-slate-400';
+        meta2.textContent = '(' + data.agent_label + ')';
+        el.appendChild(meta2);
+      }
       return;
     }
 

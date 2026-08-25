@@ -22,6 +22,7 @@ require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 use HostAgent\Agents\AgentRegistry;
 use HostAgent\Agents\AntigravityAdapter;
 use HostAgent\Agents\ClaudeCodeAdapter;
+use HostAgent\Agents\OpenCodeAdapter;
 use HostAgent\Services\AntigravityHookService;
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
@@ -43,7 +44,7 @@ try {
     // --- AgentRegistry: identity/lookup ---
 
     assert_equal('claude', AgentRegistry::default_agent_id(), 'default_agent_id: claude, unchanged from every existing caller before this class existed');
-    assert_equal(['claude', 'antigravity'], AgentRegistry::known_agent_ids(), 'known_agent_ids: claude and antigravity registered');
+    assert_equal(['claude', 'antigravity', 'opencode'], AgentRegistry::known_agent_ids(), 'known_agent_ids: claude, antigravity, and opencode registered');
 
     $adapter = AgentRegistry::get('claude');
     assert_true($adapter instanceof ClaudeCodeAdapter, 'AgentRegistry::get(\'claude\'): returns a ClaudeCodeAdapter instance');
@@ -141,6 +142,51 @@ try {
     // AntigravityHookService, same "identical to calling the real service
     // directly" proof as ClaudeCodeAdapter's own tests above.
     assert_equal(AntigravityHookService::check_session_hook(), $antigravity->check_hooks(), 'AntigravityAdapter::check_hooks(): identical result to calling AntigravityHookService::check_session_hook() directly');
+
+    // --- OpenCodeAdapter (Phase 1.1) ---
+
+    $opencode = AgentRegistry::get('opencode');
+    assert_true($opencode instanceof OpenCodeAdapter, "AgentRegistry::get('opencode'): returns an OpenCodeAdapter instance");
+    assert_equal('opencode', $opencode->id(), 'OpenCodeAdapter::id(): opencode');
+    assert_equal('OpenCode', $opencode->label(), 'OpenCodeAdapter::label(): OpenCode');
+    assert_equal('oc', $opencode->session_name_prefix(), 'OpenCodeAdapter::session_name_prefix(): oc, distinct from cc/ag');
+
+    $ocBare = $opencode->build_spawn_argv([]);
+    assert_equal([Config::opencode_bin()], $ocBare['argv'], 'OpenCodeAdapter::build_spawn_argv([]): bare argv is just the binary, no positional workdir or flags');
+    assert_equal(null, $ocBare['assigned_id'], 'OpenCodeAdapter::build_spawn_argv(): assigned_id is always null - no --session-id equivalent exists for a fresh TUI session (verified live: opencode --session <nonexistent> is resume-only)');
+
+    $ocWithWorkdir = $opencode->build_spawn_argv(['workdir' => '/tmp/test-project']);
+    assert_true(in_array('/tmp/test-project', $ocWithWorkdir['argv'], true), 'build_spawn_argv(workdir): includes positional workdir');
+    assert_equal(Config::opencode_bin(), $ocWithWorkdir['argv'][0], 'build_spawn_argv(workdir): workdir follows the binary as the positional project arg');
+
+    $ocWithModel = $opencode->build_spawn_argv(['model' => 'opencode/muse-spark-1.2-contributor-free']);
+    $ocModelIdx = array_search('--model', $ocWithModel['argv'], true);
+    assert_true($ocModelIdx !== false, 'build_spawn_argv(model): includes --model when given');
+    assert_equal('opencode/muse-spark-1.2-contributor-free', $ocWithModel['argv'][$ocModelIdx + 1] ?? null, 'build_spawn_argv(model): passes the model name straight through');
+
+    $ocWithEmptyModel = $opencode->build_spawn_argv(['model' => '']);
+    assert_true(!in_array('--model', $ocWithEmptyModel['argv'], true), 'build_spawn_argv(model: empty string): omits --model entirely');
+
+    $ocWithAgent = $opencode->build_spawn_argv(['agent' => 'build']);
+    $ocAgentIdx = array_search('--agent', $ocWithAgent['argv'], true);
+    assert_true($ocAgentIdx !== false, 'build_spawn_argv(agent): includes --agent when given');
+    assert_equal('build', $ocWithAgent['argv'][$ocAgentIdx + 1] ?? null, 'build_spawn_argv(agent): passes the agent name straight through');
+
+    $ocWithTaskTools = $opencode->build_spawn_argv(['enable_task_tools' => true]);
+    assert_true(!in_array('--allowedTools', $ocWithTaskTools['argv'], true), 'build_spawn_argv(enable_task_tools): Claude-Code-only option is silently ignored, per "read only what you understand" contract');
+
+    $ocWithStartingMode = $opencode->build_spawn_argv(['starting_mode' => 'accept edits']);
+    assert_true(!in_array('--permission-mode', $ocWithStartingMode['argv'], true), 'build_spawn_argv(starting_mode): no --permission-mode for OpenCode - silently ignored, no mode vocabulary');
+    assert_true(!in_array('--mode', $ocWithStartingMode['argv'], true), 'build_spawn_argv(starting_mode): no --mode either - not Antigravity');
+
+    assert_equal([], $opencode->permission_mode_map(), 'permission_mode_map(): empty - OpenCode has no mode vocabulary (only --auto boolean)');
+
+    $ocHooks = $opencode->check_hooks();
+    assert_equal(false, $ocHooks['installed'], 'check_hooks(): honestly reports not installed (plugin not yet added, Phase 5)');
+    assert_equal(true, $ocHooks['ok'], 'check_hooks(): ok=true even when not installed (honest stub, not a failure)');
+
+    $ocInstall = $opencode->install_hooks();
+    assert_equal(false, $ocInstall['installed'], 'install_hooks(): honestly reports not installed (stub, Phase 5 will implement)');
 
     $agInstall = $antigravity->install_hooks();
     assert_equal(true, $agInstall['ok'], 'AntigravityAdapter::install_hooks(): succeeds against a fresh fixture hooks.json');
