@@ -67,12 +67,19 @@ class SessionService
     public static function session_title(?string $claudeSessionId, ?string $livePaneTitle, ?string $workdir, string $name): string
     {
         $transcriptPath = $claudeSessionId !== null ? TranscriptRouter::find_transcript_path($claudeSessionId) : null;
-        // find_latest_ai_title() is Claude-Code-specific (Antigravity has
-        // no ai-title-equivalent transcript entry) - harmlessly finds
-        // nothing for an Antigravity path, falling through the cascade
-        // below to livePaneTitle/workdir/name, same as a Claude Code
-        // session with no ai-title yet.
-        $aiTitle = $transcriptPath !== null && !TranscriptRouter::is_antigravity_path($transcriptPath) ? TranscriptService::find_latest_ai_title($transcriptPath) : null;
+        // find_latest_ai_title() is Claude-Code-specific (Antigravity and
+        // OpenCode have no ai-title-equivalent transcript entry) - harmlessly
+        // finds nothing for those paths, falling through the cascade below to
+        // livePaneTitle/workdir/name, same as a Claude Code session with no
+        // ai-title yet. For OpenCode, the session row's own title
+        // (session.title) is the closest equivalent and is read instead.
+        $aiTitle = null;
+
+        if ($transcriptPath !== null && !TranscriptRouter::is_antigravity_path($transcriptPath) && !TranscriptRouter::is_opencode_path($transcriptPath)) {
+            $aiTitle = TranscriptService::find_latest_ai_title($transcriptPath);
+        } elseif ($transcriptPath !== null && TranscriptRouter::is_opencode_path($transcriptPath)) {
+            $aiTitle = OpenCodeTranscriptService::find_session_title($claudeSessionId);
+        }
 
         return self::title_cascade($aiTitle, $livePaneTitle, $workdir, $name);
     }
@@ -103,20 +110,69 @@ class SessionService
         }
 
         $sidecar = SidecarStore::read_sidecar($tmuxSession['name']);
+        $agentId = is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : 'claude';
+
+        // Opencode creates no DB row at spawn time, only after the first
+        // prompt (reactive binding, like Antigravity's pre_invocation.php
+        // — see .ai/QUESTIONS.md Q1.1). Self-heal the sidecar's
+        // claude_session_id on the next poll so transcript reads start
+        // working once the ses_* row appears. Best-effort, no extra tmux
+        // capture needed — just a DB lookup by workdir+spawn time.
+        if ($agentId === 'opencode' && empty($sidecar['claude_session_id'] ?? null) && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
+            $healedId = OpenCodeTranscriptService::find_session_for_workdir($sidecar['workdir'], $sidecar['spawned_at']);
+
+            if ($healedId !== null && !SessionLifecycleService::claude_session_id_already_live($healedId, $tmuxSession['name'])) {
+                SidecarStore::write_sidecar($tmuxSession['name'], [
+                    'workdir' => $sidecar['workdir'],
+                    'spawned_at' => $sidecar['spawned_at'],
+                    'claude_session_id' => $healedId,
+                    'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? true,
+                    'agent' => $agentId,
+                ]);
+                $sidecar['claude_session_id'] = $healedId;
+            }
+        }
+
         $paneContent = TmuxService::tmux_capture_pane($tmuxSession['name']);
         $hookStatus = SessionStatusStore::read_status($tmuxSession['name']);
         $hookStatusValue = is_string($hookStatus['status'] ?? null) ? $hookStatus['status'] : null;
         $hookBlocked = is_array($hookStatus['blocked'] ?? null) ? $hookStatus['blocked'] : null;
         $hookBlockedToolName = is_string($hookBlocked['tool_name'] ?? null) ? $hookBlocked['tool_name'] : null;
 
-        // mode/working-status/blocked-prompt-content (for every tool EXCEPT
-        // AskUserQuestion) are fully owned by SessionStatusStore now - the
-        // PermissionRequest/UserPromptSubmit/Stop hooks are mandatory (see
-        // the health box), not a "prefer this, fall back to pane-scraping if
-        // missing" cascade - there is no fallback for these three things
-        // beyond what's carved out below. Only two prompt shapes still need
-        // the live pane at all, forever, regardless of hook installation:
-        if ($hookStatusValue === 'blocked' && $hookBlockedToolName === 'AskUserQuestion') {
+        // OpenCode: check opencode.db for a running `question` tool before
+        // falling through to hook/pane paths — capture-pane is blank when
+        // idle but does show the question when blocked (verified live
+        // 2026-08-25 on ses_fc8124: question tool status=running, pane shows
+        // "↑↓ select  enter submit  esc dismiss" with numbered options).
+        // This is the opencode equivalent of AskUserQuestion, but via DB
+        // polling rather than a SessionStatusStore hook (plugin will
+        // eventually provide the hook-fed path, like Claude's
+        // PermissionRequest — this DB poll is the interim that makes the
+        // blocked card appear without the plugin installed).
+        if ($agentId === 'opencode') {
+            $claudeSessionIdForOc = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
+            $ocQuestion = $claudeSessionIdForOc !== null ? OpenCodeTranscriptService::find_pending_question($claudeSessionIdForOc) : null;
+
+            if ($ocQuestion !== null) {
+                $prompt = [
+                    'question' => $ocQuestion['question'] !== '' ? $ocQuestion['question'] : ($ocQuestion['header'] ?? 'Waiting on input'),
+                    'context' => $ocQuestion['header'] ?? '',
+                    'options' => $ocQuestion['options'],
+                    'multi_question' => false,
+                    'tool_name' => 'question',
+                ];
+            } elseif ($hookStatusValue === 'blocked') {
+                $prompt = PromptParser::build_prompt_from_hook_status($hookBlocked);
+            } else {
+                $prompt = null;
+                // Still check pane for opencode's TUI question as fallback
+                // (pane does show it when blocked, verified live)
+                $ocPanePrompt = OpenCodePromptParser::parse_blocking_prompt($paneContent);
+                if ($ocPanePrompt !== null) {
+                    $prompt = $ocPanePrompt;
+                }
+            }
+        } elseif ($hookStatusValue === 'blocked' && $hookBlockedToolName === 'AskUserQuestion') {
             // AskUserQuestion renders as a tab bar Claude Code itself
             // navigates with the Left/Right arrow keys - a single
             // PermissionRequest fire (at the start of the whole multi-
@@ -182,7 +238,6 @@ class SessionService
         $rawModel = $transcriptPathForModel !== null ? TranscriptService::find_latest_model($transcriptPathForModel) : null;
         $currentModel = $rawModel !== null ? SelectableModel::family_from_raw_model($rawModel) : null;
 
-        $agentId = is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : 'claude';
         try {
             $agentLabel = AgentRegistry::get($agentId)->label();
         } catch (\Throwable) {

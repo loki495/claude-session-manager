@@ -6,6 +6,7 @@ namespace HostAgent\Services;
 
 use HostAgent\Stores\PendingToolStore;
 use HostAgent\Stores\SessionStatusStore;
+use HostAgent\Stores\SidecarStore;
 
 /**
  * Sending input to a live session's pane: prompt answers (plain,
@@ -51,10 +52,34 @@ class PromptInteractionService
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
-        $prompt = PromptParser::parse_blocking_prompt(TmuxService::tmux_capture_pane($name));
+        $agent = SidecarStore::read_sidecar($name)['agent'] ?? 'claude';
 
-        if ($prompt === null) {
-            return ['ok' => false, 'message' => 'Rejected: this session is not currently waiting on a prompt'];
+        if ($agent === 'opencode') {
+            $sidecarOc = SidecarStore::read_sidecar($name);
+            $ocSessionId = is_string($sidecarOc['claude_session_id'] ?? null) ? $sidecarOc['claude_session_id'] : null;
+            $ocQ = $ocSessionId !== null ? OpenCodeTranscriptService::find_pending_question($ocSessionId) : null;
+
+            if ($ocQ !== null) {
+                $prompt = [
+                    'question' => $ocQ['question'],
+                    'context' => $ocQ['header'] ?? '',
+                    'options' => $ocQ['options'],
+                    'multi_question' => false,
+                ];
+            } else {
+                // Fallback: pane parse for opencode (TUI does show the question when blocked)
+                $prompt = OpenCodePromptParser::parse_blocking_prompt(TmuxService::tmux_capture_pane($name));
+
+                if ($prompt === null) {
+                    return ['ok' => false, 'message' => 'Rejected: this session is not currently waiting on a prompt'];
+                }
+            }
+        } else {
+            $prompt = PromptParser::parse_blocking_prompt(TmuxService::tmux_capture_pane($name));
+
+            if ($prompt === null) {
+                return ['ok' => false, 'message' => 'Rejected: this session is not currently waiting on a prompt'];
+            }
         }
 
         if (!in_array($option, array_column($prompt['options'], 'number'), true)) {
@@ -429,28 +454,6 @@ class PromptInteractionService
         return ['ok' => true, 'message' => "Set model for {$name} to {$targetModel} (this session only)"];
     }
 
-    /**
-     * Sends a free-text message to a session, exactly as if a human had
-     * typed it while attached, then pressed Enter to submit - the actual,
-     * intended point of this whole app (remote-controlling a session, same
-     * as attaching from the iOS app). Uses a tmux paste-buffer, not
-     * send-keys with the raw text as a "key": send-keys treats embedded
-     * newlines in a multi-line message as individual Enter keypresses, each
-     * prematurely submitting whatever's been typed so far, where a real
-     * terminal paste delivers the whole block as one unit (verified live)
-     * and only the explicit trailing Enter submits it.
-     *
-     * $attachmentPaths (compose-bar file uploads still pending when Send is
-     * pressed) each become their own "[Attached: <path>]" line appended
-     * after $text - added here, not client-side, so the user's own draft
-     * never shows that bookkeeping text while they're still typing (see
-     * session.js's compose-attachments preview, which shows the files as
-     * their own removable chips instead). $text may be empty as long as at
-     * least one attachment is present - an attachment-only send is valid.
-     *
-     * @param string[] $attachmentPaths
-     * @return array{ok:bool, message:string}
-     */
     public static function send_message(string $name, string $text, array $attachmentPaths = []): array
     {
         $attachmentLines = array_map(static fn(string $path): string => '[Attached: ' . $path . ']', $attachmentPaths);
