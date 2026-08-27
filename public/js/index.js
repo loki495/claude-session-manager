@@ -633,7 +633,11 @@ document.addEventListener('keydown', function (e) {
         if (!data || !data.ok || !data.models) { return; }
 
         ocModelsCache = data.models.map(function (m) {
-          return { id: m.id, label: m.name || m.id, providerID: m.providerID };
+          return {
+            id: m.id,
+            label: (m.providerID ? m.providerID + '/' : '') + (m.id || m.name || ''),
+            providerID: m.providerID
+          };
         });
         populateModels(ocModelsCache);
       })

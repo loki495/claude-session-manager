@@ -209,5 +209,3 @@ Smaller polish (low effort, low risk):
 - (Andres 2026-08-26) Toggle subagent sessions from archived in dashboard:
   make link to transcript in main agent session where appropriate, and hide
   them from sidebar and active sessions list.
-- (Andres 2026-08-26) Put full OpenCode model names, including the provider, in
-  every model dropdown.

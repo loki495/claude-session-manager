@@ -2661,7 +2661,7 @@
           var opt = document.createElement('option');
           opt.value = m.id;
           opt.setAttribute('data-provider', m.providerID);
-          opt.textContent = m.name || m.id;
+          opt.textContent = (m.providerID ? m.providerID + '/' : '') + (m.id || m.name || '');
           opencodeModelSelect.appendChild(opt);
         });
 
