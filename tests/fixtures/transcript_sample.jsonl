@@ -1,0 +1,10 @@
+{"type":"mode","uuid":null,"parentUuid":null,"timestamp":null}
+{"type":"user","uuid":"u1","parentUuid":null,"timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"Fix the bug"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"2026-01-01T00:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"Sure, looking into it."}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"a1","timestamp":"2026-01-01T00:00:10Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}
+{"type":"user","uuid":"u2","parentUuid":"a2","timestamp":"2026-01-01T00:00:12Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"x","content":[{"type":"text","text":"file1\nfile2"}]}]}}
+{"type":"permission-mode","uuid":null,"parentUuid":null,"timestamp":null}
+{"type":"assistant","uuid":"a3","parentUuid":"u2","timestamp":"2026-01-01T00:00:20Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me think..."}]}}
+{"type":"assistant","uuid":"a4","parentUuid":"a3","timestamp":"2026-01-01T00:00:25Z","message":{"role":"assistant","content":[{"type":"text","text":"Done. Fixed it."}]}}
+not valid json{
+{"type":"system","uuid":"s1","parentUuid":null,"message":null}

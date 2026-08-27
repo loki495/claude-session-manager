@@ -1,0 +1,69 @@
+<?php
+  $agentCardStyle = match ($agentId ?? 'claude') {
+    'opencode' => 'background-color: rgba(46, 16, 101, 0.22); border-color: rgba(109, 40, 217, 0.32)',
+    'antigravity' => 'background-color: rgba(69, 26, 3, 0.18); border-color: rgba(180, 83, 9, 0.28)',
+    default => 'background-color: rgba(15, 23, 42, 0.5); border-color: rgb(30, 41, 59)',
+  };
+?>
+<li class="relative rounded-xl border px-4 py-3 flex items-start justify-between gap-3 active:bg-slate-800" style="<?= $agentCardStyle ?>">
+  <?php // Stretched-link pattern: a plain <a> absolutely covering the whole
+        // card, painted below (position:static, no stacking context of its
+        // own) plain text content, so a click there falls through to it -
+        // but ABOVE anything that's actually interactive, which needs its
+        // own "relative" wrapper to opt out of that fall-through (found
+        // live: giving the WHOLE content column "relative" instead lifted
+        // the plain text too, silently swallowing every click on the card
+        // and breaking navigation entirely - only the specific interactive
+        // bits below get their own wrapper). Never nests a <button>/<form>
+        // inside an <a> itself (invalid HTML, unpredictable across
+        // browsers - notably mobile Safari, which this app already has to
+        // special-case elsewhere) the way wrapping the whole card's markup
+        // in one <a> would have. ?>
+  <a href="/session.php?session=<?= urlencode($name) ?>" class="absolute inset-0 rounded-xl" aria-label="Open transcript for <?= $this->e($title) ?>"></a>
+  <div class="min-w-0 flex-1">
+    <div class="select-none text-sm leading-tight truncate"><?= $this->e($title) ?></div>
+    <?php if (!empty($agentLabel)): ?>
+      <?php
+        $agentBadgeClass = match ($agentId ?? 'claude') {
+          'opencode' => 'bg-violet-900/50 text-violet-300 border-violet-700/50',
+          'antigravity' => 'bg-amber-900/40 text-amber-300 border-amber-700/40',
+          default => 'bg-slate-800 text-slate-400 border-slate-700',
+        };
+      ?>
+      <div class="select-none mt-0.5 mb-1.5 flex items-center gap-1.5">
+        <span class="inline-block text-[10px] leading-none font-medium px-2 py-0.5 rounded-full border <?= $agentBadgeClass ?>"><?= $this->e($agentLabel) ?></span>
+        <?php if ($runtime === 'headless'): ?><span class="inline-block text-[10px] leading-none font-medium px-2 py-0.5 rounded-full border bg-violet-900/30 text-violet-400 border-violet-700/40">Headless</span><?php endif ?>
+      </div>
+    <?php endif ?>
+    <?php if ($hasExplicitTitle): ?><div class="select-none font-mono text-xs text-slate-500 truncate mt-0.5"><?= $this->e($name) ?></div><?php endif ?>
+    <?php if (!empty($workdir)): ?><div class="select-none text-xs text-slate-500 truncate mt-0.5"><?= $this->e((string)$workdir) ?></div><?php endif ?>
+    <div class="select-none text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+      <span><?= $this->e($relativeTime) ?></span>
+      <span class="inline-block w-1 h-1 rounded-full <?= $status === 'blocked' ? 'bg-amber-400' : ($status === 'working' ? 'bg-emerald-400' : 'bg-slate-600') ?>"></span>
+      <span class="<?= $status === 'blocked' ? 'text-amber-400' : ($status === 'working' ? 'text-emerald-400' : 'text-slate-400') ?>"><?= $this->e($status) ?></span>
+      <?php if ($runtime !== 'headless' && $attached): ?>
+        <span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
+        <span class="text-emerald-400">attached</span>
+      <?php endif ?>
+      <?php if ($contextUsedPercentage !== null): ?>
+        <span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
+        <span<?= $contextUsedPercentage >= 80 ? ' class="text-amber-400"' : '' ?>>ctx <?= (int)round($contextUsedPercentage) ?>%</span>
+      <?php endif ?>
+      <?php if ($gitWorktree !== null): ?>
+        <span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
+        <span class="truncate max-w-[8rem]" title="<?= $this->e($gitWorktree) ?>"><?= $this->e($gitWorktree) ?></span>
+      <?php endif ?>
+    </div>
+    <div class="relative mt-1">
+      <button type="button" class="select-none show-recent-btn rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5" data-session="<?= $this->e($name) ?>" data-loaded="0">Show last 3 messages</button>
+      <div class="recent-messages hidden mt-1 flex flex-col gap-1 max-h-64 overflow-y-auto overscroll-contain"></div>
+    </div>
+    <div class="relative"><?= $blockedHtml ?></div>
+  </div>
+  <form method="post" action="/" class="relative" onsubmit="return confirm('Kill session <?= $this->e($name) ?>?');">
+    <input type="hidden" name="action" value="kill">
+    <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
+    <input type="hidden" name="session" value="<?= $this->e($name) ?>">
+    <button type="submit" class="select-none min-h-[2.75rem] shrink-0 rounded-lg bg-red-900/70 active:bg-red-800 text-red-100 font-medium text-sm px-4 py-2">Kill</button>
+  </form>
+</li>

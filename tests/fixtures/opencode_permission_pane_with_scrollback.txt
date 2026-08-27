@@ -1,0 +1,150 @@
+  ┃                                                                               103 +         // The tab-bar options are the remaining words, but multi-
+  ┃                                                                                     word labels                                                             Feasibility of opencode separate
+  ┃                                                                               104 +         // ("Allow once", "Allow always") are left-aligned and          commit
+  ┃                                                                                     single-length -
+  ┃                                                                               105 +         // they are separated by DASHES of spaces, not the single       Context
+  ┃                                                                                     spaces inside                                                           335,567 tokens
+  ┃                                                                               106 +         // a label. tokenize by runs of 2+ spaces.                      34% used
+  ┃                                                                               107 +         $optionTokens = preg_split('/\s{2,}/u', $tabWords);             $0.60 spent
+  ┃                                                                               108 +         $options = [];
+  ┃                                                                               109 +         $number = 1;                                                    LSP
+  ┃                                                                               110 +         foreach ($optionTokens as $token) {                             LSPs are disabled
+  ┃                                                                               111 +             $token = trim($token);
+  ┃                                                                               112 +             if ($token === '') {                                        ▼ Todo
+  ┃                                                                               113 +                 continue;                                               [✓] Research opencode.ai/docs/server
+  ┃                                                                               114 +             }                                                               for simplification opportunities
+  ┃                                                                               115 +             $options[] = ['number' => $number, 'label' => $token];      [•] Sidebar link per-session that
+  ┃                                                                               116 +             $number++;                                                      opens the cwd's todo file in
+  ┃                                                                               117 +         }                                                                   fullscreen modal
+  ┃                                                                               118 +                                                                         [ ] Implement model + mode in the
+  ┃                                                                               119 +         if ($options === []) {                                              footer
+  ┃                                                                               120 +             return null;                                                [✓] Append 'effort' dropdown backlog
+  ┃                                                                               121 +         }                                                                   note to todo file
+  ┃                                                                               122 +
+  ┃                                                                               123 +         // Question: an "← Access ..." line if present (the thing
+  ┃                                                                                     being
+  ┃                                                                               124 +         // permitted), else fall back to the dialog heading itself.
+  ┃     63           $question = null;                                            125           $question = null;
+  ┃     64           foreach ($clean as $line) {                                  126           foreach ($clean as $line) {
+  ┃     65               $idx = strpos($line, '←');                               127               $idx = strpos($line, '←');
+  ┃     66               if ($idx !== false) {                                    128               if ($idx !== false) {
+  ┃     68                   break;                                               130                   break;
+  ┃     69               }                                                        131               }
+  ┃     70           }                                                            132           }
+  ┃     71                                                                        133
+  ┃     72 -         // Context: the "△ Permission required" heading + any        134 +         // Context: the dialog heading + the descriptive lines that
+  ┃          "Patterns" block                                                           follow it
+  ┃     73 -         // (the lines around the allowance, before the tab bar).     135 +         // (up to the tab bar). The heading carries opencode's "△"
+  ┃                                                                                     marker.
+  ┃     74           $contextLines = [];                                          136           $contextLines = [];
+  ┃     75           $inContent = false;                                          137           $inContent = false;
+  ┃     76           foreach ($clean as $line) {                                  138           foreach ($clean as $line) {
+  ┃     77 -             // The heading carries opencode's "△" marker (           139 +             $matchedHeading = null;
+  ┃          str_contains, not === -
+  ┃     78 -             // the char co-occurs with the words on the same line).
+  ┃     79               if (str_contains($line, 'Permission required')) {        140               if (str_contains($line, 'Permission required')) {
+  ┃                                                                               141 +                 $matchedHeading = 'Permission required';
+  ┃                                                                               142 +             } elseif (str_contains($line, 'Always allow')) {
+  ┃                                                                               143 +                 $matchedHeading = 'Always allow';
+  ┃                                                                               144 +             }
+  ┃                                                                               145 +             if ($matchedHeading !== null) {
+  ┃     80                   $inContent = true;                                   146                   $inContent = true;
+  ┃     81 -                 $contextLines[] = 'Permission required';             147 +                 $contextLines[] = $matchedHeading;
+  ┃     82                   continue;                                            148                   continue;
+  ┃     83               }                                                        149               }
+  ┃     84               if (!$inContent) {                                       150               if (!$inContent) {
+  ┃     85                   continue;                                            151                   continue;
+  ┃     86               }                                                        152               }
+  ┃     87 -             // Stop at the tab bar / footer.                         153 +             // Stop at the tab bar line (already captured $options
+  ┃                                                                                     above).
+  ┃     88 -             if (strpos($line, 'Allow once') !== false && strpos(     154 +             if ($line === $tabLine) {
+  ┃          $line, 'Reject') !== false) {
+  ┃     89                   break;                                               155                   break;
+  ┃     90               }                                                        156               }
+  ┃     91 -             if (strpos($line, 'enter confirm') !== false || strpos(
+  ┃          $line, 'ctrl+f') !== false) {
+  ┃     92 -                 break;
+  ┃     93 -             }
+  ┃     94               // Skip the trailing working-directory line (opencode    157               // Skip the trailing working-directory line (opencode
+  ┃          renders the                                                                renders the
+  ┃     95 -             // session cwd at the bottom-right, above the tab bar -  158 +             // session cwd at the bottom-right - chrome, not
+  ┃          chrome, not                                                                content), and the
+  ┃     96 -             // part of what's being permitted).                      159 +             // OpenCode-version footer, and the bare "Patterns"/
+  ┃                                                                                     dash list we
+  ┃     97 -             if ($line === '~/.config/opencode') {                    160 +             // already surfaced via context below.
+  ┃                                                                               161 +             if ($line === '~/.config/opencode' || strpos($line,
+  ┃                                                                                     'OpenCode ') === 0) {
+  ┃     98                   continue;                                            162                   continue;
+  ┃     99               }                                                        163               }
+  ┃    100               $contextLines[] = $line;                                 164               $contextLines[] = $line;
+  ┃    101           }                                                            165           }
+  ┃    102                                                                        166
+  ┃    103           $context = implode("\n", array_unique($contextLines));       167           $context = implode("\n", array_unique($contextLines));
+  ┃    104                                                                        168
+  ┃    105 -         $options = [
+  ┃    106 -             ['number' => 1, 'label' => 'Allow once'],
+  ┃    107 -             ['number' => 2, 'label' => 'Allow always'],
+  ┃    108 -             ['number' => 3, 'label' => 'Reject'],
+  ┃    109 -         ];
+  ┃    110 -
+  ┃    111           return [                                                     169           return [
+  ┃    112 -             'question' => $question !== null && $question !== '' ?   170 +             'question' => $question !== null && $question !== '' ?
+  ┃          $question : 'Permission required',                                         $question : ($contextLines[0] ?? 'Permission required'),
+  ┃    113               'context' => $context,                                   171               'context' => $context,
+  ┃    114               'options' => $options,                                   172               'options' => $options,
+  ┃    115               'multi_question' => false,                               173               'multi_question' => false,
+  ┃    116               'tool_name' => 'permission',                             174               'tool_name' => 'permission',
+  ┃
+
+     + Thought: 2.1s
+
+     This project's todo has no "admin center" audit item. Let me check if there's another project (OpenCart) with that audit, since the todo here is for
+     claude-session-manager.
+
+  ┃
+  ┃  $ cd /home/user/www/claude-session-manager
+  ┃  echo "=== any admin-center/audit file in this repo ==="; grep -rliE "admin-center|admin center|admin_center" . --include="*.md" --include="*.txt" 2>/
+  ┃  dev/null | grep -v node_modules | grep -v vendor | head
+  ┃  echo ""; echo "=== current git root / project ==="; git remote -v 2>/dev/null | head -1
+  ┃  echo ""; echo "=== sibling repos with opencart ==="; ls /home/user/www/ 2>/dev/null
+  ┃
+  ┃  === any admin-center/audit file in this repo ===
+  ┃
+  ┃  === current git root / project ===
+  ┃  origin  git@github.com:loki495/claude-session-manager.git (fetch)
+  ┃
+  ┃  === sibling repos with opencart ===
+  ┃  adminer
+  ┃  backups
+  ┃  claude-session-manager
+  ┃  docus
+  ┃  …
+  ┃
+  ┃  Click to expand
+  ┃
+
+     The "admin center" audit is from the OpenCart project, not this repo. Let me find it — likely retrogamingstores.com (the OpenCart project referenced
+     in my global context) or another OpenCart repo.
+
+     $ cd /home/user/www
+       for d in retrogamingstores.com pandoraplatinum.com retroplayers.club retrogamers.club; do
+         if [ -d "$d" ]; then
+           echo "=== $d ==="
+           grep -rliE "admin.center|admin_center|admin center" "$d" --include="*.md" --include="*.php" 2>/dev/null | grep -v vendor | grep -v node_modules
+       | head -5
+         fi
+       done
+
+     ▣  Build · DeepSeek V4 Flash Vision Exp
+
+  ┃
+  ┃  △ Always allow
+  ┃
+  ┃  This will allow the following patterns until OpenCode is restarted
+  ┃
+  ┃  - /home/user/www/*
+  ┃
+  ┃                                                                                                                                                             ~/www/claude-session-manager:master
+  ┃   Confirm   Cancel                                                                                                            ⇆ select  enter confirm
+  ┃                                                                                                                                                             • OpenCode 1.18.21
+

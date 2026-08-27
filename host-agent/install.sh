@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+UNIT_DIR="$HOME/.config/systemd/user"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# agent.php unconditionally requires vendor/autoload.php (lib/Push.php's
+# Web Push dependency) - a missing vendor/ breaks the host agent entirely,
+# not just the push feature, so this is no longer optional the way it
+# might look from the push feature being itself opt-in.
+if [ ! -d "$REPO_ROOT/vendor" ]; then
+    echo "Installing Composer dependencies..."
+    composer install --no-interaction --working-dir="$REPO_ROOT"
+fi
+
+if [ ! -f "$SCRIPT_DIR/.env" ]; then
+    cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
+    echo "Created $SCRIPT_DIR/.env from .env.example - edit it (CLAUDE_BIN at"
+    echo "least - see below) before this actually works."
+fi
+
+# CLAUDE_BIN has no safe default (see Config::claude_bin()) - it's the one
+# thing install.sh genuinely can't infer, so check it explicitly rather
+# than letting a fresh install silently fail later with a confusing "no
+# such file" the first time a session is actually created.
+if ! grep -qE '^CLAUDE_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null; then
+    echo
+    echo "WARNING: CLAUDE_BIN is not set in $SCRIPT_DIR/.env - New Session"
+    echo "will fail until it is. Run \`which claude\` and set it, e.g.:"
+    echo "  CLAUDE_BIN=$(command -v claude 2>/dev/null || echo '/path/to/claude')"
+fi
+
+# The systemd unit files are checked in as templates (@REPO_ROOT@/
+# @PHP_BIN@/@SOCKET_GROUP@ placeholders, never a literal path baked in) -
+# substituted here into the real files systemd actually reads, rather than
+# a plain `cp`, so a fresh clone on a different machine (different
+# username, different clone location) gets units that actually point at
+# ITS OWN paths instead of silently carrying over the original author's.
+PHP_BIN="$(command -v php)"
+SOCKET_GROUP="$(id -gn)"
+HOME_DIR="$HOME"
+# opencode-serve.service needs the real `opencode` binary path. Prefer the
+# explicitly-configured OPENCODE_BIN from .env (same source Config::
+# opencode_bin() reads), falling back to PATH so a fresh clone without a
+# .env yet still installs a unit whose ExecStart isn't a literal empty path.
+OPENCODE_BIN="$(grep -E '^OPENCODE_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+if [ -z "$OPENCODE_BIN" ]; then
+    OPENCODE_BIN="$(command -v opencode || true)"
+fi
+
+render_unit() {
+    sed \
+        -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
+        -e "s|@PHP_BIN@|$PHP_BIN|g" \
+        -e "s|@SOCKET_GROUP@|$SOCKET_GROUP|g" \
+        -e "s|@OPENCODE_BIN@|$OPENCODE_BIN|g" \
+        -e "s|@HOME@|$HOME|g" \
+        "$SCRIPT_DIR/systemd/$1" > "$UNIT_DIR/$1"
+}
+
+mkdir -p "$UNIT_DIR"
+render_unit csm-agent.socket
+render_unit csm-agent@.service
+
+systemctl --user daemon-reload
+systemctl --user enable --now csm-agent.socket
+
+echo "Installed. Socket should now exist at: $RUNTIME_DIR/csm-agent.sock"
+ls -la "$RUNTIME_DIR/csm-agent.sock"
+
+echo
+echo "The container's own .env needs APP_GID set to match SocketGroup"
+echo "above (\"$SOCKET_GROUP\"): $(getent group "$SOCKET_GROUP" | cut -d: -f3)"
+
+# Push-notification timer: files installed, deliberately NOT enabled/started
+# here - it's a no-op until VAPID keys are generated and set in .env anyway
+# (see push_configured() in lib/Push.php), and starting a new recurring
+# background service is worth a deliberate opt-in rather than happening
+# silently on every install.sh run. See the README for the full setup
+# (generate keys, set them in .env, then enable the timer yourself).
+render_unit csm-push-check.service
+cp "$SCRIPT_DIR/systemd/csm-push-check.timer" "$UNIT_DIR/csm-push-check.timer"
+systemctl --user daemon-reload
+
+echo
+echo "Push-notification timer units installed but NOT enabled - see the"
+echo "README's \"Web Push notifications\" section, then run:"
+echo "  systemctl --user enable --now csm-push-check.timer"
+
+# Antigravity quota-poll timer: same "installed, not auto-enabled" reasoning
+# as the push-check timer above - a no-op until ANTIGRAVITY_BIN is set in
+# .env anyway (see antigravity_quota_poll.php), and starting a new
+# recurring background service is worth a deliberate opt-in.
+render_unit csm-antigravity-quota-check.service
+cp "$SCRIPT_DIR/systemd/csm-antigravity-quota-check.timer" "$UNIT_DIR/csm-antigravity-quota-check.timer"
+systemctl --user daemon-reload
+
+echo
+echo "Antigravity quota-poll timer units installed but NOT enabled - only"
+echo "useful if you've set ANTIGRAVITY_BIN in .env (see"
+echo "docs/antigravity-adapter-plan.md), then run:"
+echo "  systemctl --user enable --now csm-antigravity-quota-check.timer"
+
+# OpenCode headless server: unlike the two timers above, this one IS
+# enabled/started here - it's a live long-running daemon with no
+# un-configured no-op state (a missing OPENCODE_BIN either fails the
+# render or is caught by the health-check box), and the web UI/agent
+# reads opencode.db directly regardless, so this server is genuinely part
+# of the running setup rather than an opt-in extra. See
+# PushHealthService::health_check() for the matching health-box entry.
+if [ -n "$OPENCODE_BIN" ]; then
+    render_unit opencode-serve.service
+    systemctl --user daemon-reload
+    systemctl --user enable --now opencode-serve.service
+    echo
+    echo "opencode-serve.service installed and enabled (at $UNIT_DIR/opencode-serve.service)."
+    systemctl --user is-active opencode-serve.service || true
+
+else
+    echo
+    echo "WARNING: OPENCODE_BIN not set and no 'opencode' on PATH -"
+    echo "opencode-serve.service NOT installed. Run \`which opencode\` and"
+    echo "set OPENCODE_BIN in host-agent/.env, then re-run install.sh."
+fi
+
+# OpenCode CSM plugin: the authoritative pending-permission signal (see
+# host-agent/opencode-plugins/csm-permissions.js). opencode 1.18.21 keeps
+# permission state in-memory in the `opencode serve` process and exposes it
+# only as a `permission.asked` bus EVENT (the plugin `permission.ask` HOOK is
+# dormant, and /permission + the api return empty) - so the plugin subscribes
+# to that event and records it to a store the host-agent reads. It must load
+# in the SERVE process (not just the TUIs), so it's installed here as a global
+# plugin and the serve enable--now below picks it up. opencode-serve.service is
+# enabled/restarted earlier in this script.
+if [ -n "$OPENCODE_BIN" ]; then
+    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins"
+    cp "$SCRIPT_DIR/opencode-plugins/csm-permissions.js" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/csm-permissions.js"
+    echo
+    echo "CSM OpenCode plugin installed to ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/csm-permissions.js."
+    echo "NOTE: opencode-serve.service was (re)started above so the serve loads it; the load is verified by the health-check box."
+fi
+
+echo
+echo "Lingering must be enabled for this user so the socket survives"
+echo "logouts/reboots without an active login session:"
+loginctl show-user "$(whoami)" -p Linger 2>/dev/null || true
+echo "If that shows Linger=no, run: sudo loginctl enable-linger $(whoami)"

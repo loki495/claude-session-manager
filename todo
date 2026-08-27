@@ -1,0 +1,213 @@
+Work queue (in this order, per Andres - new items get appended at the end unless he
+says otherwise). Reordered 2026-08-08 by gain/effort/surface-area/code-practice -
+see the note above each moved/merged item for what changed and why.
+
+Everything below is the general backlog (not yet in a decided order):
+
+Bigger features needing research first (moderate-high surface area):
+
+- Open-source prep (Andres 2026-08-24: mid-term priority, after the
+  current architecture-cleanup pass): read through Claude Code's own docs (and blogs) end to
+  end, looking for features/patterns worth adopting here (this session
+  already found one - statusLine JSON carries rate_limits.* directly, see
+  the quota-capture work in progress). Once that pass is done:
+  - Write up end-user docs, a CONTRIBUTING guide (install scripts,
+    requirements, setup steps), and treat the README as a portfolio piece.
+    Call out explicitly: this project deliberately avoids Anthropic
+    cloud-side features/dependencies - everything runs locally on the
+    same machine the site runs on (LAN-only, no external relay, no
+    account/login of its own), EXCEPT for the actual model responses
+    themselves and however the `claude` CLI process/its own API calls
+    inherently work, which are Anthropic's, not this app's.
+  - Audit for unnecessary fallbacks and remove any found.
+  - Remove any remaining hardcoded values or assumptions tied to Andres's
+    own laptop/personal workflow (paths, usernames, machine-specific
+    conventions) - most of this was already done ahead of open-sourcing
+    (see Config.php's own docblock, dated 2026-08-09), but re-check with
+    fresh eyes before actually opening the repo up.
+  - Then open the repo to outside users/contributors.
+
+- Persistent "pending answers" list: track every prompt/permission that
+  hasn't been answered yet (either a small state file this app maintains
+  itself, or derived by reading all sessions from Claude's own global
+  ~/.claude/projects path), surviving session archival, removed once
+  answered - shown on the dashboard so waking the laptop and opening the
+  app immediately shows what's actually waiting, without hunting through
+  each session.
+- Mode CHANGES (accept edits / plan / manual / auto) aren't currently
+  visible as discrete events in the transcript at all -
+  render_mode_toggle_html() only shows the CURRENT mode, there's no
+  record of "mode switched from X to Y at this point." (Split off from
+  the plan-recognition item, shipped 2026-08-07 - see TranscriptService::
+  find_exit_plan_mode_tool_use_ids()/parse_transcript_line() for that
+  half.) Research already done: the transcript JSONL DOES have a
+  dedicated line for this - {"type":"permission-mode","permissionMode":
+  "default"|"acceptEdits"|"plan"|"auto"} (default=manual in this app's
+  own terminology) - but it's logged redundantly (239 occurrences in one
+  real session, mostly repeats of the unchanged value, not one-per-real-
+  transition) and has NO timestamp field. Surfacing genuine "switched
+  from X to Y here" events needs tracking last-seen mode across
+  consecutive lines while scanning (stateful), which doesn't fit
+  parse_transcript_line()'s current per-line-stateless model - and is
+  harder for backward pagination ("Load older messages") than forward
+  polling, since "previous" flips meaning depending on walk direction.
+  Worth deciding: full bidirectional support, or a smaller scope (e.g.
+  only ever detected going forward from whenever a session was first
+  opened, never backfilled into older history)?
+
+- Wire up StatuslineMarkerService::install_statusline_marker()/
+  check_statusline_marker() into a dispatch_action() case - unlike
+  install_session_hook's own check_session_hook/install_session_hook
+  pair, there's currently no way to actually install the statusline
+  marker from the running app. Confirmed 2026-08-22 (full codebase audit)
+  as the only dead-code instance in the repo - the audit itself also
+  found and fixed a resume_cc_session() race condition and two PHP/JS
+  mirror-pair drifts, all already shipped.
+
+Larger architecture / consolidation work (bigger surface area):
+
+- IN PROGRESS (started 2026-08-24, superseding the earlier "long-term, not
+  near-term" sequencing below - Andres asked to start directly): support
+  Google's Antigravity CLI (`agy`) as a second agent alongside Claude Code,
+  via a real AgentAdapter interface. Full research findings, phased plan,
+  and an up-to-date "Status at a glance" section (read this first - it's
+  kept current, most recently 2026-08-24) live in
+  docs/antigravity-adapter-plan.md - read that before touching anything
+  here, including a coordination note since Andres runs Claude and his
+  own `agy` session against this same repo (not simultaneously, but
+  independently). Spawn/identity/hooks/transcript-rendering/quota-polling/
+  live model-switching/turn-error-surfacing are done and verified live;
+  agent-name + per-agent quota DISPLAY is also done (built by Andres's own
+  `agy` session, finished/reviewed/committed by Claude after it hit its
+  account quota mid-task). Blocked-prompt detection + answering is done
+  for the one prompt shape confirmed live (a tool-permission request) -
+  still open: the initial per-folder trust dialog and any AskUserQuestion-
+  equivalent Antigravity might have, neither seen live yet. Also still
+  open: permission-mode display, and reading this app's own CLAUDE.md-
+  style conventions into Antigravity sessions somehow.
+- Multi-socket tmux discovery: today the whole app is wired to exactly one
+  tmux socket path (Config::tmux_socket(), defaulting to
+  /tmp/tmux-<uid>/default - tmux's own standard default path, not an app
+  convention, which is why a plain `tmux` command Andres types by hand
+  lands on the same server the app manages). Every TmuxService call is
+  scoped to that one path - if a session ends up on a DIFFERENT tmux
+  server (a different explicit -S path, or a fresh server auto-spawned at
+  the conventional path after the original one's socket became
+  unreachable - see the 2026-08-08 incident where /tmp/tmux-1000's
+  contents got deleted out from under a still-running server, orphaning
+  its sessions with no clean recovery path found), the app has zero
+  visibility into it. Fixing this properly needs: TmuxService enumerating
+  every tmux socket under /tmp/tmux-$UID/ (not just "default") and
+  querying each one, SidecarStore gaining a field recording which socket a
+  session actually lives on, and the SessionStart hook recording that at
+  adoption time (today it only records the session NAME via `tmux
+  display-message -p '#S'`, not which socket it ran that query against).
+  A real structural change, not a small addition - scope/design it
+  properly before starting, don't bolt it onto an unrelated phase. (The
+  related "a live-but-untracked session shows up in the archived list
+  too" gap this used to note is resolved now that Resume and Take over
+  both ship - see the unify-claude-sessions plan, phases 5-6 shipped
+  2026-08-08 - either action works correctly regardless of which
+  category a row actually falls into.)
+Smaller polish (low effort, low risk):
+
+- Clean OpenCode tool calls to match Claude's rendering (tool_use/tool_result
+  pairing, collapsed "N tool calls" grouping, one-line summaries) — follow-up
+  after basic piping. OpenCode's `part` tool data currently renders as
+  `tool(filePath)` vs Claude's richer `Bash`/`Write`/`Read` summaries (see
+  TranscriptService vs OpenCodeTranscriptService).
+- Allow "forking" a session - a way to start another session with all the
+  context of the current one so far in order to take them a different way.
+  This might need some research for each of the separate agent types.
+- Bug report (Andres 2026-08-24), not yet investigated: quota-reset push
+  notifications now fire at the right time, but Andres gets TWO for the
+  same reset - one correct (reset), one with stale data still claiming
+  100% used. Possible race between whatever marks the reset as sent and
+  whatever reads the last-known quota state to build the push body -
+  check PushDeliveryService::check_and_send_quota_pushes() and
+  QuotaService's live-state file read/write ordering for a window where a
+  second push can be built/sent off the pre-reset value after the first
+  (correct) one already went out.
+- Bug report, not yet investigated (Andres 2026-08-23): "maybe some
+  entries are missing after reloading a session" - session.php. Unclear
+  yet whether this means transcript entries specifically, or something
+  else (sidebar Tasks, blocked-prompt state); no repro steps captured
+  yet. Needs a proper look - check TranscriptService::read_transcript_page()/
+  the initial-load vs poll-time entry set, and whether a hard page reload
+  (not a poll) takes a different code path that could drop something a
+  poll wouldn't.
+- session.php: add keyboard shortcuts to navigate between sessions -
+  left/right to move to the prev/next session, plus a popup to search/jump
+  by name.
+- Bug report (Andres 2026-08-24), with a live mobile screenshot: tool-call
+  outputs sometimes get attached/"staggered" onto the wrong call. In the
+  screenshot (WS2818 LED strip session), a "Bash: pwd && ls -la" entry is
+  immediately followed by an "ssh rpi 'hostname; uname -a; cat
+  /etc/os-release...'" tool-call entry whose own collapsed result shows
+  "/home/user/dev/Rpi/Ws2818 (empty)" - that's the PREVIOUS pwd/ls
+  call's output, not the ssh command's - while the ssh command's real
+  output (a post-quantum warning + real hostname/uname/os-release text)
+  renders as its own separate, un-paired entry below instead of nested
+  inside the ssh tool-call entry. Looks like a tool_use/tool_result
+  pairing bug, likely in renderEntriesGrouped()/entryIsGroupableToolCall()
+  (session.js) or its PHP mirror (TranscriptView) - back-to-back Bash
+  calls arriving close together (e.g. during live polling) may be
+  mismatching which result attaches to which call. Needs a live repro
+  with the actual transcript JSONL lines to see the real call/result
+  ordering before diagnosing further.
+
+- Research task (Andres 2026-08-24), not started: how this app and all its
+  parts (Docker container, host-agent, systemd socket activation, tmux
+  socket access) could be installed on other OSes - Windows, macOS - or
+  whether a framework like Electron (or a lighter alternative) would be
+  worth it instead of the current split-process architecture. Note the
+  host-agent's whole reason for existing is host-native tmux/process access
+  the container can't have (see CLAUDE.md's "Architecture: two runtimes,
+  one repo") - any cross-platform approach needs to account for how tmux
+  and systemd-style process supervision (or their nearest equivalents) work
+  differently on Windows/macOS before assuming the current split still
+  makes sense there.
+- Frontend research (Andres 2026-08-25): Alpine.js worth it? Evaluate for
+  frontend interactivity (archived filters, pills, dashboard poll) vs
+  current plain ES5 + Tailwind approach — no build step, no bundler.
+  Check bundle size, mobile Safari compat, and whether it replaces
+  hand-rolled show/hide logic in index.js/session.js vs adding abstraction.
+- (Andres 2026-08-25) Health checkup: split it between GLOBAL stuff and
+  per-agent checks, so agent-specific concerns (Claude Code hooks,
+  Antigravity, OpenCode) live under their own agent section. Also: read
+  https://opencode.ai/docs/server/ and look at whether any of the current
+  OpenCode integration (spawn/status/transcript/quota, pane-scraping and
+  DB-polling) could be simplified by hitting OpenCode's own server
+  endpoints instead.
+- (Andres 2026-08-25) Add an "effort" dropdown to the footer, working for
+  all agents (Claude Code, Antigravity, OpenCode).
+- (Andres 2026-08-25) Dashboard polling closes the "last 3 messages"
+  section if it was open - the poll should not close a user-expanded
+  card when it re-renders that fragment.
+- (Andres 2026-08-25) "Open todo file" sidebar link should actually parse
+  the todos and display them nicely as markdown (not raw text).
+- (Andres 2026-08-25) JSON in the full-page view should be prettified.
+- (Andres 2026-08-25) Add a "show reasoning text" toggle on the sidebar.
+- (Andres 2026-08-25) Longer-term re-architecture: spawn OpenCode sessions
+  through the serve API (`POST /session`) instead of tmux-TUI, so
+  permissions/messages work natively over HTTP
+  (`/session/:id/permissions/:permissionID`, `/session/:id/message`).
+  Current tmux-TUI sessions keep their permission state in-memory in the
+  TUI, invisible to the standalone `opencode serve`, which is why the
+  pane-parse path is used for now. Phased: do pane-parse first (fixes the
+  bug today), then consider this.
+- (Andres 2026-08-25) Admin-center audit "open items" section - deferred
+  while tracking down which repo/todo that audit belongs to (not found in
+  any ~/www repo during the search). Revisit when Andres sends the audit
+  or names the project.
+- (Andres 2026-08-26) OpenCode might also expose a todo/task list (check
+  `/api/session/:id/todo`, and whether the serve surfaces tasks the way
+  `GET /session/:id/todo` does) - if so, we could reuse that instead of the
+  current Claude Code Task/TodoWrite transcript parsing for the sidebar's
+  Tasks widget, once a headless opencode session is the thing driving it.
+  Explore before the next phase.
+- (Andres 2026-08-26) Toggle subagent sessions from archived in dashboard:
+  make link to transcript in main agent session where appropriate, and hide
+  them from sidebar and active sessions list.
+- (Andres 2026-08-26) Put full OpenCode model names, including the provider, in
+  every model dropdown.

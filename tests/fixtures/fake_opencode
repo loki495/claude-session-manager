@@ -1,0 +1,10 @@
+#!/bin/bash
+# Stand-in for the real `opencode` TUI binary (see tests/.env.testing's
+# OPENCODE_BIN). Behaves like `cat` with no arguments (blocks on stdin)
+# regardless of what real flags it's actually invoked with
+# (e.g. /tmp/test-project, --model <name>, --agent <name>), using
+# `exec -a "$0" cat` so argv[0] still ends up exactly this path, matching
+# the real launcher for ProcessInspector-style matching if needed.
+# See tests/fixtures/fake_claude for the same pattern (why a script instead
+# of a symlink matters) and fake_agy for the dual-mode precedent.
+exec -a "$0" cat

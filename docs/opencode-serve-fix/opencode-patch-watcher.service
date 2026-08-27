@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-apply OpenCode provider state fix
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/user/www/claude-session-manager/docs/opencode-serve-fix/apply-opencode-patch.py
+Environment=OPENCODE_SRC=/home/user/opencode-1.18.21
