@@ -128,6 +128,10 @@
     return info.pct + '%' + (info.duration ? ' (' + info.duration + ')' : '');
   }
 
+  function tokenText(value) {
+    return typeof value === 'number' ? Math.round(value).toLocaleString() : '0';
+  }
+
   function showUnavailable(data) {
     el.title = '';
     el.innerHTML = '';
@@ -242,7 +246,7 @@
     trAg.appendChild(tdA4);
     tbody.appendChild(trAg);
 
-    // OpenCode row — account windows plus local cost/tokens.
+    // OpenCode has cumulative local usage, not percentage-based windows.
     var trOc = document.createElement('tr');
     var ocLabel = (oc && oc.label) ? oc.label : 'OpenCode';
     var tdO1 = document.createElement('td');
@@ -254,8 +258,8 @@
     tdO2.className = 'py-1.5 px-2 whitespace-nowrap text-xs';
     if (oc && oc.quota) {
       var ocQ = oc.quota;
-      var ocSessionInfo = ocQ.session ? renderBucketText(ocQ.session, 'session') : null;
-      tdO2.innerHTML = ocSessionInfo ? '<span class="' + pctColorClass(ocSessionInfo.pct) + '">' + escapeHtml(dashboardBucketText(ocSessionInfo)) + '</span>' : '<span class="text-slate-600">—</span>';
+      var ocCost = typeof ocQ.cost === 'number' ? ('$' + ocQ.cost.toFixed(2)) : '—';
+      tdO2.innerHTML = '<span class="text-slate-300">Cost ' + escapeHtml(ocCost) + '</span>';
     } else {
       tdO2.innerHTML = '<span class="text-slate-600 font-normal">' + (oc && oc.message ? 'No data' : '—') + '</span>';
     }
@@ -263,13 +267,20 @@
 
     var tdO3 = document.createElement('td');
     tdO3.className = 'py-1.5 px-2 whitespace-nowrap text-xs';
-    var ocWeekInfo = oc && oc.quota && oc.quota.week_all ? renderBucketText(oc.quota.week_all, 'week') : null;
-    tdO3.innerHTML = ocWeekInfo ? '<span class="' + pctColorClass(ocWeekInfo.pct) + '">' + escapeHtml(dashboardBucketText(ocWeekInfo)) + '</span>' : '<span class="text-slate-600">—</span>';
+    if (oc && oc.quota) {
+      tdO3.innerHTML = '<span class="text-slate-300">In ' + escapeHtml(tokenText(oc.quota.tokens_input)) + '</span>'
+        + '<span class="text-slate-500"> · Out ' + escapeHtml(tokenText(oc.quota.tokens_output)) + '</span>';
+    } else {
+      tdO3.innerHTML = '<span class="text-slate-600">—</span>';
+    }
     trOc.appendChild(tdO3);
     var tdO4 = document.createElement('td');
     tdO4.className = 'py-1.5 pl-2 whitespace-nowrap text-xs';
-    var ocMonthInfo = oc && oc.quota && oc.quota.month_all ? renderBucketText(oc.quota.month_all, 'month') : null;
-    tdO4.innerHTML = ocMonthInfo ? '<span class="' + pctColorClass(ocMonthInfo.pct) + '">' + escapeHtml(dashboardBucketText(ocMonthInfo)) + '</span>' : '<span class="text-slate-600">—</span>';
+    if (oc && oc.quota && typeof oc.quota.session_count === 'number') {
+      tdO4.innerHTML = '<span class="text-slate-300">' + escapeHtml(String(oc.quota.session_count)) + ' sessions</span>';
+    } else {
+      tdO4.innerHTML = '<span class="text-slate-600">—</span>';
+    }
     trOc.appendChild(tdO4);
     tbody.appendChild(trOc);
 

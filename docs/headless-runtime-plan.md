@@ -283,8 +283,9 @@ no workspace plumbing required. This was the last risk for CSM's
   (v1 `/session/{id}/prompt_async` - no "curl 28", text area clears);
   blocked prompts are detected (serve question polling and the live pane for
   permissions) and answerable (permission once/always/reject + question by
-  label); an opencode model selector
-  populated from `/config/providers` sits in the session footer.
+  label); an opencode model selector populated from `/config/providers` sits
+  in the session footer; the dashboard quota table shows cumulative cost,
+  input/output tokens, and session count instead of percentage windows.
  - **Phase 4 — status + events robustness.** **Status (2026-08-26):** the
    global `/event` stream on opencode 1.18.21 emits only `server.connected` and
    `server.heartbeat`, with no session status/step/permission events. The
