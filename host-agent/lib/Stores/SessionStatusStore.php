@@ -43,16 +43,17 @@ class SessionStatusStore
     {
         $pdo = SqliteDb::connect(Config::sessions_sqlite_path(), SqliteDb::sessions_schema());
         SqliteDb::add_column_if_missing($pdo, 'session_status', 'last_turn_error', 'TEXT');
+        SqliteDb::add_column_if_missing($pdo, 'session_status', 'token_usage_json', 'TEXT');
 
         return $pdo;
     }
 
     /**
-     * @return array{mode:?string, status:?string, blocked:?array, last_message:?string, last_turn_error:?string, updated_at:?int}|null
+     * @return array{mode:?string, status:?string, blocked:?array, last_message:?string, last_turn_error:?string, token_usage:?array<string,mixed>, updated_at:?int}|null
      */
     public static function read_status(string $sessionName): ?array
     {
-        $stmt = self::db()->prepare('SELECT status, blocked_json, mode, last_message, last_turn_error, updated_at FROM session_status WHERE session_name = ?');
+        $stmt = self::db()->prepare('SELECT status, blocked_json, mode, last_message, last_turn_error, token_usage_json, updated_at FROM session_status WHERE session_name = ?');
         $stmt->execute([$sessionName]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -63,6 +64,7 @@ class SessionStatusStore
                 'mode' => $row['mode'],
                 'last_message' => $row['last_message'],
                 'last_turn_error' => $row['last_turn_error'],
+                'token_usage' => $row['token_usage_json'] !== null ? json_decode($row['token_usage_json'], true) : null,
                 'updated_at' => $row['updated_at'] !== null ? (int)$row['updated_at'] : null,
             ];
         }
@@ -111,6 +113,11 @@ class SessionStatusStore
         if (array_key_exists('blocked', $fields)) {
             $sets[] = 'blocked_json = :blocked_json';
             $params[':blocked_json'] = $fields['blocked'] !== null ? json_encode($fields['blocked']) : null;
+        }
+
+        if (array_key_exists('token_usage', $fields)) {
+            $sets[] = 'token_usage_json = :token_usage_json';
+            $params[':token_usage_json'] = $fields['token_usage'] !== null ? json_encode($fields['token_usage']) : null;
         }
 
         $sets[] = 'updated_at = :updated_at';

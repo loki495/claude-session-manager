@@ -398,6 +398,18 @@ class TranscriptView extends View
     }
 
     /**
+     * Codex app-server model catalog and reasoning-effort controls.
+     * @param array<string,mixed> $detail
+     */
+    public static function render_codex_model_toggle_html(array $detail): string
+    {
+        return self::render('transcript/codex-model-toggle', [
+            'model' => is_string($detail['current_model'] ?? null) ? $detail['current_model'] : null,
+            'effort' => is_string($detail['current_effort'] ?? null) ? $detail['current_effort'] : null,
+        ]);
+    }
+
+    /**
      * "user"/"assistant"/"tool_use"/"tool_result"/"system" - not the same
      * thing as $entry['role'] (Claude Code's own tool_result entries carry
      * role=user under the hood, same as a real typed message - there's no

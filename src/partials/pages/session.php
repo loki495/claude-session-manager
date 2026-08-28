@@ -190,7 +190,7 @@ $this->layout('layout', [
      overflow-hidden flex ancestor risks it being clipped, exactly the
      kind of thing worth not risking on the same browser this is already
      working around a fixed-position bug on. -->
-<div id="app-shell" class="flex flex-col h-full min-h-0" style="<?= ($detail['agent'] ?? 'claude') === 'opencode' ? 'background-color: rgba(46, 16, 101, 0.16)' : (($detail['agent'] ?? 'claude') === 'antigravity' ? 'background-color: rgba(69, 26, 3, 0.12)' : '') ?>">
+<div id="app-shell" class="flex flex-col h-full min-h-0" style="<?= ($detail['agent'] ?? 'claude') === 'opencode' ? 'background-color: rgba(46, 16, 101, 0.16)' : (($detail['agent'] ?? 'claude') === 'codex' ? 'background-color: rgba(3, 78, 92, 0.14)' : (($detail['agent'] ?? 'claude') === 'antigravity' ? 'background-color: rgba(69, 26, 3, 0.12)' : '')) ?>">
 <?php include __DIR__ . '/../header.php'; ?>
 
 <div id="page-content" class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
@@ -265,7 +265,7 @@ $this->layout('layout', [
         <?php
         $agentLabel = is_string($detail['agent_label'] ?? null) && $detail['agent_label'] !== ''
             ? $detail['agent_label']
-            : (isset($detail['agent']) && $detail['agent'] === 'antigravity' ? 'Antigravity' : 'Claude Code');
+            : (isset($detail['agent']) && $detail['agent'] === 'antigravity' ? 'Antigravity' : (isset($detail['agent']) && $detail['agent'] === 'codex' ? 'Codex' : 'Claude Code'));
         ?>
         <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $sessionName, false, is_string($detail['workdir'] ?? null) ? $detail['workdir'] : null, $agentLabel) ?>
       <?php endif; ?>

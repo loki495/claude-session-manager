@@ -44,7 +44,7 @@
   // a change on its own, only a real id -> a DIFFERENT real id is.
   var currentClaudeSessionId = window.CSM_BOOTSTRAP.claudeSessionId || null;
   var sessionAgent = window.CSM_BOOTSTRAP.agent || 'claude';
-  var sessionAgentLabel = window.CSM_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : 'Claude Code');
+  var sessionAgentLabel = window.CSM_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : (sessionAgent === 'codex' ? 'Codex' : 'Claude Code'));
 
   // --- optimistic UI state: entries appended locally right after sending,
   // before a poll has confirmed they actually landed. See appendPendingEntry()
@@ -2696,6 +2696,77 @@
           opencodeModelSelect.disabled = false;
         });
     });
+  }
+
+  // --- Codex app-server model + reasoning effort selects. The catalog is
+  // account-aware and dynamic, so never hard-code model names here. ---
+  var codexModelSelect = document.getElementById('codex-model-select');
+  var codexEffortSelect = document.getElementById('codex-effort-select');
+
+  if (codexModelSelect && codexEffortSelect) {
+    var codexModels = [];
+    var codexCurrentModel = codexModelSelect.getAttribute('data-current-model') || '';
+    var codexCurrentEffort = codexEffortSelect.getAttribute('data-current-effort') || '';
+
+    function fillCodexEfforts(model) {
+      while (codexEffortSelect.options.length > 1) { codexEffortSelect.remove(1); }
+      var efforts = model && model.efforts ? model.efforts : [];
+      efforts.forEach(function (effort) {
+        var option = document.createElement('option');
+        option.value = effort;
+        option.textContent = effort.charAt(0).toUpperCase() + effort.slice(1);
+        codexEffortSelect.appendChild(option);
+      });
+      codexEffortSelect.value = codexCurrentEffort || (model ? model.defaultEffort || '' : '');
+      codexEffortSelect.disabled = efforts.length === 0;
+    }
+
+    function saveCodexSettings() {
+      codexModelSelect.disabled = true;
+      codexEffortSelect.disabled = true;
+      fetch('/session_model.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken, model: codexModelSelect.value, effort: codexEffortSelect.value }).toString()
+      }).then(function () {
+        codexCurrentModel = codexModelSelect.value;
+        codexCurrentEffort = codexEffortSelect.value;
+        codexModelSelect.disabled = false;
+        fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      }).catch(function () {
+        codexModelSelect.disabled = false;
+        fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      });
+    }
+
+    fetch('/session_list_models.php?agent=codex', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok || !data.models) { return; }
+        codexModels = data.models;
+        data.models.forEach(function (model) {
+          var option = document.createElement('option');
+          option.value = model.id;
+          option.textContent = model.name || model.id;
+          codexModelSelect.appendChild(option);
+        });
+        codexModelSelect.value = codexCurrentModel;
+        if (!codexModelSelect.value) {
+          for (var i = 0; i < codexModels.length; i++) {
+            if (codexModels[i].isDefault) { codexModelSelect.selectedIndex = i + 1; break; }
+          }
+        }
+        codexModelSelect.disabled = false;
+        fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      }).catch(function () {});
+
+    codexModelSelect.addEventListener('change', function () {
+      codexCurrentEffort = '';
+      fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      saveCodexSettings();
+    });
+    codexEffortSelect.addEventListener('change', saveCodexSettings);
   }
 
   // --- transcript images: start as a small square thumbnail (see

@@ -145,15 +145,15 @@ class SidecarStore
         $db = self::db();
         $placeholders = implode(',', array_fill(0, count($liveSessionNames), '?'));
 
-        // Headless sessions are keyed by their ses_* id and owned by the
-        // headless reconcile (see HostAgent\Runtimes / Sessions.php's
-        // csm_headless_sync()), NOT by this tmux listing - so tmux prune
-        // must never delete them. tmux session names are never ses_* (they
-        // are cc-*/oc-* etc.), so "NOT LIKE 'ses_%'" is a clean guard that
-        // applies to all three tables below without needing a runtime join.
-        $guard = " AND session_name NOT LIKE 'ses_%'";
-
         foreach (['sidecars', 'session_status', 'pending_tools'] as $table) {
+            // Runtime metadata, not an agent-specific id prefix, is the
+            // authority. OpenCode ids happen to be ses_*, while Codex thread
+            // ids are UUIDs and would otherwise be mistaken for dead tmux
+            // rows and pruned on every dashboard poll.
+            $guard = $table === 'sidecars'
+                ? " AND COALESCE(runtime, 'tmux') != 'headless'"
+                : " AND session_name NOT IN (SELECT session_name FROM sidecars WHERE runtime = 'headless')";
+
             if ($liveSessionNames === []) {
                 $sql = "DELETE FROM {$table} WHERE 1=1{$guard}";
             } else {

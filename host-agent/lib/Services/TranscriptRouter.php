@@ -29,7 +29,8 @@ class TranscriptRouter
     {
         return TranscriptService::find_transcript_path($sessionId)
             ?? AntigravityTranscriptService::find_transcript_path($sessionId)
-            ?? OpenCodeTranscriptService::find_transcript_path($sessionId);
+            ?? OpenCodeTranscriptService::find_transcript_path($sessionId)
+            ?? CodexTranscriptService::find_transcript_path($sessionId);
     }
 
     public static function is_antigravity_path(string $path): bool
@@ -42,6 +43,11 @@ class TranscriptRouter
         return OpenCodeTranscriptService::is_opencode_id($path);
     }
 
+    public static function is_codex_path(string $path): bool
+    {
+        return CodexTranscriptService::is_codex_path($path);
+    }
+
     /**
      * @return array{ok:bool, entries:array<int, array>, next_before:?int, has_more:bool, message?:string}
      */
@@ -49,6 +55,10 @@ class TranscriptRouter
     {
         if (self::is_opencode_path($path)) {
             return OpenCodeTranscriptService::read_transcript_page($path, $before, $limit, $untilRealUserMessage);
+        }
+
+        if (self::is_codex_path($path)) {
+            return CodexTranscriptService::read_transcript_page($path, $before, $limit, $untilRealUserMessage);
         }
 
         return self::is_antigravity_path($path)
@@ -65,6 +75,10 @@ class TranscriptRouter
             return OpenCodeTranscriptService::read_transcript_page_since($path, $afterLine, $limit);
         }
 
+        if (self::is_codex_path($path)) {
+            return CodexTranscriptService::read_transcript_page_since($path, $afterLine, $limit);
+        }
+
         return self::is_antigravity_path($path)
             ? AntigravityTranscriptService::read_transcript_page_since($path, $afterLine, $limit)
             : TranscriptService::read_transcript_page_since($path, $afterLine, $limit);
@@ -77,6 +91,10 @@ class TranscriptRouter
     {
         if (self::is_opencode_path($path)) {
             return OpenCodeTranscriptService::read_attachment($path, $line, $fileUuid);
+        }
+
+        if (self::is_codex_path($path)) {
+            return CodexTranscriptService::read_attachment($path, $line, $fileUuid);
         }
 
         return self::is_antigravity_path($path)

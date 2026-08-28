@@ -24,7 +24,7 @@ class PageView extends View
      * with HostAgent\Agents\AgentRegistry's own ADAPTERS list by hand when
      * a new adapter is added - see docs/antigravity-adapter-plan.md.
      */
-    public const AGENT_OPTIONS = ['claude' => 'Claude Code', 'antigravity' => 'Antigravity', 'opencode' => 'OpenCode'];
+    public const AGENT_OPTIONS = ['claude' => 'Claude Code', 'antigravity' => 'Antigravity', 'opencode' => 'OpenCode', 'codex' => 'Codex'];
 
     public static function render_session_page(array $data): string
     {

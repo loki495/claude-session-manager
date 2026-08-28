@@ -108,7 +108,9 @@ class DashboardController extends Controller
                 }
                 $result = AgentClient::agent_call($createParams);
                 $ok = (bool)($result['ok'] ?? false);
-                $message = (string)($result['message'] ?? 'Unknown error');
+                $message = $ok
+                    ? (string)($result['message'] ?? 'Created session')
+                    : (string)($result['message'] ?? 'Unknown error');
                 break;
 
             case 'resume':

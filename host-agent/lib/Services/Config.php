@@ -62,6 +62,16 @@ class Config
         return self::csm_config('OPENCODE_BIN', '');
     }
 
+    public static function codex_bin(): string
+    {
+        return self::csm_config('CODEX_BIN', '');
+    }
+
+    public static function codex_bridge_socket(): string
+    {
+        return self::csm_config('CODEX_BRIDGE_SOCKET', '/run/user/' . getmyuid() . '/csm-codex-bridge.sock');
+    }
+
     /**
      * Starting folder for the New Session browser - home_root() itself is
      * a reasonable generic default (always exists, always readable by

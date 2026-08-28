@@ -49,6 +49,10 @@ OPENCODE_BIN="$(grep -E '^OPENCODE_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null | head
 if [ -z "$OPENCODE_BIN" ]; then
     OPENCODE_BIN="$(command -v opencode || true)"
 fi
+CODEX_BIN="$(grep -E '^CODEX_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+if [ -z "$CODEX_BIN" ]; then
+    CODEX_BIN="$(command -v codex || true)"
+fi
 
 render_unit() {
     sed \
@@ -56,6 +60,7 @@ render_unit() {
         -e "s|@PHP_BIN@|$PHP_BIN|g" \
         -e "s|@SOCKET_GROUP@|$SOCKET_GROUP|g" \
         -e "s|@OPENCODE_BIN@|$OPENCODE_BIN|g" \
+        -e "s|@CODEX_BIN@|$CODEX_BIN|g" \
         -e "s|@HOME@|$HOME|g" \
         "$SCRIPT_DIR/systemd/$1" > "$UNIT_DIR/$1"
 }
@@ -123,6 +128,23 @@ else
     echo "WARNING: OPENCODE_BIN not set and no 'opencode' on PATH -"
     echo "opencode-serve.service NOT installed. Run \`which opencode\` and"
     echo "set OPENCODE_BIN in host-agent/.env, then re-run install.sh."
+fi
+
+# Codex is always headless in CSM. The bridge owns the long-lived
+# bidirectional app-server connection needed for approvals and questions;
+# no Codex process is spawned into tmux.
+if [ -n "$CODEX_BIN" ]; then
+    if ! grep -qE '^CODEX_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null; then
+        printf '\nCODEX_BIN=%s\n' "$CODEX_BIN" >> "$SCRIPT_DIR/.env"
+    fi
+    render_unit csm-codex-bridge.service
+    systemctl --user daemon-reload
+    systemctl --user enable --now csm-codex-bridge.service
+    echo
+    echo "csm-codex-bridge.service installed and enabled (native app-server; no tmux)."
+else
+    echo
+    echo "WARNING: no 'codex' on PATH and CODEX_BIN is unset - Codex sessions are unavailable."
 fi
 
 # OpenCode CSM plugin: the authoritative pending-permission signal (see

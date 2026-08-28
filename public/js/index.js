@@ -589,6 +589,7 @@ document.addEventListener('keydown', function (e) {
   ];
 
   var ocModelsCache = null;
+  var codexModelsCache = null;
 
   function clearModels() {
     while (modelSelect.options.length > 1) {
@@ -647,12 +648,39 @@ document.addEventListener('keydown', function (e) {
       });
   }
 
+  function loadCodexModels() {
+    if (codexModelsCache) {
+      populateModels(codexModelsCache);
+      return;
+    }
+    clearModels();
+    modelSelect.options[0].textContent = 'Loading models…';
+    modelSelect.disabled = true;
+    fetch('/session_list_models.php?agent=codex', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        modelSelect.disabled = false;
+        modelSelect.options[0].textContent = 'Default';
+        if (!data || !data.ok || !data.models) { return; }
+        codexModelsCache = data.models.map(function (m) {
+          return { id: m.id, label: m.name || m.id };
+        });
+        populateModels(codexModelsCache);
+      })
+      .catch(function () {
+        modelSelect.disabled = false;
+        modelSelect.options[0].textContent = 'Default';
+      });
+  }
+
   function onAgentChange() {
     var agent = agentSelect.value;
     clearModels();
 
     if (agent === 'opencode') {
       loadOpenCodeModels();
+    } else if (agent === 'codex') {
+      loadCodexModels();
     } else if (agent === 'claude') {
       loadClaudeModels();
     } else {
@@ -882,6 +910,8 @@ document.addEventListener('keydown', function (e) {
         var agent = b.getAttribute('data-agent-filter');
         if (agent === 'opencode') {
           b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-violet-900/50 text-violet-300 border-violet-700/50';
+        } else if (agent === 'codex') {
+          b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-cyan-900/50 text-cyan-300 border-cyan-700/50';
         } else if (agent === 'antigravity') {
           b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-amber-900/40 text-amber-300 border-amber-700/40';
         } else if (agent === 'claude') {

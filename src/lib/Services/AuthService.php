@@ -83,6 +83,18 @@ class AuthService
     }
 
     /**
+     * Flushes session changes and releases PHP's per-session file lock.
+     * Long-running host-agent reads must not serialize unrelated polling,
+     * navigation, or quota requests from the same browser tab.
+     */
+    public static function close_app_session(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+    }
+
+    /**
      * Returns this session's CSRF token, generating and stashing one on first
      * use. Call start_app_session() first.
      */

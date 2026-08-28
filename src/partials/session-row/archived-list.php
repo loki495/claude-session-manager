@@ -4,6 +4,7 @@
     <button type="button" data-agent-filter="claude" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">Claude Code</button>
     <button type="button" data-agent-filter="antigravity" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">Antigravity</button>
     <button type="button" data-agent-filter="opencode" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">OpenCode</button>
+    <button type="button" data-agent-filter="codex" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">Codex</button>
   </div>
   <!-- text-base (16px), not text-sm - iOS Safari auto-zooms the whole
        viewport in on focusing any text input rendered under 16px. -->

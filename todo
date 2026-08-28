@@ -209,3 +209,9 @@ Smaller polish (low effort, low risk):
 - (Andres 2026-08-26) Toggle subagent sessions from archived in dashboard:
   make link to transcript in main agent session where appropriate, and hide
   them from sidebar and active sessions list.
+- (Andres 2026-08-27) Support copying, moving, or resuming an existing
+  session into a different agent (for example Claude Code → Codex or
+  OpenCode → Codex). Research each agent's native import/fork/resume
+  capabilities and define what context, transcript, attachments, tool state,
+  permissions, and model settings can be preserved versus summarized during
+  a cross-agent handoff.

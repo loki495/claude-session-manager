@@ -16,12 +16,14 @@ use HostAgent\Runtimes\RuntimeRegistry;
 use HostAgent\Runtimes\RuntimeType;
 use HostAgent\Runtimes\HeadlessRuntime;
 use HostAgent\Runtimes\TmuxRuntime;
+use HostAgent\Runtimes\CodexHeadlessRuntime;
 
 // --- supported runtimes per agent ---
 $cases = [
     'claude' => [RuntimeType::TMUX],
     'antigravity' => [RuntimeType::TMUX],
     'opencode' => [RuntimeType::HEADLESS, RuntimeType::TMUX],
+    'codex' => [RuntimeType::HEADLESS],
 ];
 
 foreach ($cases as $agent => $expected) {
@@ -38,9 +40,18 @@ assert_true(
     'claude: default runtime is TmuxRuntime'
 );
 assert_true(
+    RuntimeRegistry::default_for('codex') instanceof CodexHeadlessRuntime,
+    'codex: default and only runtime is CodexHeadlessRuntime'
+);
+assert_true(
     RuntimeRegistry::default_for('opencode') instanceof HeadlessRuntime,
     'opencode: default runtime is HeadlessRuntime (headless preferred over tmux)'
 );
+assert_true(
+    RuntimeRegistry::runtime_for('codex', RuntimeType::HEADLESS) instanceof CodexHeadlessRuntime,
+    'codex+headless resolves to CodexHeadlessRuntime'
+);
+assert_equal(null, RuntimeRegistry::runtime_for('codex', RuntimeType::TMUX), 'codex+tmux resolves to null');
 
 // --- runtime_for returns the right provider for a supported runtime ---
 assert_true(

@@ -146,12 +146,14 @@
     var claude = agents.claude;
     var ag = agents.antigravity;
     var oc = agents.opencode;
+    var codex = agents.codex;
 
     var hasClaude = claude && claude.quota;
     var hasAg = ag && ag.quota;
     var hasOc = oc && oc.quota;
+    var hasCodex = codex && codex.quota;
 
-    if (!hasClaude && !hasAg && !hasOc) {
+    if (!hasClaude && !hasAg && !hasOc && !hasCodex) {
       showUnavailable(data);
       return;
     }
@@ -246,6 +248,37 @@
     trAg.appendChild(tdA4);
     tbody.appendChild(trAg);
 
+    // Codex exposes the same primary/secondary account windows as its
+    // native app-server client: normally 5-hour and weekly.
+    var trCodex = document.createElement('tr');
+    var tdX1 = document.createElement('td');
+    tdX1.className = 'py-1.5 pr-3 text-cyan-300 whitespace-nowrap font-medium';
+    tdX1.textContent = (codex && codex.label) ? codex.label : 'Codex';
+    trCodex.appendChild(tdX1);
+    var tdX2 = document.createElement('td');
+    tdX2.className = 'py-1.5 px-2 whitespace-nowrap';
+    if (codex && codex.quota && codex.quota.session) {
+      var xSession = renderBucketText(codex.quota.session, 'session');
+      tdX2.innerHTML = '<span class="' + pctColorClass(xSession.pct) + '">' + escapeHtml(dashboardBucketText(xSession)) + '</span>';
+    } else {
+      tdX2.innerHTML = '<span class="text-slate-600 font-normal">No data</span>';
+    }
+    trCodex.appendChild(tdX2);
+    var tdX3 = document.createElement('td');
+    tdX3.className = 'py-1.5 px-2 whitespace-nowrap';
+    if (codex && codex.quota && codex.quota.week_all) {
+      var xWeek = renderBucketText(codex.quota.week_all, 'week');
+      tdX3.innerHTML = '<span class="' + pctColorClass(xWeek.pct) + '">' + escapeHtml(dashboardBucketText(xWeek)) + '</span>';
+    } else {
+      tdX3.innerHTML = '<span class="text-slate-600 font-normal">—</span>';
+    }
+    trCodex.appendChild(tdX3);
+    var tdX4 = document.createElement('td');
+    tdX4.className = 'py-1.5 pl-2 whitespace-nowrap text-slate-600';
+    tdX4.textContent = '—';
+    trCodex.appendChild(tdX4);
+    tbody.appendChild(trCodex);
+
     // OpenCode has cumulative local usage, not percentage-based windows.
     var trOc = document.createElement('tr');
     var ocLabel = (oc && oc.label) ? oc.label : 'OpenCode';
@@ -287,7 +320,7 @@
     table.appendChild(tbody);
     container.appendChild(table);
 
-    var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at) || (oc && oc.quota && oc.quota.captured_at);
+    var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at) || (codex && codex.quota && codex.quota.captured_at) || (oc && oc.quota && oc.quota.captured_at);
     el.title = capturedAt ? 'Captured ' + relativeTimeAgo(capturedAt) : '';
     el.innerHTML = '';
     el.appendChild(container);
@@ -394,6 +427,17 @@
 
       el.appendChild(item);
     });
+
+    if (data.agent === 'codex' && typeof q.tokens_total === 'number') {
+      var codexTokens = document.createElement('div');
+      codexTokens.className = 'text-xs font-normal text-slate-500';
+      codexTokens.textContent = 'Tokens ' + tokenText(q.tokens_total)
+        + ' · in ' + tokenText(q.tokens_input)
+        + ' · out ' + tokenText(q.tokens_output)
+        + (q.tokens_reasoning ? (' · reasoning ' + tokenText(q.tokens_reasoning)) : '')
+        + (q.tokens_cached ? (' · cached ' + tokenText(q.tokens_cached)) : '');
+      el.appendChild(codexTokens);
+    }
 
     if (metaParts.length > 0) {
       var meta = document.createElement('span');

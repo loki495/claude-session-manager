@@ -6,6 +6,8 @@ namespace HostAgent\Services;
 
 use HostAgent\Stores\GlobalStateStore;
 use HostAgent\Stores\SidecarStore;
+use HostAgent\Stores\SessionStatusStore;
+use HostAgent\Runtimes\CodexBridgeClient;
 
 /**
  * Claude usage/rate-limit quota - read straight from the file this app's
@@ -22,6 +24,50 @@ use HostAgent\Stores\SidecarStore;
  */
 class QuotaService
 {
+    /**
+     * Reads Codex account windows directly from app-server and optionally
+     * overlays the selected thread's last structured token-usage event.
+     * @return array{quota:array<string,mixed>, fetched_at:int}|null
+     */
+    public static function codex_quota_state(?string $threadId = null): ?array
+    {
+        $reply = (new CodexBridgeClient())->request('account/rateLimits/read', []);
+        if (($reply['ok'] ?? false) !== true) return null;
+        $snapshot = is_array($reply['result']['rateLimitsByLimitId']['codex'] ?? null)
+            ? $reply['result']['rateLimitsByLimitId']['codex']
+            : (is_array($reply['result']['rateLimits'] ?? null) ? $reply['result']['rateLimits'] : null);
+        if ($snapshot === null) return null;
+
+        $quota = [];
+        foreach (['primary' => 'session', 'secondary' => 'week_all'] as $source => $target) {
+            $window = $snapshot[$source] ?? null;
+            if (!is_array($window) || !is_int($window['usedPercent'] ?? null)) continue;
+            $quota[$target] = ['pct' => $window['usedPercent']];
+            if (is_int($window['resetsAt'] ?? null)) $quota[$target]['resets_at'] = $window['resetsAt'];
+        }
+
+        if ($threadId !== null && $threadId !== '') {
+            $usage = SessionStatusStore::read_status($threadId)['token_usage'] ?? null;
+            $total = is_array($usage['total'] ?? null) ? $usage['total'] : null;
+            $contextWindow = is_int($usage['modelContextWindow'] ?? null) ? $usage['modelContextWindow'] : null;
+            if ($total !== null) {
+                $quota['tokens_input'] = (int)($total['inputTokens'] ?? 0);
+                $quota['tokens_output'] = (int)($total['outputTokens'] ?? 0);
+                $quota['tokens_reasoning'] = (int)($total['reasoningOutputTokens'] ?? 0);
+                $quota['tokens_cached'] = (int)($total['cachedInputTokens'] ?? 0);
+                $quota['tokens_total'] = (int)($total['totalTokens'] ?? 0);
+                if ($contextWindow !== null && $contextWindow > 0) {
+                    $quota['context'] = ['pct' => min(100, (int)round($quota['tokens_total'] * 100 / $contextWindow))];
+                }
+            }
+        }
+
+        if ($quota === []) return null;
+        $fetchedAt = time();
+        $quota['captured_at'] = date('c', $fetchedAt);
+        return ['quota' => $quota, 'fetched_at' => $fetchedAt];
+    }
+
     /**
      * Context-window usage for one specific session's own pane - unlike
      * every other bucket in this class, this is genuinely per-session, not
@@ -170,7 +216,7 @@ class QuotaService
      * so a live TUI writer is never blocked. No GlobalStateStore/polling
      * needed — the DB itself is the source of truth, read on every request.
      *
-     * @return array{quota:array, fetched_at:int}|null null when the DB is missing/empty
+     * @return array{quota:array<string,mixed>, fetched_at:int}|null null when the DB is missing/empty
      */
     public static function opencode_quota_state(?string $sessionId = null): ?array
     {
@@ -240,7 +286,7 @@ class QuotaService
      * The endpoint is read-only and requires the opencode-go key OpenCode stores
      * in auth.json. Local SQLite totals remain useful alongside these windows.
      *
-     * @return array{quota:array, fetched_at:int}|null
+     * @return array{quota:array<string,mixed>, fetched_at:int}|null
      */
     public static function opencode_go_quota_state(): ?array
     {
@@ -375,6 +421,21 @@ class QuotaService
                 ];
             }
 
+            if ($agent === 'codex') {
+                $codexLive = self::codex_quota_state($sessionName);
+                return [
+                    'ok' => $codexLive !== null,
+                    'quota' => $codexLive['quota'] ?? null,
+                    'fetched_at' => $codexLive['fetched_at'] ?? null,
+                    'cached' => false,
+                    'stale' => false,
+                    'refreshing' => false,
+                    'agent' => 'codex',
+                    'agent_label' => 'Codex',
+                    'message' => $codexLive === null ? 'No Codex quota data available from app-server' : null,
+                ];
+            }
+
             // Claude Code session
             $contextPct = self::live_context_pct($sessionName);
             $live = self::quota_from_statusline_state();
@@ -419,6 +480,7 @@ class QuotaService
         $agLive = self::antigravity_quota_state();
         $ocLive = self::opencode_quota_state();
         $ocGoLive = self::opencode_go_quota_state();
+        $codexLive = self::codex_quota_state();
         if ($ocGoLive !== null) {
             $ocLive = [
                 'quota' => ($ocLive['quota'] ?? []) + $ocGoLive['quota'],
@@ -448,15 +510,22 @@ class QuotaService
                 'fetched_at' => $ocLive['fetched_at'] ?? null,
                 'message' => $ocLive === null ? 'No OpenCode sessions yet' : null,
             ],
+            'codex' => [
+                'label' => 'Codex',
+                'ok' => $codexLive !== null,
+                'quota' => $codexLive['quota'] ?? null,
+                'fetched_at' => $codexLive['fetched_at'] ?? null,
+                'message' => $codexLive === null ? 'Codex bridge unavailable' : null,
+            ],
         ];
 
-        $hasAnyData = $claudeLive !== null || $agLive !== null || $ocLive !== null;
+        $hasAnyData = $claudeLive !== null || $agLive !== null || $ocLive !== null || $codexLive !== null;
 
         return [
             'ok' => $hasAnyData,
-            'quota' => $claudeLive['quota'] ?? ($agLive['quota'] ?? ($ocLive['quota'] ?? null)),
+            'quota' => $claudeLive['quota'] ?? ($agLive['quota'] ?? ($ocLive['quota'] ?? ($codexLive['quota'] ?? null))),
             'agents' => $agents,
-            'fetched_at' => $claudeLive['fetched_at'] ?? ($agLive['fetched_at'] ?? ($ocLive['fetched_at'] ?? null)),
+            'fetched_at' => $claudeLive['fetched_at'] ?? ($agLive['fetched_at'] ?? ($ocLive['fetched_at'] ?? ($codexLive['fetched_at'] ?? null))),
             'cached' => false,
             'stale' => false,
             'refreshing' => false,

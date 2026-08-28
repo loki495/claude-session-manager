@@ -31,6 +31,7 @@ use HostAgent\Stores\GlobalStateStore;
 use HostAgent\Runtimes\RuntimeRegistry;
 use HostAgent\Runtimes\RuntimeType;
 use HostAgent\Runtimes\OpenCodeServeClient;
+use HostAgent\Agents\AgentRegistry;
 
 /**
  * @return array
@@ -50,11 +51,12 @@ function dispatch_action(array $request): array
         case 'session_detail':
             $session = (string)($request['session'] ?? '');
             if (csm_is_headless_session($session)) {
-                $headless = RuntimeRegistry::runtime_for('opencode', RuntimeType::HEADLESS);
+                $agent = csm_headless_agent($session);
+                $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
                 $serveDetail = $headless?->detail($session) ?? ['ok' => false, 'message' => 'Headless runtime unavailable'];
 
                 if (($serveDetail['ok'] === true) && is_array($serveDetail['session'] ?? null)) {
-                    return csm_headless_detail_shape($serveDetail['session']);
+                    return csm_headless_detail_shape($serveDetail['session'], $agent ?? 'opencode');
                 }
 
                 return $serveDetail;
@@ -137,14 +139,14 @@ function dispatch_action(array $request): array
             // lands in the headless pool the dashboard already merges in.
             // Other agents (claude/antigravity) have no headless session
             // mode and stay on the tmux path.
-            if ($agentId === 'opencode') {
-                $headless = RuntimeRegistry::runtime_for('opencode', RuntimeType::HEADLESS);
+            if ($agentId === 'opencode' || $agentId === 'codex') {
+                $headless = RuntimeRegistry::runtime_for($agentId, RuntimeType::HEADLESS);
 
                 if ($headless === null) {
-                    return ['ok' => false, 'message' => 'Headless runtime unavailable for opencode'];
+                    return ['ok' => false, 'message' => "Headless runtime unavailable for {$agentId}"];
                 }
 
-                $result = $headless->create(['workdir' => $workdir]);
+                $result = $headless->create(['workdir' => $workdir, 'model' => $modelId]);
                 $createdId = ($result['ok'] === true) && is_string($result['id'] ?? null) ? $result['id'] : null;
 
                 if ($createdId !== null) {
@@ -163,7 +165,7 @@ function dispatch_action(array $request): array
                         'spawned_at' => time(),
                         'claude_session_id' => $createdId,
                         'spawned_by_csm' => true,
-                        'agent' => 'opencode',
+                        'agent' => $agentId,
                         'runtime' => RuntimeType::HEADLESS,
                         'title' => is_string($createdSession['title'] ?? null) && $createdSession['title'] !== '' ? $createdSession['title'] : null,
                     ]);
@@ -171,7 +173,7 @@ function dispatch_action(array $request): array
                     // Apply model selection if specified - the serve creates
                     // sessions with no model by default; set_model POSTs to
                     // /api/session/{id}/model so the first turn uses it.
-                    if ($modelId !== null && $modelId !== '' && $modelProvider !== null && $modelProvider !== '') {
+                    if ($agentId === 'opencode' && $modelId !== null && $modelId !== '' && $modelProvider !== null && $modelProvider !== '') {
                         (new OpenCodeServeClient())->set_model($createdId, $modelProvider, $modelId);
                     }
 
@@ -208,7 +210,8 @@ function dispatch_action(array $request): array
         case 'kill':
             $killSession = (string)($request['session'] ?? '');
             if (csm_is_headless_session($killSession)) {
-                $headless = RuntimeRegistry::runtime_for('opencode', RuntimeType::HEADLESS);
+                $agent = csm_headless_agent($killSession);
+                $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
                 $result = $headless?->kill($killSession) ?? ['ok' => false, 'message' => 'Headless runtime unavailable'];
 
                 // Delete the sidecar/status rows immediately on a successful
@@ -268,6 +271,12 @@ function dispatch_action(array $request): array
             $escapeSession = (string)($request['session'] ?? '');
 
             if (csm_is_headless_session($escapeSession)) {
+                if (csm_headless_agent($escapeSession) === 'codex') {
+                    $runtime = RuntimeRegistry::runtime_for('codex', RuntimeType::HEADLESS);
+                    return $runtime instanceof \HostAgent\Runtimes\CodexHeadlessRuntime
+                        ? $runtime->interrupt($escapeSession)
+                        : ['ok' => false, 'message' => 'Codex runtime unavailable'];
+                }
                 return (new OpenCodeServeClient())->interrupt($escapeSession);
             }
             return PromptInteractionService::send_escape($escapeSession);
@@ -278,7 +287,8 @@ function dispatch_action(array $request): array
             $sendAttachments = is_array($request['attachment_paths'] ?? null) ? array_map('strval', $request['attachment_paths']) : [];
 
             if (csm_is_headless_session($sendSession)) {
-                $headless = RuntimeRegistry::runtime_for('opencode', RuntimeType::HEADLESS);
+                $agent = csm_headless_agent($sendSession);
+                $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
                 return $headless?->send_message($sendSession, $sendText, $sendAttachments)
                     ?? ['ok' => false, 'message' => 'Headless runtime unavailable'];
             }
@@ -295,6 +305,12 @@ function dispatch_action(array $request): array
         case 'set_model':
             $modelSession = (string)($request['session'] ?? '');
             if (csm_is_headless_session($modelSession)) {
+                if (csm_headless_agent($modelSession) === 'codex') {
+                    $runtime = RuntimeRegistry::runtime_for('codex', RuntimeType::HEADLESS);
+                    return $runtime instanceof \HostAgent\Runtimes\CodexHeadlessRuntime
+                        ? $runtime->update_settings($modelSession, (string)($request['model'] ?? ''), (string)($request['effort'] ?? ''))
+                        : ['ok' => false, 'message' => 'Codex runtime unavailable'];
+                }
                 return (new OpenCodeServeClient())->set_model(
                     $modelSession,
                     (string)($request['model_provider'] ?? ''),
@@ -304,7 +320,7 @@ function dispatch_action(array $request): array
             return PromptInteractionService::set_model($modelSession, (string)($request['model'] ?? ''));
 
         case 'list_models':
-            return csm_list_models();
+            return csm_list_models(is_string($request['agent'] ?? null) ? $request['agent'] : 'opencode');
 
         case 'set_antigravity_model':
             return PromptInteractionService::set_antigravity_model((string)($request['session'] ?? ''), (string)($request['model'] ?? ''));
@@ -385,6 +401,8 @@ function csm_merge_headless_sessions(array $sessions): array
 
     foreach (csm_headless_sessions()['headless'] as $h) {
         $blocked = is_array($h['blocked'] ?? null) ? $h['blocked'] : null;
+        $agentId = is_string($h['agent'] ?? null) ? $h['agent'] : 'opencode';
+        $agentLabel = AgentRegistry::get($agentId)->label();
 
         $sessions[] = [
             'name' => $h['id'],
@@ -393,8 +411,8 @@ function csm_merge_headless_sessions(array $sessions): array
             'pid' => null,
             'workdir' => $h['workdir'],
             'spawned_by_csm' => true,
-            'agent' => 'opencode',
-            'agent_label' => 'OpenCode',
+            'agent' => $agentId,
+            'agent_label' => $agentLabel,
             'title' => $h['title'],
             'runtime' => RuntimeType::HEADLESS,
             'status' => $h['status'],
@@ -464,7 +482,7 @@ function csm_headless_sessions(): array
             'title' => $title,
             'directory' => $workdir,
             'workdir' => $workdir,
-            'agent' => 'opencode',
+            'agent' => is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : 'opencode',
             'runtime' => RuntimeType::HEADLESS,
             'status' => is_string($status['status'] ?? null) ? $status['status'] : 'idle',
             'blocked' => is_array($status['blocked'] ?? null) ? $status['blocked'] : null,
@@ -490,6 +508,8 @@ function csm_headless_sessions(): array
  */
 function csm_headless_sync(): void
 {
+    csm_codex_sync();
+
     $rawInterval = getenv('HEADLESS_SYNC_SECONDS');
     $interval = $rawInterval === false || $rawInterval === '' ? 15 : max(0, (int)$rawInterval);
     $meta = GlobalStateStore::read('headless_sessions_sync');
@@ -561,6 +581,9 @@ function csm_headless_sync(): void
     }
 
     foreach (SidecarStore::list_runtime_sidecars(RuntimeType::HEADLESS) as $row) {
+        if (($row['agent'] ?? 'opencode') !== 'opencode') {
+            continue;
+        }
         if (!isset($liveIds[$row['session_name']])) {
             SidecarStore::delete_sidecar($row['session_name']);
             SessionStatusStore::delete_status($row['session_name']);
@@ -638,6 +661,59 @@ function csm_headless_sync(): void
     }
 }
 
+/** Reconciles recent native Codex app-server threads into headless sidecars. */
+function csm_codex_sync(): void
+{
+    $meta = GlobalStateStore::read('codex_headless_sessions_sync');
+    $lastSync = is_array($meta) ? (int)($meta['last_sync'] ?? 0) : 0;
+    $rawInterval = getenv('HEADLESS_SYNC_SECONDS');
+    $interval = $rawInterval === false || $rawInterval === '' ? 15 : max(0, (int)$rawInterval);
+    if (time() - $lastSync < $interval) return;
+
+    $runtime = RuntimeRegistry::runtime_for('codex', RuntimeType::HEADLESS);
+    $list = $runtime?->list() ?? ['ok' => false];
+    if ($list['ok'] !== true) return;
+
+    $rawWindow = getenv('HEADLESS_ACTIVE_WINDOW_SECONDS');
+    $window = $rawWindow === false || $rawWindow === '' ? 3600 : max(1, (int)$rawWindow);
+    $now = time();
+    $live = [];
+
+    foreach (($list['sessions'] ?? []) as $thread) {
+        if (!is_string($thread['id'] ?? null)) continue;
+        $updated = (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0);
+        if ($updated > 0 && $now - $updated > $window) continue;
+        $id = $thread['id'];
+        $live[$id] = true;
+        $statusType = $thread['status']['type'] ?? 'idle';
+        SidecarStore::write_sidecar($id, [
+            'workdir' => is_string($thread['cwd'] ?? null) ? $thread['cwd'] : null,
+            'spawned_at' => (int)($thread['createdAt'] ?? time()),
+            'claude_session_id' => $id,
+            'spawned_by_csm' => true,
+            'agent' => 'codex',
+            'runtime' => RuntimeType::HEADLESS,
+            'title' => is_string($thread['name'] ?? null) && $thread['name'] !== ''
+                ? $thread['name']
+                : (is_string($thread['preview'] ?? null) ? $thread['preview'] : null),
+        ]);
+        $existing = SessionStatusStore::read_status($id);
+        if (($existing['status'] ?? null) !== 'blocked') {
+            SessionStatusStore::update_status($id, ['status' => $statusType === 'active' ? 'working' : 'idle']);
+        }
+    }
+
+    foreach (SidecarStore::list_runtime_sidecars(RuntimeType::HEADLESS) as $row) {
+        if (($row['agent'] ?? null) !== 'codex') continue;
+        if (!isset($live[$row['session_name']])) {
+            SidecarStore::delete_sidecar($row['session_name']);
+            SessionStatusStore::delete_status($row['session_name']);
+        }
+    }
+
+    GlobalStateStore::write('codex_headless_sessions_sync', ['last_sync' => time()]);
+}
+
 /**
  * True when $ref is a headless (serve-hosted) OpenCode session - read from
  * that session's own sidecar's `runtime` column, not from a session-id
@@ -650,6 +726,12 @@ function csm_is_headless_session(string $ref): bool
     $sidecar = SidecarStore::read_sidecar($ref);
 
     return $sidecar !== null && ($sidecar['runtime'] ?? 'tmux') === RuntimeType::HEADLESS;
+}
+
+function csm_headless_agent(string $ref): ?string
+{
+    $sidecar = SidecarStore::read_sidecar($ref);
+    return is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : null;
 }
 
 /**
@@ -719,8 +801,30 @@ function csm_headless_question_prompt(array $q): array
  *
  * @return array{ok:bool, models?:array<int, array<string, mixed>>, message?:string}
  */
-function csm_list_models(): array
+function csm_list_models(string $agent = 'opencode'): array
 {
+    if ($agent === 'codex') {
+        $reply = (new \HostAgent\Runtimes\CodexBridgeClient())->request('model/list', ['limit' => 100, 'includeHidden' => false]);
+        if ($reply['ok'] !== true) return $reply;
+        $data = is_array($reply['result']['data'] ?? null) ? $reply['result']['data'] : [];
+        $models = [];
+        foreach ($data as $model) {
+            if (!is_array($model) || !is_string($model['model'] ?? null)) continue;
+            $efforts = [];
+            foreach (($model['supportedReasoningEfforts'] ?? []) as $option) {
+                if (is_array($option) && is_string($option['reasoningEffort'] ?? null)) $efforts[] = $option['reasoningEffort'];
+            }
+            $models[] = [
+                'id' => $model['model'],
+                'name' => is_string($model['displayName'] ?? null) ? $model['displayName'] : $model['model'],
+                'isDefault' => (bool)($model['isDefault'] ?? false),
+                'defaultEffort' => is_string($model['defaultReasoningEffort'] ?? null) ? $model['defaultReasoningEffort'] : null,
+                'efforts' => $efforts,
+            ];
+        }
+        return ['ok' => true, 'models' => $models];
+    }
+
     $models = (new OpenCodeServeClient())->available_models();
 
     if ($models !== []) {
@@ -740,7 +844,8 @@ function csm_list_models(): array
  */
 function csm_headless_answer_prompt(string $ref, array $answers): array
 {
-    $headless = RuntimeRegistry::runtime_for('opencode', RuntimeType::HEADLESS);
+    $agent = csm_headless_agent($ref);
+    $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
 
     return $headless !== null
         ? $headless->answer_prompt($ref, $answers)
@@ -804,10 +909,10 @@ function csm_headless_resume(string $workdir, string $claudeSessionId): array
  * @param array<string, mixed> $serve the GET /session/{id} object
  * @return array<string, mixed>
  */
-function csm_headless_detail_shape(array $serve): array
+function csm_headless_detail_shape(array $serve, string $agentId = 'opencode'): array
 {
     $id = is_string($serve['id'] ?? null) ? $serve['id'] : '';
-    $workdir = is_string($serve['directory'] ?? null) ? $serve['directory'] : null;
+    $workdir = is_string($serve['directory'] ?? null) ? $serve['directory'] : (is_string($serve['cwd'] ?? null) ? $serve['cwd'] : null);
     $status = SessionStatusStore::read_status($id);
     $model = is_array($serve['model'] ?? null) ? $serve['model'] : [];
     $blocked = is_array($status['blocked'] ?? null) ? $status['blocked'] : null;
@@ -817,7 +922,7 @@ function csm_headless_detail_shape(array $serve): array
     // {content, activeForm, status} — opencode has no activeForm, so
     // content is used for both.
     $todos = null;
-    $todoResult = (new OpenCodeServeClient())->get_todo($id);
+    $todoResult = $agentId === 'opencode' ? (new OpenCodeServeClient())->get_todo($id) : ['ok' => false];
 
     if ($todoResult['ok'] === true && is_array($todoResult['todos'] ?? null)) {
         $mapped = [];
@@ -842,11 +947,11 @@ function csm_headless_detail_shape(array $serve): array
         'id' => $id,
         'session' => $id,
         'name' => $id,
-        'title' => is_string($serve['title'] ?? null) && $serve['title'] !== '' ? $serve['title'] : $id,
+        'title' => is_string($serve['title'] ?? null) && $serve['title'] !== '' ? $serve['title'] : (is_string($serve['name'] ?? null) && $serve['name'] !== '' ? $serve['name'] : (is_string($serve['preview'] ?? null) ? $serve['preview'] : $id)),
         'workdir' => $workdir,
         'directory' => $workdir,
-        'agent' => 'opencode',
-        'agent_label' => 'OpenCode',
+        'agent' => $agentId,
+        'agent_label' => AgentRegistry::get($agentId)->label(),
         'claude_session_id' => $id,
         'runtime' => RuntimeType::HEADLESS,
         'status' => is_string($status['status'] ?? null) ? $status['status'] : 'idle',
@@ -862,8 +967,11 @@ function csm_headless_detail_shape(array $serve): array
         'attached' => false,
         'pid' => null,
         'current_mode' => null,
-        'current_model' => is_string($model['id'] ?? null) ? $model['id'] : null,
-        'current_provider' => is_string($model['providerID'] ?? null) ? $model['providerID'] : null,
+        'current_model' => is_string($model['id'] ?? null) ? $model['id'] : (is_string($serve['model'] ?? null) ? $serve['model'] : null),
+        'writable' => $agentId !== 'codex' || ($serve['writable'] ?? true) === true,
+        'read_only_reason' => is_string($serve['readOnlyReason'] ?? null) ? $serve['readOnlyReason'] : null,
+        'current_provider' => is_string($model['providerID'] ?? null) ? $model['providerID'] : (is_string($serve['modelProvider'] ?? null) ? $serve['modelProvider'] : null),
+        'current_effort' => is_string($serve['reasoningEffort'] ?? null) ? $serve['reasoningEffort'] : (is_string($serve['effort'] ?? null) ? $serve['effort'] : null),
         'last_turn_error' => null,
         'context_used_percentage' => null,
         'git_worktree' => null,

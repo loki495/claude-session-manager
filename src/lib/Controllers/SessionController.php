@@ -32,6 +32,7 @@ class SessionController extends Controller
         }
 
         $csrfToken = AuthService::csrf_token();
+        AuthService::close_app_session();
 
         $detail = AgentClient::agent_call(['action' => 'session_detail', 'session' => $sessionName]);
         $found = (bool)($detail['ok'] ?? false);
@@ -335,8 +336,9 @@ class SessionController extends Controller
         $sessionName = trim((string)($_POST['session'] ?? ''));
         $model = trim((string)($_POST['model'] ?? ''));
         $provider = trim((string)($_POST['model_provider'] ?? ''));
+        $effort = trim((string)($_POST['effort'] ?? ''));
 
-        echo json_encode(AgentClient::agent_call(['action' => 'set_model', 'session' => $sessionName, 'model' => $model, 'model_provider' => $provider]));
+        echo json_encode(AgentClient::agent_call(['action' => 'set_model', 'session' => $sessionName, 'model' => $model, 'model_provider' => $provider, 'effort' => $effort]));
     }
 
     /**
@@ -348,7 +350,7 @@ class SessionController extends Controller
     {
         $this->start_readonly_json();
 
-        echo json_encode(AgentClient::agent_call(['action' => 'list_models']));
+        echo json_encode(AgentClient::agent_call(['action' => 'list_models', 'agent' => (string)($_GET['agent'] ?? 'opencode')]));
     }
 
     /**

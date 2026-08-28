@@ -46,6 +46,7 @@ abstract class Controller
         }
 
         AuthService::require_csrf();
+        AuthService::close_app_session();
 
         header('Content-Type: application/json');
     }
@@ -54,6 +55,7 @@ abstract class Controller
     protected function start_readonly_json(): void
     {
         AuthService::start_app_session();
+        AuthService::close_app_session();
         header('Cache-Control: no-store');
         header('Content-Type: application/json');
     }

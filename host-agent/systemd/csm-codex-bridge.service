@@ -1,0 +1,13 @@
+[Unit]
+Description=Claude Session Manager Codex app-server bridge
+After=default.target
+
+[Service]
+Type=simple
+EnvironmentFile=-@REPO_ROOT@/host-agent/.env
+ExecStart=@PHP_BIN@ @REPO_ROOT@/host-agent/codex_bridge.php
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

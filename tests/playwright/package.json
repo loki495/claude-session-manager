@@ -1,0 +1,12 @@
+{
+  "name": "csm-playwright-tests",
+  "private": true,
+  "description": "Optional browser tests for Claude Session Manager",
+  "scripts": {
+    "test": "playwright test",
+    "test:codex-live": "CSM_PLAYWRIGHT_LIVE=1 playwright test codex-live.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}
