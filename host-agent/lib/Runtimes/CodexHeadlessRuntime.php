@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace HostAgent\Runtimes;
 
+use HostAgent\Services\CodexTranscriptService;
+
 /** Native Codex runtime backed exclusively by codex app-server. */
 class CodexHeadlessRuntime implements RuntimeProvider
 {
@@ -41,9 +43,9 @@ class CodexHeadlessRuntime implements RuntimeProvider
 
     public function list(): array
     {
-        $result = $this->client->request('thread/list', ['limit' => 100, 'sortKey' => 'updated_at', 'sortDirection' => 'desc']);
+        $result = CodexTranscriptService::list_threads(false, $this->client);
         return $result['ok'] === true
-            ? ['ok' => true, 'sessions' => is_array($result['result']['data'] ?? null) ? $result['result']['data'] : []]
+            ? ['ok' => true, 'sessions' => $result['threads'] ?? []]
             : $result;
     }
 

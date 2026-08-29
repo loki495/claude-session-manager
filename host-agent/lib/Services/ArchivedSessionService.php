@@ -101,6 +101,52 @@ class ArchivedSessionService
             }
         }
 
+        // Codex threads live in app-server's durable catalog rather than a
+        // local transcript directory. Include both dormant non-archived
+        // threads (those outside CSM's active window) and explicitly archived
+        // threads; the tracked-id exclusion keeps recent rows in one section.
+        foreach ([false, true] as $nativeArchived) {
+            $catalog = CodexTranscriptService::list_threads($nativeArchived, null, true);
+            if (($catalog['ok'] ?? false) !== true) continue;
+
+            foreach (($catalog['threads'] ?? []) as $thread) {
+                $id = is_string($thread['id'] ?? null) ? $thread['id'] : null;
+                if ($id === null || isset($exclude[$id])) continue;
+
+                $cwd = is_string($thread['cwd'] ?? null) && $thread['cwd'] !== '' ? $thread['cwd'] : null;
+                $nativeTitle = is_string($thread['name'] ?? null) && trim($thread['name']) !== ''
+                    ? $thread['name']
+                    : (is_string($thread['preview'] ?? null) ? $thread['preview'] : null);
+                $archived[] = [
+                    'claude_session_id' => $id,
+                    'cwd' => $cwd,
+                    'title' => SessionService::title_cascade($nativeTitle, null, $cwd, $id),
+                    'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
+                    'agent' => 'codex',
+                    'agent_label' => 'Codex',
+                ];
+            }
+        }
+
+        // app-server may omit a freshly thread/archive'd rollout from both
+        // list partitions. Merge Codex's durable archive directory as the
+        // authoritative fallback, de-duplicating catalog rows by thread id.
+        $knownIds = array_flip(array_column($archived, 'claude_session_id'));
+        foreach (CodexTranscriptService::list_archived_rollouts() as $thread) {
+            $id = $thread['id'];
+            if (isset($exclude[$id]) || isset($knownIds[$id])) continue;
+            $cwd = is_string($thread['cwd'] ?? null) && $thread['cwd'] !== '' ? $thread['cwd'] : null;
+            $archived[] = [
+                'claude_session_id' => $id,
+                'cwd' => $cwd,
+                'title' => SessionService::title_cascade(null, null, $cwd, $id),
+                'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
+                'agent' => 'codex',
+                'agent_label' => 'Codex',
+            ];
+            $knownIds[$id] = true;
+        }
+
         usort($archived, fn(array $a, array $b) => $b['last_activity'] <=> $a['last_activity']);
 
         return $archived;

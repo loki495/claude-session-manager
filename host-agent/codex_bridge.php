@@ -77,6 +77,16 @@ if (!$initialized) {
 
 codex_bridge_write($appIn, ['method' => 'initialized']);
 
+// A server request's JSON-RPC id belongs to the app-server process that
+// issued it and cannot be replayed safely after a bridge/app-server restart.
+// The normalized prompt is persisted for display while live; clear any
+// leftover Codex prompt now so the UI cannot offer an answer that has no
+// valid recipient. Fresh thread/read/status events reconcile the turn state.
+SessionStatusStore::clear_stale_blocked_for_agent(
+    'codex',
+    'Codex app-server restarted while waiting for input; retry the interrupted turn.'
+);
+
 $socketPath = Config::codex_bridge_socket();
 $socketDir = dirname($socketPath);
 if (!is_dir($socketDir)) @mkdir($socketDir, 0700, true);

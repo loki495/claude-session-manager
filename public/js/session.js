@@ -174,7 +174,7 @@
       // targets" as the trigger instead correctly covers the row's own
       // padding/gutters too, not just a sliver that's rarely hit in
       // practice.
-      if (!e.target.closest('a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')) {
+      if (!closestEventTarget(e, 'a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')) {
         pageContent.scrollTo({ top: 0, behavior: 'smooth' });
       }
     });
@@ -1408,9 +1408,9 @@
     // expanded (typically just the first poll after page load, landing on
     // the same prompt the server already rendered) - preserved as a safety
     // net for that case, same mechanism as before, just rarely exercised now.
-    var existingReply = blockedSection.querySelector('.freetext-reply');
+    var existingReply = /** @type {HTMLElement|null} */ (blockedSection.querySelector('.freetext-reply'));
     var freetextWasOpen = existingReply && !existingReply.classList.contains('hidden');
-    var existingTextarea = existingReply ? existingReply.querySelector('.freetext-reply-textarea') : null;
+    var existingTextarea = /** @type {HTMLTextAreaElement|null} */ (existingReply ? existingReply.querySelector('.freetext-reply-textarea') : null);
     var freetextDraft = existingTextarea ? existingTextarea.value : '';
     var freetextOption = existingReply ? existingReply.dataset.option : null;
     var freetextHadFocus = existingTextarea !== null && existingTextarea === document.activeElement;
@@ -1460,12 +1460,12 @@
     }
 
     if (freetextWasOpen) {
-      var newReply = blockedSection.querySelector('.freetext-reply');
+      var newReply = /** @type {HTMLElement|null} */ (blockedSection.querySelector('.freetext-reply'));
 
       if (newReply) {
         newReply.classList.remove('hidden');
         newReply.dataset.option = freetextOption;
-        var newTextarea = newReply.querySelector('.freetext-reply-textarea');
+        var newTextarea = /** @type {HTMLTextAreaElement|null} */ (newReply.querySelector('.freetext-reply-textarea'));
         newTextarea.value = freetextDraft;
 
         if (freetextHadFocus) {
@@ -1570,7 +1570,9 @@
     // the browser, even though it still LOOKED like a real request went
     // out. Regression test: test_session_replay_browser.php's "the click's
     // real submit reached /answer_prompt.php" assertion.
-    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) { el.disabled = true; });
+    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) {
+      if (el instanceof HTMLButtonElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || el instanceof HTMLInputElement) el.disabled = true;
+    });
   }
 
   function markBlockedSectionAnswerPending() {
@@ -1592,7 +1594,9 @@
     // Same :not([type="hidden"]) exclusion as markBlockedSectionPending()
     // above, kept symmetric even though re-enabling a hidden field was
     // never itself the bug - see that function's own comment.
-    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) { el.disabled = false; });
+    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) {
+      if (el instanceof HTMLButtonElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || el instanceof HTMLInputElement) el.disabled = false;
+    });
   }
 
   // Event delegation, not per-form listeners: covers both the
@@ -1603,7 +1607,7 @@
   // (same reasoning as compose send).
   if (blockedSection) {
     blockedSection.addEventListener('submit', function (e) {
-      var form = e.target.closest('form[data-confirm-label]');
+      var form = closestEventTarget(e, 'form[data-confirm-label]');
 
       if (!form) {
         return;
@@ -1758,7 +1762,7 @@
     }
 
     blockedSection.addEventListener('click', function (e) {
-      var revealBtn = e.target.closest('.reveal-freetext-btn');
+      var revealBtn = closestEventTarget(e, '.reveal-freetext-btn');
 
       if (revealBtn) {
         var replyDiv = revealBtn.closest('.prompt-options-wrapper').querySelector('.freetext-reply');
@@ -1772,14 +1776,14 @@
         return;
       }
 
-      var sendBtn = e.target.closest('.freetext-reply-send-btn');
+      var sendBtn = closestEventTarget(e, '.freetext-reply-send-btn');
 
       if (sendBtn) {
         submitFreetextReply(sendBtn.closest('.freetext-reply'));
         return;
       }
 
-      var submitBtn = e.target.closest('.multi-question-submit-btn');
+      var submitBtn = closestEventTarget(e, '.multi-question-submit-btn');
 
       if (submitBtn) {
         submitMultiQuestionAnswers(submitBtn.closest('.multi-question-wrapper'));
@@ -1799,9 +1803,9 @@
     // the compose box. shiftKeyPhysicallyHeld cross-check - see its own
     // doc comment in common.js.
     blockedSection.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && e.target.classList.contains('freetext-reply-textarea')) {
+      if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && eventTargetHasClass(e, 'freetext-reply-textarea')) {
         e.preventDefault();
-        submitFreetextReply(e.target.closest('.freetext-reply'));
+        submitFreetextReply(closestEventTarget(e, '.freetext-reply'));
       }
     });
   }
@@ -2471,7 +2475,7 @@
       // to clean it up. Delegated (not bound directly to each chip's own
       // button) since chips are rebuilt wholesale on every render.
       document.addEventListener('click', function (e) {
-        var removeBtn = e.target.closest('.remove-compose-attachment-btn');
+        var removeBtn = closestEventTarget(e, '.remove-compose-attachment-btn');
 
         if (!removeBtn) {
           return;
@@ -2777,7 +2781,7 @@
   var TRANSCRIPT_IMAGE_FULL_CLASSES = ['w-full', 'h-auto', 'object-contain'];
 
   document.addEventListener('click', function (e) {
-    var img = e.target.closest('.transcript-image');
+    var img = closestEventTarget(e, '.transcript-image');
 
     if (!img) {
       return;
@@ -2807,11 +2811,11 @@
   // fullscreen modal opens over it (or right as its own Copy button shows
   // its "Copied!" feedback) would leave it collapsed once that resolves. ---
   document.addEventListener('click', function (e) {
-    if (e.target.closest('summary, .expand-fullscreen-btn, .copy-btn')) {
+    if (closestEventTarget(e, 'summary, .expand-fullscreen-btn, .copy-btn')) {
       return;
     }
 
-    var details = e.target.closest('.tool-use-block details, .tool-detail details');
+    var details = closestEventTarget(e, '.tool-use-block details, .tool-detail details');
 
     if (!details) {
       return;
@@ -2831,7 +2835,7 @@
   // attached directly to the button, since renderThinkingIndicator()
   // recreates it (or removes it entirely) on every poll. ---
   document.addEventListener('click', function (e) {
-    var stopBtn = e.target.closest('#stop-btn');
+    var stopBtn = closestEventTarget(e, '#stop-btn');
 
     if (!stopBtn) {
       return;

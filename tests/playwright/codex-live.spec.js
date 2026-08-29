@@ -109,6 +109,18 @@ test.describe('live Codex browser lifecycle', () => {
         const kill = row.getByRole('button', { name: 'Kill' });
         if (await kill.count()) {
           await kill.click().catch(() => {});
+          await expect(rowLink).toHaveCount(0, { timeout: 30_000 });
+
+          // Closing a Codex session archives it natively. Verify the lazy
+          // archive endpoint discovers that durable catalog entry and the
+          // browser renders a usable archived-session link for it.
+          await page.locator('#show-archived-btn').click();
+          const archivedLink = page.locator(`a[href="/archived_session.php?claude_session_id=${createdSession}"]`).first();
+          await expect(archivedLink).toBeVisible({ timeout: 30_000 });
+          await archivedLink.click();
+          await expect(page.getByRole('heading', { name: 'History (read-only)' })).toBeVisible();
+          await expect(page.getByText('Session not found.', { exact: true })).toHaveCount(0);
+          await expect(page.getByText('Transcript file not found', { exact: false })).toHaveCount(0);
         }
       }
     }

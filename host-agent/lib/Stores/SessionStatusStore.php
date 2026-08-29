@@ -155,4 +155,29 @@ class SessionStatusStore
         $stmt = self::db()->prepare('DELETE FROM session_status WHERE session_name = ?');
         $stmt->execute([$sessionName]);
     }
+
+    /**
+     * Server-to-client prompt request ids are scoped to one app-server
+     * process. After that process exits, retaining a blocked prompt would
+     * invite the UI to submit an answer to an id that can no longer be
+     * acknowledged. Clear only the affected agent's persisted prompts and
+     * retain an explicit error explaining why the interrupted turn needs to
+     * be retried; other agents' hook-owned status rows remain untouched.
+     */
+    public static function clear_stale_blocked_for_agent(string $agent, string $message): int
+    {
+        $stmt = self::db()->prepare(
+            "UPDATE session_status
+             SET status = 'idle', blocked_json = NULL, last_turn_error = :message, updated_at = :updated_at
+             WHERE blocked_json IS NOT NULL
+               AND session_name IN (SELECT session_name FROM sidecars WHERE agent = :agent)"
+        );
+        $stmt->execute([
+            ':message' => $message,
+            ':updated_at' => time(),
+            ':agent' => $agent,
+        ]);
+
+        return $stmt->rowCount();
+    }
 }

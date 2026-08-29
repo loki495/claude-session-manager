@@ -15,7 +15,20 @@ class CodexBridgeClient
      */
     public function request(string $method, array $params = []): array
     {
-        $socket = @stream_socket_client('unix://' . Config::codex_bridge_socket(), $errno, $error, 3.0);
+        $socket = false;
+        $error = '';
+        $retryDelaysUsec = [0, 250000, 750000, 1500000];
+
+        // Retry only connection establishment. Once any request bytes have
+        // been written, replaying automatically could duplicate a turn or
+        // approval. The bounded delay bridges systemd's ordinary short
+        // restart window without making a permanently-down service hang the
+        // web request indefinitely.
+        foreach ($retryDelaysUsec as $delayUsec) {
+            if ($delayUsec > 0) usleep($delayUsec);
+            $socket = @stream_socket_client('unix://' . Config::codex_bridge_socket(), $errno, $error, 0.5);
+            if ($socket !== false) break;
+        }
 
         if ($socket === false) {
             return ['ok' => false, 'message' => "Cannot reach Codex bridge: {$error}"];

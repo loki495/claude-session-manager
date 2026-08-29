@@ -512,7 +512,7 @@ if (todoFileLink) {
 
 if (uploadedFilesList) {
   uploadedFilesList.addEventListener('click', function (e) {
-    var btn = e.target.closest('.delete-upload-btn');
+    var btn = closestEventTarget(e, '.delete-upload-btn');
 
     if (!btn) {
       return;
@@ -677,14 +677,14 @@ if (sidebarToggleBtn) {
   // that gesture belongs to the textarea (caret placement, selecting,
   // scrolling a tall one), never to the app-level swipe.
   function touchTargetsTextarea(e) {
-    return !!(e.target.closest && e.target.closest('textarea'));
+    return !!closestEventTarget(e, 'textarea');
   }
 
   document.addEventListener('touchstart', function (e) {
     // Ignore touches starting inside a horizontally-scrollable command/
     // output block - that gesture is for scrolling the block itself,
     // not for opening/closing the sidebar.
-    if (e.touches.length !== 1 || (e.target.closest && e.target.closest('.overflow-x-auto, .overflow-auto')) || touchTargetsActiveSelection() || touchTargetsTextarea(e)) {
+    if (e.touches.length !== 1 || closestEventTarget(e, '.overflow-x-auto, .overflow-auto') || touchTargetsActiveSelection() || touchTargetsTextarea(e)) {
       touchStartX = null;
       touchStartY = null;
       return;

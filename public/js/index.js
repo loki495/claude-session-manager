@@ -31,7 +31,7 @@ var requestSessionsPollNow = function () {};
 // common.js (loaded before this file).
 
 document.addEventListener('submit', function (e) {
-  var form = e.target.closest('form[data-confirm-label]');
+  var form = closestEventTarget(e, 'form[data-confirm-label]');
 
   if (!form) {
     return;
@@ -148,14 +148,14 @@ document.addEventListener('change', function (e) {
 });
 
 document.addEventListener('click', function (e) {
-  var multiQuestionSubmitBtn = e.target.closest('.multi-question-submit-btn');
+  var multiQuestionSubmitBtn = closestEventTarget(e, '.multi-question-submit-btn');
 
   if (multiQuestionSubmitBtn) {
     submitMultiQuestionAnswers(multiQuestionSubmitBtn.closest('.multi-question-wrapper'));
     return;
   }
 
-  var revealBtn = e.target.closest('.reveal-freetext-btn');
+  var revealBtn = closestEventTarget(e, '.reveal-freetext-btn');
 
   if (revealBtn) {
     var replyDiv = revealBtn.closest('.prompt-options-wrapper').querySelector('.freetext-reply');
@@ -169,7 +169,7 @@ document.addEventListener('click', function (e) {
     return;
   }
 
-  var sendBtn = e.target.closest('.freetext-reply-send-btn');
+  var sendBtn = closestEventTarget(e, '.freetext-reply-send-btn');
 
   if (sendBtn) {
     submitFreetextReply(sendBtn.closest('.freetext-reply'));
@@ -187,9 +187,9 @@ document.addEventListener('click', function (e) {
 // actually vulnerable to itself (it didn't require shiftKey at all
 // before), but the inconsistency was the actual thing being flagged.
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && e.target.classList.contains('freetext-reply-textarea')) {
+  if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && eventTargetHasClass(e, 'freetext-reply-textarea')) {
     e.preventDefault();
-    submitFreetextReply(e.target.closest('.freetext-reply'));
+    submitFreetextReply(closestEventTarget(e, '.freetext-reply'));
   }
 });
 
@@ -242,7 +242,7 @@ document.addEventListener('keydown', function (e) {
   }
 
   document.addEventListener('submit', function (e) {
-    var form = e.target.closest('.take-over-form');
+    var form = /** @type {HTMLFormElement|null} */ (closestEventTarget(e, '.take-over-form'));
 
     if (!form) {
       return;
@@ -254,11 +254,16 @@ document.addEventListener('keydown', function (e) {
     var btn = form.querySelector('button');
     btn.disabled = true;
 
+    var takeOverBody = new URLSearchParams();
+    new FormData(form).forEach(function (value, key) {
+      takeOverBody.append(key, String(value));
+    });
+
     fetch('/take_over_bare.php', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(new FormData(form)).toString()
+      body: takeOverBody.toString()
     })
       .then(function (r) { return parseJsonResponse(r, 'take-over-bare'); })
       .then(function (data) {
@@ -282,7 +287,7 @@ document.addEventListener('keydown', function (e) {
   });
 
   document.addEventListener('click', function (e) {
-    var cancelBtn = e.target.closest('.take-over-cancel-btn');
+    var cancelBtn = closestEventTarget(e, '.take-over-cancel-btn');
 
     if (cancelBtn) {
       var cancelRow = cancelBtn.closest('[data-bare-row]');
@@ -291,7 +296,7 @@ document.addEventListener('keydown', function (e) {
       return;
     }
 
-    var confirmBtn = e.target.closest('.take-over-confirm-btn');
+    var confirmBtn = closestEventTarget(e, '.take-over-confirm-btn');
 
     if (!confirmBtn) {
       return;
@@ -397,7 +402,7 @@ document.addEventListener('keydown', function (e) {
   }
 
   document.addEventListener('click', function (e) {
-    var btn = e.target.closest('.show-recent-btn');
+    var btn = closestEventTarget(e, '.show-recent-btn');
 
     if (!btn) {
       return;
@@ -1065,7 +1070,7 @@ document.addEventListener('keydown', function (e) {
   // hand-escaped JS string interpolation (r.session_name/r.title are
   // search-result data, not something to trust into a JS string literal).
   results.addEventListener('submit', function (e) {
-    var form = e.target.closest('form[data-confirm-label]');
+    var form = closestEventTarget(e, 'form[data-confirm-label]');
 
     if (form && !confirm('Archive session ' + form.dataset.confirmLabel + '?')) {
       e.preventDefault();

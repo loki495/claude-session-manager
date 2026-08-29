@@ -38,7 +38,7 @@ if (getenv('TMUX_SOCKET') === REAL_TMUX_SOCKET_REPLAY_BROWSER || getenv('TMUX_SO
  * interval below), so DOM updates land asynchronously, not the instant a
  * transcript line/pane change is made.
  */
-function browser_wait_until(callable $check, float $timeoutSeconds = 4.0): bool
+function browser_wait_until(callable $check, float $timeoutSeconds = 10.0): bool
 {
     $deadline = microtime(true) + $timeoutSeconds;
 

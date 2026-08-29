@@ -8,6 +8,8 @@ EnvironmentFile=-@REPO_ROOT@/host-agent/.env
 ExecStart=@PHP_BIN@ @REPO_ROOT@/host-agent/codex_bridge.php
 Restart=on-failure
 RestartSec=2
+RestartSteps=5
+RestartMaxDelaySec=30
 
 [Install]
 WantedBy=default.target

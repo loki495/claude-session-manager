@@ -484,7 +484,7 @@ try {
         'GET /js/common.js: a window scroll listener snaps the outer page back to (0,0) - found live 2026-08-22 (real iOS Safari screen recording, Andres): focusing the compose textarea panned the WHOLE layout viewport off-screen (not a DOM scroll, so overflow:hidden on body did not stop it), dragging position:fixed elements along with it and leaving the page entirely blank'
     );
     assert_contains('function copyTextToClipboard(', $commonJs['body'], 'GET /js/common.js: copyTextToClipboard() (navigator.clipboard with an execCommand fallback for insecure-context LAN access) is shipped');
-    assert_contains("closest('.copy-btn')", $commonJs['body'], 'GET /js/common.js: the delegated .copy-btn click handler is shipped');
+    assert_contains("closestEventTarget(e, '.copy-btn')", $commonJs['body'], 'GET /js/common.js: the delegated .copy-btn click handler is shipped through the safe event-target helper');
     assert_contains('fullscreen-text-modal-copy', $commonJs['body'], 'GET /js/common.js: the fullscreen text modal\'s own Copy button is wired up');
     assert_contains('fullscreenTextModal.addEventListener(\'touchstart\'', $commonJs['body'], 'GET /js/common.js: the fullscreen text modal has its own swipe-to-close touch handling (Andres 2026-08-22), not just the close button/Escape');
     assert_contains('FULLSCREEN_SWIPE_MIN_DISTANCE_PX', $commonJs['body'], 'GET /js/common.js: the swipe-to-close gesture is shipped with its own distance/ratio thresholds');
@@ -556,14 +556,14 @@ try {
     assert_contains('.older-content-highlight', $result['body'], 'GET /session.php: the older-content-highlight CSS (distinct cyan glow) is shipped');
     assert_contains('function resetHistoryForRotatedTranscript(', $sessionJs['body'], 'GET /js/session.js: resetHistoryForRotatedTranscript() (clears the rendered history on /clear, /compact, --resume, --fork-session) is shipped');
     assert_contains("sessionHeader = document.getElementById('session-header')", $sessionJs['body'], 'GET /js/session.js: the iOS tap-header-to-scroll-to-top handler is shipped');
-    assert_contains("closest('a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')", $sessionJs['body'], 'GET /js/session.js: the tap-to-scroll-to-top handler excludes the header\'s own real tap targets (back link, title/cwd, poll interval, sidebar toggle)');
+    assert_contains("closestEventTarget(e, 'a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')", $sessionJs['body'], 'GET /js/session.js: the tap-to-scroll-to-top handler excludes the header\'s own real tap targets through the safe event-target helper');
     // renderStaticInfo() no longer carries a session-info card (removed
     // 2026-08-20 - just title+cwd in the fixed header now, see header.php)
     // - only the header title/tooltip need live updating (cwd never
     // changes for a session's lifetime).
     assert_contains('headerTitle.title = title', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() keeps the header title\'s tooltip (title attribute) in sync too, not just its visible text');
     assert_contains("class=\"copy-block\" data-line=\"' + line + '\"><div class=\"markdown-body", $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button (and data-line, for search-result jump/highlight) on plain text entries');
-    assert_contains("closest('summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
+    assert_contains("closestEventTarget(e, 'summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler safely excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
     assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
     // --- standalone tool-call entries (TranscriptView::render_transcript_
     // entries_html()/render_tool_call_entry_html() - bundling under a
