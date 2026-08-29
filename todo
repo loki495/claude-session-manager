@@ -106,6 +106,32 @@ sub-clause was trimmed for the same reason (its own UI-split ask stands).
   `/feature-atlas-subsystem agent-abstraction`) to actually audit Codex
   against this list rather than guessing from a quick read of freshly-added
   code.
+- (2026-08-29, checked in code - branch never deleted, sitting unmerged
+  since 2026-08-11) Land `perf/session-list-polling` (still exists locally
+  and on origin - NOT deleted, unlike the other stray branches cleaned up
+  2026-08-29, since its content is real and genuinely not in master yet).
+  Two complementary fixes for the same live-found problem (2026-08-11, with
+  several sessions/tabs open, page visibly hanging for a second or two):
+  - Server-side: `SessionListCacheStore` (host-agent/lib/Stores/) - a
+    very-short-TTL (0.9s, `SESSION_LIST_CACHE_TTL_SECONDS`) file cache
+    coalescing concurrent `SessionService::list_all_sessions()` calls (the
+    single most expensive thing the host-agent does - a tmux subprocess per
+    tracked session plus a full /proc walk) across multiple tabs/pollers
+    landing within that window of each other. Doesn't reduce how often any
+    ONE poller asks - only prevents redundant concurrent scans from each
+    paying for their own.
+  - Client-side (session.js): decoupled the sidebar notification dot's
+    polling off the main transcript poll cycle (which can be set as low as
+    1s) onto its own fixed, much slower interval (15s,
+    `startSidebarNotifyPolling()`/`stopSidebarNotifyPolling()`) - the dot
+    only needs "glance" freshness, not transcript-poll freshness, and was
+    triggering the expensive full scan on every fast tick just to maybe
+    flip a dot for sessions the page isn't even showing.
+  Needs a real rebase/reconciliation before merging, not a blind merge -
+  `SessionService::list_all_sessions()` has changed substantially since
+  2026-08-11 (OpenCode/Antigravity/Codex agent support, headless routing,
+  all landed after this branch was cut), so the cache-wrapping needs
+  re-applying against the current function shape, not assumed compatible.
 
 === Tier 3: scoped feature-parity work ===
 
