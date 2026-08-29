@@ -215,3 +215,15 @@ Smaller polish (low effort, low risk):
   capabilities and define what context, transcript, attachments, tool state,
   permissions, and model settings can be preserved versus summarized during
   a cross-agent handoff.
+- (Andres 2026-08-29) Decide on a mitigation for pane-scraping fragility:
+  full inventory of every tmux-capture-pane-dependent parsing site (Claude
+  Code, Antigravity, OpenCode legacy tmux fallback) plus mitigation options
+  now written up in docs/pane-scraping-fragility.md, prompted by a real bug
+  the same day (Claude Code's AskUserQuestion tab UI started prefixing its
+  question line with "│ ", breaking answer_multi_question()'s exact-string
+  pre-flight check - fixed in PromptParser::parse_blocking_prompt()). Pick
+  one or more of the doc's mitigation options (loosen exact-match checks to
+  structural/substring, freshen+expand the pane fixture library so drift
+  gets caught by tests, record a "last verified against CLI version N" note
+  per site, or explicitly decide to do nothing beyond fixing bugs as they're
+  hit) rather than leaving it as an open list forever.
