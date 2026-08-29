@@ -117,7 +117,7 @@ class OpenCodeTranscriptService
      * works rather than jamming call+output into one long string.
      *
      * @param array<string, mixed> $partData
-     * @return array<int, array{kind:string, text:string, tool_name?:string}>
+     * @return array<int, array{kind:string, text:string, tool_name?:string, file_path?:string, command?:string, description?:string}>
      */
     private static function tool_part_to_blocks(array $partData): array
     {
@@ -140,11 +140,28 @@ class OpenCodeTranscriptService
                 $summary = $toolName . '(' . $input['command'] . ')';
             } elseif (isset($input['query'])) {
                 $summary = $toolName . '(' . $input['query'] . ')';
-            } elseif (isset($input['filePath'])) {
-                $summary = $toolName . '(' . $input['filePath'] . ')';
             }
 
-            $blocks[] = ['kind' => 'tool_use', 'text' => $summary, 'tool_name' => $toolName];
+            // Mirror the metadata fields TranscriptView::tool_call_entry_summary()
+            // uses for Claude tool calls — file_path, command, description — so
+            // the one-line summary inside a <details> shows e.g.
+            // "write src/foo.php" instead of "write({filePath:...})".
+            $block = array_filter([
+                'kind' => 'tool_use',
+                'text' => $summary,
+                'tool_name' => $toolName,
+                'file_path' => in_array($toolName, ['write', 'read', 'edit'], true) && is_string($input['filePath'] ?? null) && $input['filePath'] !== ''
+                    ? $input['filePath']
+                    : null,
+                'command' => in_array($toolName, ['bash', 'execute', 'run_command'], true) && is_string($input['command'] ?? null) && $input['command'] !== ''
+                    ? $input['command']
+                    : null,
+                'description' => is_string($input['description'] ?? null) && $input['description'] !== ''
+                    ? $input['description']
+                    : null,
+            ], static fn(mixed $v): bool => $v !== null);
+
+            $blocks[] = $block;
         } else {
             // Tool part with no input yet (pending) - still surface it rather than hide it.
             $blocks[] = ['kind' => 'tool_use', 'text' => $toolName, 'tool_name' => $toolName];
@@ -517,6 +534,7 @@ class OpenCodeTranscriptService
      * opencode's TUI idle state, but does show the question when blocked —
      * verified live 2026-08-25 on ses_fc8124).
      *
+    /**
      * @return array{question:string, header:?string, options:array<int, array{number:int, label:string}>}|null
      */
     public static function find_pending_question(string $sessionId): ?array
@@ -531,10 +549,20 @@ class OpenCodeTranscriptService
             return null;
         }
 
-        $stmt = $pdo->prepare("SELECT data FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.tool') = 'question' ORDER BY time_created DESC LIMIT 5");
+        $stmt = $pdo->prepare("SELECT data FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.tool') = 'question' ORDER BY time_updated DESC LIMIT 5");
         $stmt->execute([$sessionId]);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
+        // Staleness guard (found live 2026-08-25, cloning session): opencode
+        // leaves a question tool's state.status as "running" even after the
+        // question is answered, but the NEWER re-ask of the same question is
+        // the one that gets flipped to "completed". The naive "first
+        // running/pending by recency" picks up an OLD stale question from
+        // earlier in the transcript while the newest (answered) one exists.
+        // Only the NEWEST question tool (by time_updated) is authoritative:
+        // if it's running/pending the session is blocked on it; if it's
+        // completed the session is NOT blocked, no matter what earlier
+        // "running" remnants say.
         foreach ($rows as $row) {
             $data = json_decode((string)($row['data'] ?? ''), true);
             if (!is_array($data)) {
@@ -544,9 +572,10 @@ class OpenCodeTranscriptService
             $state = is_array($data['state'] ?? null) ? $data['state'] : [];
             $status = is_string($state['status'] ?? null) ? $state['status'] : '';
 
-            // Only the currently-pending question (not already answered)
+            // The newest question tool is authoritative regardless of state;
+            // if it's not currently blocking, there's no blocked question.
             if ($status !== 'running' && $status !== 'pending') {
-                continue;
+                return null;
             }
 
             $input = is_array($state['input'] ?? null) ? $state['input'] : (is_array($data['input'] ?? null) ? $data['input'] : []);
@@ -608,5 +637,196 @@ class OpenCodeTranscriptService
     public static function read_attachment(string $path, int $line, string $fileUuid): array
     {
         return ['ok' => false, 'message' => 'Attachments are not supported for OpenCode sessions yet'];
+    }
+
+    /**
+     * All OpenCode sessions from opencode.db, as a list of transcript
+     * summaries — the OpenCode counterpart to TranscriptService::
+     * list_all_transcripts() and AntigravityTranscriptService::
+     * list_all_transcripts(). Used by the dashboard-wide search to iterate
+     * every session's content.
+     *
+     * @return array<int, array{session_id:string, title:?string, cwd:?string, last_activity:int}>
+     */
+    public static function list_all_transcripts(): array
+    {
+        $pdo = self::open_db_readonly();
+
+        if ($pdo === null) {
+            return [];
+        }
+
+        try {
+            $stmt = $pdo->query('SELECT id, title, time_created FROM session ORDER BY time_created DESC');
+
+            if ($stmt === false) {
+                return [];
+            }
+
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            if (!is_array($rows)) {
+                return [];
+            }
+
+            $results = [];
+
+            foreach ($rows as $row) {
+                $id = is_string($row['id'] ?? null) ? $row['id'] : null;
+
+                if ($id === null || !self::is_opencode_id($id)) {
+                    continue;
+                }
+
+                $createdAt = is_int($row['time_created'] ?? null) ? (int)$row['time_created'] : 0;
+
+                $results[] = [
+                    'session_id' => $id,
+                    'title' => is_string($row['title'] ?? null) ? $row['title'] : null,
+                    'cwd' => null,
+                    'last_activity' => $createdAt,
+                ];
+            }
+
+            return $results;
+        } catch (\PDOException $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Searches one OpenCode session's messages and parts for text matching
+     * $query — the OpenCode counterpart to TranscriptService::
+     * search_transcript_file(). Returns matches newest-first with line
+     * numbers, snippets, and role/kind metadata matching the same shape
+     * the dashboard search UI expects.
+     *
+     * @return array<int, array{line:int, snippet:string, role:?string, kind:string, timestamp:?int}>
+     */
+    public static function search_transcript(string $sessionId, string $query, int $maxMatches): array
+    {
+        $trimmedQuery = trim($query);
+
+        if ($trimmedQuery === '' || !self::is_opencode_id($sessionId)) {
+            return [];
+        }
+
+        $pdo = self::open_db_readonly();
+
+        if ($pdo === null) {
+            return [];
+        }
+
+        try {
+            // Fetch all messages for this session, newest-first for search.
+            $stmt = $pdo->prepare('SELECT id, data, time_created FROM message WHERE session_id = ? ORDER BY time_created DESC');
+            $stmt->execute([$sessionId]);
+            $messages = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            if (!is_array($messages)) {
+                return [];
+            }
+
+            // Build parts index: message_id => list of part data.
+            $messageIds = array_column($messages, 'id');
+            $partsByMessage = [];
+
+            if ($messageIds !== []) {
+                $chunkSize = 500;
+
+                for ($c = 0; $c < count($messageIds); $c += $chunkSize) {
+                    $chunk = array_slice($messageIds, $c, $chunkSize);
+                    $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                    $partStmt = $pdo->prepare("SELECT message_id, data FROM part WHERE message_id IN ({$placeholders}) ORDER BY time_created ASC");
+                    $partStmt->execute($chunk);
+                    $partRows = $partStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+                    foreach ($partRows as $row) {
+                        $data = json_decode((string)($row['data'] ?? ''), true);
+
+                        if (is_array($data)) {
+                            $partsByMessage[$row['message_id']][] = $data;
+                        }
+                    }
+                }
+            }
+
+            $matches = [];
+            $msgIdx = count($messages);
+
+            foreach ($messages as $msgRow) {
+                $msgIdx--;
+                $messageData = json_decode((string)($msgRow['data'] ?? ''), true);
+
+                if (!is_array($messageData)) {
+                    continue;
+                }
+
+                $parts = $partsByMessage[$msgRow['id']] ?? [];
+                $entry = self::message_to_entry($messageData, $parts);
+
+                if ($entry === null) {
+                    continue;
+                }
+
+                // Search across all block text in this entry.
+                $blockText = '';
+
+                foreach ($entry['blocks'] as $block) {
+                    $blockText .= ' ' . ($block['text'] ?? '');
+                }
+
+                $blockText = trim($blockText);
+
+                if (stripos($blockText, $trimmedQuery) === false) {
+                    continue;
+                }
+
+                $createdAt = is_int($msgRow['time_created'] ?? null) ? (int)$msgRow['time_created'] : 0;
+
+                $matches[] = [
+                    'line' => $msgIdx + 1,
+                    'snippet' => self::build_search_snippet($blockText, $trimmedQuery),
+                    'role' => $entry['role'] ?? null,
+                    'kind' => $entry['blocks'][0]['kind'] ?? 'text',
+                    'timestamp' => $createdAt > 0 ? $createdAt : null,
+                ];
+
+                if (count($matches) >= $maxMatches) {
+                    break;
+                }
+            }
+
+            return $matches;
+        } catch (\PDOException $e) {
+            return [];
+        }
+    }
+
+    /**
+     * A one-line, whitespace-collapsed preview centered on the query's
+     * first occurrence — mirrors TranscriptService::build_search_snippet().
+     */
+    private static function build_search_snippet(string $text, string $query): string
+    {
+        $collapsed = preg_replace('/\s+/', ' ', $text);
+        $pos = stripos($collapsed, $query);
+
+        if ($pos === false) {
+            return mb_strimwidth($collapsed, 0, 120, '…');
+        }
+
+        $start = max(0, $pos - 40);
+        $snippet = substr($collapsed, $start, 120);
+
+        if ($start > 0) {
+            $snippet = '…' . $snippet;
+        }
+
+        if ($start + 120 < strlen($collapsed)) {
+            $snippet .= '…';
+        }
+
+        return $snippet;
     }
 }

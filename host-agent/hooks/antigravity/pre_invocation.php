@@ -83,6 +83,6 @@ if ($conversationId !== null) {
     }
 }
 
-SessionStatusStore::update_status($sessionName, ['status' => 'working', 'blocked' => null]);
+SessionStatusStore::update_status($sessionName, ['status' => 'working', 'blocked' => null, 'last_turn_error' => null]);
 
 echo '{}';

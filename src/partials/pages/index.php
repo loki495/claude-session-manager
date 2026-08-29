@@ -98,7 +98,13 @@ $this->layout('layout', [
       <input type="hidden" name="workdir" id="workdir_value">
       <div class="text-sm text-slate-300">Working directory</div>
       <div class="rounded-lg border border-slate-700 bg-slate-800 overflow-hidden">
-        <div id="browser_path" class="px-3 py-2 text-xs font-mono text-slate-400 truncate border-b border-slate-700">Loading&hellip;</div>
+        <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-700">
+          <div id="browser_path" class="text-xs font-mono text-slate-400 truncate">Loading&hellip;</div>
+          <button type="button" id="new-folder-btn" data-csrf-token="<?= $this->e($csrfToken) ?>"
+            class="shrink-0 text-xs font-medium text-indigo-400 active:text-indigo-300">
+            + Folder
+          </button>
+        </div>
         <ul id="browser_list" class="max-h-56 overflow-y-auto overscroll-contain divide-y divide-slate-700/60 text-sm"></ul>
       </div>
       <!-- Andres's own ask, 2026-08-23: --allowedTools naming the
@@ -120,11 +126,18 @@ $this->layout('layout', [
            tracking needs the hook scripts Phase 3 adds. -->
       <label class="flex items-center gap-2 text-sm text-slate-300">
         Agent
-        <select name="agent" class="rounded-lg border border-slate-700 bg-slate-800 text-sm text-slate-200 px-2 py-1.5">
+        <select id="new-session-agent" name="agent" class="rounded-lg border border-slate-700 bg-slate-800 text-sm text-slate-200 px-2 py-1.5">
           <?php foreach (\App\Views\PageView::AGENT_OPTIONS as $agentKey => $agentLabel): ?>
             <option value="<?= $this->e($agentKey) ?>"<?= $agentKey === 'claude' ? ' selected' : '' ?>><?= $this->e($agentLabel) ?></option>
           <?php endforeach ?>
         </select>
+      </label>
+      <label class="flex items-center gap-2 text-sm text-slate-300">
+        Model
+        <select id="new-session-model" name="model" class="rounded-lg border border-slate-700 bg-slate-800 text-sm text-slate-200 px-2 py-1.5">
+          <option value="">Default</option>
+        </select>
+        <input type="hidden" id="new-session-model-provider" name="model_provider" value="">
       </label>
       <label class="flex items-center gap-2 text-sm text-slate-300">
         <input type="checkbox" name="enable_task_tools" value="1" class="rounded border-slate-600 bg-slate-800">
@@ -200,12 +213,8 @@ $this->layout('layout', [
      its own regardless. -->
 <div id="dashboard-footer" class="flex-none bg-slate-950/90 border-t border-slate-800 px-4 py-3">
   <div class="max-w-2xl mx-auto">
-    <div class="flex items-start justify-between gap-3">
+    <div class="flex items-start gap-3">
       <?= \App\Views\QuotaFooterView::quota_footer_html() ?>
-      <a href="/"
-        class="select-none min-h-[2.75rem] flex items-center rounded-lg bg-slate-800 active:bg-slate-700 font-medium text-sm px-4 py-2 shrink-0">
-        Refresh
-      </a>
     </div>
     <?= \App\Views\PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
   </div>

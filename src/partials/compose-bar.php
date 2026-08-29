@@ -5,7 +5,10 @@ use App\Views\QuotaFooterView;
 use App\Views\TranscriptView;
 
 if ($found): ?>
-  <?php $composeBlocked = !empty($detail['blocked_reason']); ?>
+  <?php
+    $composeBlocked = !empty($detail['blocked_reason']);
+    $composeReadOnly = ($detail['writable'] ?? true) === false;
+  ?>
   <!-- A normal (non-fixed) flex item, last child of #app-shell (see
        session.php) - position:fixed here used to visually detach mid-
        scroll on iOS Safari (found live 2026-08-17, a known-buggy pairing
@@ -14,7 +17,7 @@ if ($found): ?>
        at all rather than patch around it. -->
   <div id="compose-bar" class="select-none flex-none bg-slate-950/95 border-t border-slate-800 px-4 py-3">
     <div class="max-w-2xl lg:max-w-4xl mx-auto">
-      <div id="compose-input-row" class="<?= $composeBlocked ? 'hidden' : '' ?>">
+      <div id="compose-input-row" class="<?= ($composeBlocked || $composeReadOnly) ? 'hidden' : '' ?>">
         <div id="compose-attachments-preview" class="hidden flex flex-wrap gap-2 mb-2"></div>
         <div class="flex items-stretch gap-2">
           <button type="button" id="compose-attach-btn" aria-label="Attach file"
@@ -47,8 +50,27 @@ if ($found): ?>
       <div id="compose-blocked-note" class="<?= $composeBlocked ? '' : 'hidden' ?> text-xs text-slate-500 py-2">
         Answer the prompt above to continue.
       </div>
+      <div id="compose-read-only-note" class="<?= $composeReadOnly ? '' : 'hidden' ?> rounded-lg border border-amber-800/50 bg-amber-950/25 px-3 py-2 text-xs text-amber-300">
+        <?= $this->e((string)($detail['read_only_reason'] ?? 'This Codex session is currently read-only.')) ?>
+      </div>
+      <?php
+        // Antigravity has no mode toggle (no Shift+Tab-cycled permission
+        // modes to mirror) and a differently-scoped model toggle - see
+        // TranscriptView::render_antigravity_model_toggle_html()'s own
+        // docblock (always a global-default switch, never session-only).
+        // OpenCode likewise has no mode toggle and its model list is the
+        // serve's dynamic /config/providers set, populated client-side.
+        $agent = $detail['agent'] ?? 'claude';
+        $agentExtras = $agent === 'codex'
+            ? TranscriptView::render_codex_model_toggle_html($detail)
+            : ($agent === 'antigravity'
+            ? TranscriptView::render_antigravity_model_toggle_html($detail)
+            : ($agent === 'opencode'
+                ? TranscriptView::render_opencode_model_toggle_html($detail)
+                : TranscriptView::render_model_toggle_html($detail) . TranscriptView::render_mode_toggle_html($detail)));
+      ?>
       <div class="mt-2">
-        <?= QuotaFooterView::quota_footer_html(TranscriptView::render_model_toggle_html($detail) . TranscriptView::render_mode_toggle_html($detail), $sessionName) ?>
+        <?= QuotaFooterView::quota_footer_html($agentExtras, $sessionName) ?>
         <?= PushNotifyView::push_notify_button_html($vapidPublicKey, $csrfToken) ?>
       </div>
     </div>

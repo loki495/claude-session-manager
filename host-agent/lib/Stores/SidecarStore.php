@@ -30,16 +30,18 @@ class SidecarStore
     {
         $pdo = SqliteDb::connect(Config::sessions_sqlite_path(), SqliteDb::sessions_schema());
         SqliteDb::add_column_if_missing($pdo, 'sidecars', 'agent', 'TEXT');
+        SqliteDb::add_column_if_missing($pdo, 'sidecars', 'runtime', 'TEXT');
+        SqliteDb::add_column_if_missing($pdo, 'sidecars', 'title', 'TEXT');
 
         return $pdo;
     }
 
     /**
-     * @return array{workdir:?string, spawned_at:?int, claude_session_id?:?string, spawned_by_csm?:bool, agent?:?string}|null
+     * @return array{workdir:?string, spawned_at:?int, claude_session_id?:?string, spawned_by_csm?:bool, agent?:?string, runtime?:?string, title?:?string}|null
      */
     public static function read_sidecar(string $sessionName): ?array
     {
-        $stmt = self::db()->prepare('SELECT workdir, spawned_at, claude_session_id, spawned_by_csm, agent FROM sidecars WHERE session_name = ?');
+        $stmt = self::db()->prepare('SELECT workdir, spawned_at, claude_session_id, spawned_by_csm, agent, runtime, title FROM sidecars WHERE session_name = ?');
         $stmt->execute([$sessionName]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -64,6 +66,17 @@ class SidecarStore
                 // this column did), same convention as write_sidecar()'s
                 // own default below.
                 'agent' => $row['agent'],
+                // Added 2026-08-25 (headless-runtime plan Phase 2.5) - a
+                // row written before this column existed reads back null,
+                // which callers treating a missing runtime as "tmux" rely
+                // on (every sidecar predating headless support is a tmux
+                // session).
+                'runtime' => $row['runtime'],
+                // The agent-visible title, populated by the headless sync
+                // (csm_headless_sync()) from the serve session's own title;
+                // null for pre-headless rows, so callers fall back to a
+                // workdir basename.
+                'title' => $row['title'],
             ];
         }
 
@@ -85,14 +98,16 @@ class SidecarStore
     public static function write_sidecar(string $sessionName, array $data): void
     {
         $stmt = self::db()->prepare(
-            'INSERT INTO sidecars (session_name, workdir, spawned_at, claude_session_id, spawned_by_csm, agent)
-             VALUES (:session_name, :workdir, :spawned_at, :claude_session_id, :spawned_by_csm, :agent)
+            'INSERT INTO sidecars (session_name, workdir, spawned_at, claude_session_id, spawned_by_csm, agent, runtime, title)
+             VALUES (:session_name, :workdir, :spawned_at, :claude_session_id, :spawned_by_csm, :agent, :runtime, :title)
              ON CONFLICT(session_name) DO UPDATE SET
                 workdir = excluded.workdir,
                 spawned_at = excluded.spawned_at,
                 claude_session_id = excluded.claude_session_id,
                 spawned_by_csm = excluded.spawned_by_csm,
-                agent = excluded.agent'
+                agent = excluded.agent,
+                runtime = excluded.runtime,
+                title = excluded.title'
         );
 
         $stmt->execute([
@@ -105,6 +120,11 @@ class SidecarStore
             // (true/false/absent) distinction matters to callers.
             ':spawned_by_csm' => array_key_exists('spawned_by_csm', $data) ? (!empty($data['spawned_by_csm']) ? 1 : 0) : null,
             ':agent' => $data['agent'] ?? 'claude',
+            // Bare NULL when the key is absent - callers reading it back as
+            // null (see read_sidecar()) treat that as "tmux", which is the
+            // only runtime every pre-headless sidecar belongs to.
+            ':runtime' => $data['runtime'] ?? null,
+            ':title' => $data['title'] ?? null,
         ]);
     }
 
@@ -126,14 +146,69 @@ class SidecarStore
         $placeholders = implode(',', array_fill(0, count($liveSessionNames), '?'));
 
         foreach (['sidecars', 'session_status', 'pending_tools'] as $table) {
-            $sql = "DELETE FROM {$table} WHERE session_name NOT IN ({$placeholders})";
+            // Runtime metadata, not an agent-specific id prefix, is the
+            // authority. OpenCode ids happen to be ses_*, while Codex thread
+            // ids are UUIDs and would otherwise be mistaken for dead tmux
+            // rows and pruned on every dashboard poll.
+            $guard = $table === 'sidecars'
+                ? " AND COALESCE(runtime, 'tmux') != 'headless'"
+                : " AND session_name NOT IN (SELECT session_name FROM sidecars WHERE runtime = 'headless')";
 
             if ($liveSessionNames === []) {
-                $sql = "DELETE FROM {$table}";
+                $sql = "DELETE FROM {$table} WHERE 1=1{$guard}";
+            } else {
+                $sql = "DELETE FROM {$table} WHERE session_name NOT IN ({$placeholders}){$guard}";
             }
 
             $stmt = $db->prepare($sql);
             $stmt->execute($liveSessionNames);
         }
+    }
+
+    /**
+     * Every sidecar row with a given runtime - the headless listing / prune
+     * reads from here rather than re-hitting `opencode serve` on each poll.
+     *
+     * @return array<int, array{session_name:string, workdir:?string, spawned_at:?int, claude_session_id:?string, agent:?string, runtime:?string, title:?string}>
+     */
+    public static function list_runtime_sidecars(string $runtime): array
+    {
+        $stmt = self::db()->prepare('SELECT session_name, workdir, spawned_at, claude_session_id, agent, runtime, title FROM sidecars WHERE runtime = ?');
+        $stmt->execute([$runtime]);
+        $rows = [];
+
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $rows[] = [
+                'session_name' => (string)$row['session_name'],
+                'workdir' => $row['workdir'],
+                'spawned_at' => $row['spawned_at'] !== null ? (int)$row['spawned_at'] : null,
+                'claude_session_id' => $row['claude_session_id'],
+                'agent' => $row['agent'],
+                'runtime' => $row['runtime'],
+                'title' => $row['title'],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Finds the tmux session NAME bound to a given claude_session_id (the
+     * agent-generated ses_* id). OpenCode's plugin reports permissions keyed
+     * by ses_*; CSM tracks them under oc-* tmux names, so this reverses that
+     * join. Returns null for an id no sidecar is bound to (not a CSM-tracked
+     * session, or the id is the harness's own claude id).
+     */
+    public static function find_by_claude_session_id(string $claudeSessionId): ?string
+    {
+        if ($claudeSessionId === '') {
+            return null;
+        }
+
+        $stmt = self::db()->prepare('SELECT session_name FROM sidecars WHERE claude_session_id = ? LIMIT 1');
+        $stmt->execute([$claudeSessionId]);
+        $row = $stmt->fetch(\PDO::FETCH_NUM);
+
+        return $row !== false ? (string)$row[0] : null;
     }
 }

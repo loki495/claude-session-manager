@@ -31,7 +31,7 @@ var requestSessionsPollNow = function () {};
 // common.js (loaded before this file).
 
 document.addEventListener('submit', function (e) {
-  var form = e.target.closest('form[data-confirm-label]');
+  var form = closestEventTarget(e, 'form[data-confirm-label]');
 
   if (!form) {
     return;
@@ -148,14 +148,14 @@ document.addEventListener('change', function (e) {
 });
 
 document.addEventListener('click', function (e) {
-  var multiQuestionSubmitBtn = e.target.closest('.multi-question-submit-btn');
+  var multiQuestionSubmitBtn = closestEventTarget(e, '.multi-question-submit-btn');
 
   if (multiQuestionSubmitBtn) {
     submitMultiQuestionAnswers(multiQuestionSubmitBtn.closest('.multi-question-wrapper'));
     return;
   }
 
-  var revealBtn = e.target.closest('.reveal-freetext-btn');
+  var revealBtn = closestEventTarget(e, '.reveal-freetext-btn');
 
   if (revealBtn) {
     var replyDiv = revealBtn.closest('.prompt-options-wrapper').querySelector('.freetext-reply');
@@ -169,7 +169,7 @@ document.addEventListener('click', function (e) {
     return;
   }
 
-  var sendBtn = e.target.closest('.freetext-reply-send-btn');
+  var sendBtn = closestEventTarget(e, '.freetext-reply-send-btn');
 
   if (sendBtn) {
     submitFreetextReply(sendBtn.closest('.freetext-reply'));
@@ -187,9 +187,9 @@ document.addEventListener('click', function (e) {
 // actually vulnerable to itself (it didn't require shiftKey at all
 // before), but the inconsistency was the actual thing being flagged.
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && e.target.classList.contains('freetext-reply-textarea')) {
+  if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && eventTargetHasClass(e, 'freetext-reply-textarea')) {
     e.preventDefault();
-    submitFreetextReply(e.target.closest('.freetext-reply'));
+    submitFreetextReply(closestEventTarget(e, '.freetext-reply'));
   }
 });
 
@@ -242,7 +242,7 @@ document.addEventListener('keydown', function (e) {
   }
 
   document.addEventListener('submit', function (e) {
-    var form = e.target.closest('.take-over-form');
+    var form = /** @type {HTMLFormElement|null} */ (closestEventTarget(e, '.take-over-form'));
 
     if (!form) {
       return;
@@ -254,11 +254,16 @@ document.addEventListener('keydown', function (e) {
     var btn = form.querySelector('button');
     btn.disabled = true;
 
+    var takeOverBody = new URLSearchParams();
+    new FormData(form).forEach(function (value, key) {
+      takeOverBody.append(key, String(value));
+    });
+
     fetch('/take_over_bare.php', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(new FormData(form)).toString()
+      body: takeOverBody.toString()
     })
       .then(function (r) { return parseJsonResponse(r, 'take-over-bare'); })
       .then(function (data) {
@@ -282,7 +287,7 @@ document.addEventListener('keydown', function (e) {
   });
 
   document.addEventListener('click', function (e) {
-    var cancelBtn = e.target.closest('.take-over-cancel-btn');
+    var cancelBtn = closestEventTarget(e, '.take-over-cancel-btn');
 
     if (cancelBtn) {
       var cancelRow = cancelBtn.closest('[data-bare-row]');
@@ -291,7 +296,7 @@ document.addEventListener('keydown', function (e) {
       return;
     }
 
-    var confirmBtn = e.target.closest('.take-over-confirm-btn');
+    var confirmBtn = closestEventTarget(e, '.take-over-confirm-btn');
 
     if (!confirmBtn) {
       return;
@@ -397,7 +402,7 @@ document.addEventListener('keydown', function (e) {
   }
 
   document.addEventListener('click', function (e) {
-    var btn = e.target.closest('.show-recent-btn');
+    var btn = closestEventTarget(e, '.show-recent-btn');
 
     if (!btn) {
       return;
@@ -458,6 +463,7 @@ document.addEventListener('keydown', function (e) {
   var listEl = document.getElementById('browser_list');
   var hiddenInput = document.getElementById('workdir_value');
   var submitBtn = document.getElementById('new-session-submit');
+  var newFolderBtn = document.getElementById('new-folder-btn');
   var loaded = false;
 
   function setStatusRow(text) {
@@ -520,6 +526,43 @@ document.addEventListener('keydown', function (e) {
       });
   }
 
+  // hiddenInput.value doubles as "the directory currently shown in the
+  // browser" - load() sets it to data.path on every successful fetch, so
+  // there's no separate variable to keep in sync with it.
+  newFolderBtn.addEventListener('click', function () {
+    var currentPath = hiddenInput.value;
+    if (!currentPath) { return; }
+
+    var name = window.prompt('New folder name:');
+    if (name === null) { return; }
+    name = name.trim();
+    if (name === '') { return; }
+
+    newFolderBtn.disabled = true;
+
+    fetch('/create_folder.php', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ path: currentPath, name: name, csrf_token: newFolderBtn.dataset.csrfToken }).toString()
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        newFolderBtn.disabled = false;
+
+        if (!data || !data.ok) {
+          window.alert((data && data.message) || 'Could not create folder.');
+          return;
+        }
+
+        load(data.path);
+      })
+      .catch(function () {
+        newFolderBtn.disabled = false;
+        window.alert('Network error.');
+      });
+  });
+
   details.addEventListener('toggle', function () {
     summary.textContent = details.open ? '− Cancel' : '+ New Session';
     summary.classList.toggle('bg-indigo-600', !details.open);
@@ -532,6 +575,134 @@ document.addEventListener('keydown', function (e) {
       load('');
     }
   });
+})();
+
+// --- New-session model dropdown: dynamically populated based on selected agent ---
+(function () {
+  var agentSelect = document.getElementById('new-session-agent');
+  var modelSelect = document.getElementById('new-session-model');
+  var modelProviderInput = document.getElementById('new-session-model-provider');
+
+  if (!agentSelect || !modelSelect) { return; }
+
+  var CLAUDE_MODELS = [
+    { id: '', label: 'Default' },
+    { id: 'sonnet', label: 'Sonnet' },
+    { id: 'fable', label: 'Fable' },
+    { id: 'opus', label: 'Opus' },
+    { id: 'haiku', label: 'Haiku' }
+  ];
+
+  var ocModelsCache = null;
+  var codexModelsCache = null;
+
+  function clearModels() {
+    while (modelSelect.options.length > 1) {
+      modelSelect.remove(1);
+    }
+    modelSelect.options[0].selected = true;
+    modelProviderInput.value = '';
+  }
+
+  function populateModels(models) {
+    clearModels();
+    models.forEach(function (m) {
+      var opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.label || m.id;
+      if (m.providerID) {
+        opt.setAttribute('data-provider', m.providerID);
+      }
+      modelSelect.appendChild(opt);
+    });
+  }
+
+  function loadClaudeModels() {
+    populateModels(CLAUDE_MODELS);
+  }
+
+  function loadOpenCodeModels() {
+    if (ocModelsCache) {
+      populateModels(ocModelsCache);
+      return;
+    }
+    clearModels();
+    modelSelect.options[0].textContent = 'Loading models…';
+    modelSelect.disabled = true;
+
+    fetch('/session_list_models.php', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        modelSelect.disabled = false;
+        modelSelect.options[0].textContent = 'Default';
+
+        if (!data || !data.ok || !data.models) { return; }
+
+        ocModelsCache = data.models.map(function (m) {
+          return {
+            id: m.id,
+            label: (m.providerID ? m.providerID + '/' : '') + (m.id || m.name || ''),
+            providerID: m.providerID
+          };
+        });
+        populateModels(ocModelsCache);
+      })
+      .catch(function () {
+        modelSelect.disabled = false;
+        modelSelect.options[0].textContent = 'Default';
+      });
+  }
+
+  function loadCodexModels() {
+    if (codexModelsCache) {
+      populateModels(codexModelsCache);
+      return;
+    }
+    clearModels();
+    modelSelect.options[0].textContent = 'Loading models…';
+    modelSelect.disabled = true;
+    fetch('/session_list_models.php?agent=codex', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        modelSelect.disabled = false;
+        modelSelect.options[0].textContent = 'Default';
+        if (!data || !data.ok || !data.models) { return; }
+        codexModelsCache = data.models.map(function (m) {
+          return { id: m.id, label: m.name || m.id };
+        });
+        populateModels(codexModelsCache);
+      })
+      .catch(function () {
+        modelSelect.disabled = false;
+        modelSelect.options[0].textContent = 'Default';
+      });
+  }
+
+  function onAgentChange() {
+    var agent = agentSelect.value;
+    clearModels();
+
+    if (agent === 'opencode') {
+      loadOpenCodeModels();
+    } else if (agent === 'codex') {
+      loadCodexModels();
+    } else if (agent === 'claude') {
+      loadClaudeModels();
+    } else {
+      // Antigravity: no model selection available
+      modelSelect.options[0].textContent = 'Default';
+    }
+  }
+
+  modelSelect.addEventListener('change', function () {
+    var opt = modelSelect.options[modelSelect.selectedIndex];
+    modelProviderInput.value = opt ? (opt.getAttribute('data-provider') || '') : '';
+  });
+
+  agentSelect.addEventListener('change', onAgentChange);
+
+  // Initialize on load
+  onAgentChange();
 })();
 
 // --- visibility-gated live polling: keeps the session list, bare-process
@@ -716,6 +887,7 @@ document.addEventListener('keydown', function (e) {
   var PAGE_SIZE = 25;
   var loaded = false;
   var revealedCount = 0;
+  var selectedAgentFilter = 'all';
 
   function applyPagination() {
     var loadMoreBtn = document.getElementById('archived-load-more-btn');
@@ -734,6 +906,30 @@ document.addEventListener('keydown', function (e) {
     loadMoreBtn.textContent = 'Load more (' + remaining + ' more)';
   }
 
+  function updateAgentFilterButtons() {
+    var filterBtns = container.querySelectorAll('[data-agent-filter]');
+    filterBtns.forEach(function (b) {
+      var isSelected = b.getAttribute('data-agent-filter') === selectedAgentFilter;
+      b.setAttribute('data-selected', isSelected ? '1' : '0');
+      if (isSelected) {
+        var agent = b.getAttribute('data-agent-filter');
+        if (agent === 'opencode') {
+          b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-violet-900/50 text-violet-300 border-violet-700/50';
+        } else if (agent === 'codex') {
+          b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-cyan-900/50 text-cyan-300 border-cyan-700/50';
+        } else if (agent === 'antigravity') {
+          b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-amber-900/40 text-amber-300 border-amber-700/40';
+        } else if (agent === 'claude') {
+          b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-700 text-slate-200 border-slate-600';
+        } else {
+          b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-indigo-600 text-white border-indigo-500';
+        }
+      } else {
+        b.className = 'archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700';
+      }
+    });
+  }
+
   function filterArchivedRows() {
     var searchInput = document.getElementById('archived-search');
     var noMatches = document.getElementById('archived-no-matches');
@@ -745,10 +941,11 @@ document.addEventListener('keydown', function (e) {
     }
 
     var query = searchInput.value.toLowerCase();
+    var hasAgentFilter = selectedAgentFilter !== 'all';
+    var hasQuery = query !== '';
 
-    // An empty query means search was just cleared - revert to the
-    // paginated view instead of leaving every row revealed.
-    if (query === '') {
+    // No filters active → revert to paginated view
+    if (!hasAgentFilter && !hasQuery) {
       if (noMatches) {
         noMatches.classList.add('hidden');
       }
@@ -761,7 +958,9 @@ document.addEventListener('keydown', function (e) {
     var anyVisible = false;
 
     rows.forEach(function (row) {
-      var matches = row.textContent.toLowerCase().indexOf(query) !== -1;
+      var textMatch = !hasQuery || row.textContent.toLowerCase().indexOf(query) !== -1;
+      var agentMatch = !hasAgentFilter || row.getAttribute('data-agent') === selectedAgentFilter;
+      var matches = textMatch && agentMatch;
       row.classList.toggle('hidden', !matches);
 
       if (matches) {
@@ -823,6 +1022,16 @@ document.addEventListener('keydown', function (e) {
           searchInput.addEventListener('input', filterArchivedRows);
           wireClearButton(searchInput, document.getElementById('archived-search-clear-btn'));
         }
+
+        var filterBtns = container.querySelectorAll('[data-agent-filter]');
+        filterBtns.forEach(function (b) {
+          b.addEventListener('click', function () {
+            selectedAgentFilter = b.getAttribute('data-agent-filter');
+            updateAgentFilterButtons();
+            filterArchivedRows();
+          });
+        });
+        updateAgentFilterButtons();
       })
       .catch(function () {
         btn.disabled = false;
@@ -861,7 +1070,7 @@ document.addEventListener('keydown', function (e) {
   // hand-escaped JS string interpolation (r.session_name/r.title are
   // search-result data, not something to trust into a JS string literal).
   results.addEventListener('submit', function (e) {
-    var form = e.target.closest('form[data-confirm-label]');
+    var form = closestEventTarget(e, 'form[data-confirm-label]');
 
     if (form && !confirm('Archive session ' + form.dataset.confirmLabel + '?')) {
       e.preventDefault();
@@ -961,4 +1170,101 @@ document.addEventListener('keydown', function (e) {
         });
     }, 400);
   });
+})();
+
+// --- Pull-to-refresh (mobile). A downward drag from the top of the page's
+// scroll container triggers a reload of the dashboard - the explicit
+// "refresh" gesture a standalone PWA doesn't get from the browser (there's
+// no native pull-to-refresh in an installed PWA, and #page-content has
+// overscroll-contain to keep the mobile Safari bounce from hijacking it).
+// A full reload, not just a re-poll, so the SSR-only boxes (health, quota,
+// push-timer state) come back fresh too. #app-shell is a full-height flex
+// column with no body scroll; #page-content is the scrolling container. ---
+(function () {
+  var content = document.getElementById('page-content');
+  var shell = document.getElementById('app-shell') || content;
+  if (!content) {
+    return;
+  }
+
+  var THRESHOLD = 64;
+  var startY = 0;
+  var pullDist = 0;
+  var pulling = false;
+  var indicator = null;
+  var maxPull = 120;
+
+  function getIndicator() {
+    if (indicator) {
+      return indicator;
+    }
+
+    indicator = document.createElement('div');
+    indicator.setAttribute('aria-hidden', 'true');
+    indicator.style.cssText =
+      'position:fixed;top:0;left:0;right:0;min-height:64px;box-sizing:border-box;' +
+      'display:flex;align-items:flex-end;justify-content:center;text-align:center;padding:24px 10px 12px;' +
+      'pointer-events:none;z-index:60;font-size:12px;font-weight:500;' +
+      'color:#c7d2fe;opacity:0;transition:opacity .15s ease;' +
+      'background:rgba(79,70,229,.4);border-bottom:1px solid rgba(129,140,248,.7)';
+    document.body.appendChild(indicator);
+    return indicator;
+  }
+
+  content.addEventListener('touchstart', function (e) {
+    if (content.scrollTop <= 0) {
+      startY = e.touches[0].clientY;
+      pulling = true;
+      pullDist = 0;
+    } else {
+      pulling = false;
+    }
+  }, { passive: true });
+
+  content.addEventListener('touchmove', function (e) {
+    if (!pulling) {
+      return;
+    }
+
+    pullDist = e.touches[0].clientY - startY;
+
+    if (pullDist <= 0 || content.scrollTop > 0) {
+      shell.style.transition = 'transform .2s ease-out';
+      shell.style.transform = 'translate3d(0, 0, 0)';
+      if (indicator) {
+        indicator.style.opacity = '0';
+      }
+      return;
+    }
+
+    var resistedDist = Math.min(maxPull, pullDist * 0.55);
+    shell.style.transition = 'none';
+    shell.style.transform = 'translate3d(0, ' + resistedDist + 'px, 0)';
+    var el = getIndicator();
+    el.style.opacity = String(Math.min(1, resistedDist / (THRESHOLD * 0.55)));
+    el.textContent = pullDist >= THRESHOLD ? 'Release to refresh' : 'Pull to refresh';
+
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  function endPull() {
+    if (pulling && pullDist >= THRESHOLD) {
+      window.location.reload();
+      return;
+    }
+
+    shell.style.transition = 'transform .2s ease-out';
+    shell.style.transform = 'translate3d(0, 0, 0)';
+    if (indicator) {
+      indicator.style.opacity = '0';
+    }
+
+    pulling = false;
+    pullDist = 0;
+  }
+
+  content.addEventListener('touchend', endPull, { passive: true });
+  content.addEventListener('touchcancel', endPull, { passive: true });
 })();

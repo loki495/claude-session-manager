@@ -62,6 +62,16 @@ class Config
         return self::csm_config('OPENCODE_BIN', '');
     }
 
+    public static function codex_bin(): string
+    {
+        return self::csm_config('CODEX_BIN', '');
+    }
+
+    public static function codex_bridge_socket(): string
+    {
+        return self::csm_config('CODEX_BRIDGE_SOCKET', '/run/user/' . getmyuid() . '/csm-codex-bridge.sock');
+    }
+
     /**
      * Starting folder for the New Session browser - home_root() itself is
      * a reasonable generic default (always exists, always readable by
@@ -92,6 +102,19 @@ class Config
     public static function sidecar_dir(): string
     {
         return self::csm_config('SIDECAR_DIR', '/run/user/' . getmyuid() . '/csm-sessions');
+    }
+
+    /**
+     * Where the OpenCode CSM plugin writes pending-permission records (and the
+     * host-agent reads them back) - a small JSON file per ses_* id, so the
+     * plugin (Bun/JS, running inside each TUI) and this PHP host-agent never
+     * contend on a single shared DB connection. Sits under the same sidecar
+     * dir as the rest of CSM's per-session state (both runtimes can write
+     * there under the same user). Overridable for tests via OPENCODE_PERMISSION_DIR.
+     */
+    public static function opencode_permission_dir(): string
+    {
+        return self::csm_config('OPENCODE_PERMISSION_DIR', self::sidecar_dir() . '/opencode-permissions');
     }
 
     public static function cleanup_threshold_seconds(): int
@@ -218,6 +241,25 @@ class Config
     public static function opencode_db_path(): string
     {
         return self::csm_config('OPENCODE_DB_PATH', self::home_root() . '/.local/share/opencode/opencode.db');
+    }
+
+    public static function opencode_auth_path(): string
+    {
+        return self::csm_config('OPENCODE_AUTH_PATH', self::home_root() . '/.local/share/opencode/auth.json');
+    }
+
+    /**
+     * Base URL of the `opencode serve` HTTP server (see host-agent/systemd/
+     * opencode-serve.service, port 4096). opencode 1.18.21 exposes pending
+     * permission/question state ONLY through this server's in-memory API
+     * (GET /permission, GET /question and their reply endpoints return non-
+     * empty arrays while a modal is live, [] when orphaned/none) - so the
+     * host-agent talks to it for blocked-prompt detection/answering.
+     * Overridable via env for tests (OPENCODE_SERVE_URL).
+     */
+    public static function opencode_server_url(): string
+    {
+        return rtrim(self::csm_config('OPENCODE_SERVE_URL', 'http://localhost:4096'), '/');
     }
 
     /**

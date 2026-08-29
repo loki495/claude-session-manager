@@ -93,7 +93,7 @@ class SessionService
      * @param array{name:string, activity:int, attached:bool} $tmuxSession
      * @param array<int, array{pid:int, cwd:?string, started_at:?int}> $claudeProcs
      * @param array<int, int> $ppidMap
-     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, prompt_questions:?array, current_mode:?string, current_model:?string, claude_session_id:?string, last_message:?array}
+     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, prompt_questions:?array, current_mode:?string, current_model:?string, current_antigravity_model:?string, last_turn_error:?string, claude_session_id:?string, last_message:?array}
      */
     public static function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppidMap): array
     {
@@ -151,27 +151,59 @@ class SessionService
         // blocked card appear without the plugin installed).
         if ($agentId === 'opencode') {
             $claudeSessionIdForOc = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
-            $ocQuestion = $claudeSessionIdForOc !== null ? OpenCodeTranscriptService::find_pending_question($claudeSessionIdForOc) : null;
 
-            if ($ocQuestion !== null) {
-                $prompt = [
-                    'question' => $ocQuestion['question'] !== '' ? $ocQuestion['question'] : ($ocQuestion['header'] ?? 'Waiting on input'),
-                    'context' => $ocQuestion['header'] ?? '',
-                    'options' => $ocQuestion['options'],
-                    'multi_question' => false,
-                    'tool_name' => 'question',
-                ];
-            } elseif ($hookStatusValue === 'blocked') {
-                $prompt = PromptParser::build_prompt_from_hook_status($hookBlocked);
+            // Pending PERMISSION. The PANE is the only trustworthy "is a
+            // permission actually on screen" signal in opencode 1.18.21: the
+            // pane always renders the true dialog (first-stage Allow/Reject or
+            // second-stage Confirm/Cancel), whereas PermissionStore's record is
+            // fed by permission.asked events that opencode doesn't reliably
+            // pair with a permission.replied to clear - so a store record can
+            // go STALE (outlive the dialog it described). Therefore a block is
+            // surfaced ONLY when the pane shows a permission dialog; PermissionStore
+            // is used just to corroborate the "permission" classification (and,
+            // when the pane shows the dialog but the store is empty/already-cleared,
+            // we still surface it - the pane is the more current source).
+            $ocPanePrompt = OpenCodePromptParser::parse_blocking_prompt($paneContent);
+            $paneIsPermission = $ocPanePrompt !== null && ($ocPanePrompt['tool_name'] ?? null) === 'permission';
+
+            if ($paneIsPermission) {
+                $prompt = $ocPanePrompt;
             } else {
-                $prompt = null;
-                // Still check pane for opencode's TUI question as fallback
-                // (pane does show it when blocked, verified live)
-                $ocPanePrompt = OpenCodePromptParser::parse_blocking_prompt($paneContent);
-                if ($ocPanePrompt !== null) {
+                // QUESTION (opencode). Prefer the serve HTTP API - it's the
+                // authoritative, orphan-safe source (GET /question returns a
+                // live QuestionRequest, [] when nothing is pending or the modal
+                // is orphaned). Fall back to the DB question-tool poll, then the
+                // pane - each only if the stronger source found nothing.
+                $ocPending = $claudeSessionIdForOc !== null
+                    ? OpenCodeQuestionService::pending_question($claudeSessionIdForOc)
+                    : null;
+
+                if ($ocPending !== null) {
+                    $prompt = OpenCodeQuestionService::to_prompt($ocPending);
+                } elseif ($ocPanePrompt !== null && ($ocPanePrompt['tool_name'] ?? null) === 'question') {
+                    // Pane shows a live question dialog - use it (DB poll is the
+                    // less-trusted fallback; the pane reflects what's on screen).
                     $prompt = $ocPanePrompt;
+                } else {
+                    $ocQuestion = $claudeSessionIdForOc !== null ? OpenCodeTranscriptService::find_pending_question($claudeSessionIdForOc) : null;
+
+                    if ($ocQuestion !== null) {
+                        $prompt = [
+                            'question' => $ocQuestion['question'] !== '' ? $ocQuestion['question'] : ($ocQuestion['header'] ?? 'Waiting on input'),
+                            'context' => $ocQuestion['header'] ?? '',
+                            'options' => $ocQuestion['options'],
+                            'multi_question' => false,
+                            'tool_name' => 'question',
+                        ];
+                    } elseif ($hookStatusValue === 'blocked') {
+                        $prompt = PromptParser::build_prompt_from_hook_status($hookBlocked);
+                    } else {
+                        $prompt = null;
+                    }
                 }
             }
+        } elseif ($agentId === 'antigravity') {
+            $prompt = AntigravityPromptParser::parse_blocking_prompt($paneContent);
         } elseif ($hookStatusValue === 'blocked' && $hookBlockedToolName === 'AskUserQuestion') {
             // AskUserQuestion renders as a tab bar Claude Code itself
             // navigates with the Left/Right arrow keys - a single
@@ -238,6 +270,20 @@ class SessionService
         $rawModel = $transcriptPathForModel !== null ? TranscriptService::find_latest_model($transcriptPathForModel) : null;
         $currentModel = $rawModel !== null ? SelectableModel::family_from_raw_model($rawModel) : null;
 
+        // Antigravity has no transcript-derived model signal (see
+        // AntigravitySelectableModel::parse_current_model()'s own
+        // docblock) - only ever readable from the live pane's own footer,
+        // reusing the $paneContent already captured above.
+        $currentAntigravityModel = AntigravitySelectableModel::parse_current_model($paneContent);
+
+        // See host-agent/hooks/antigravity/stop.php's own docblock for why
+        // this exists: Antigravity writes NOTHING to its own transcript
+        // file for a turn that fails (e.g. quota exhausted) - only the
+        // Stop hook's live-pane read ever captures the actual error text,
+        // so it's carried here rather than derivable from the transcript
+        // the way current_model/current_mode above are.
+        $lastTurnError = is_string($hookStatus['last_turn_error'] ?? null) ? $hookStatus['last_turn_error'] : null;
+
         try {
             $agentLabel = AgentRegistry::get($agentId)->label();
         } catch (\Throwable) {
@@ -266,6 +312,8 @@ class SessionService
             'prompt_questions' => $promptQuestions,
             'current_mode' => $currentMode,
             'current_model' => $currentModel,
+            'current_antigravity_model' => $currentAntigravityModel,
+            'last_turn_error' => $lastTurnError,
             'claude_session_id' => $claudeSessionId,
             'last_message' => self::session_last_message($claudeSessionId),
             // Both sourced from StatuslineMarkerService's live-pane marker,
@@ -455,5 +503,53 @@ class SessionService
             'parent' => $real === $realRoot ? null : dirname($real),
             'dirs' => $dirs,
         ];
+    }
+
+    /**
+     * Creates a new subdirectory named $name inside $parentPath, for the
+     * "New folder" button on the same New Session folder browser browse_dir()
+     * serves - $parentPath goes through the identical home_root() boundary
+     * check as browse_dir() (same reasoning: this must never be able to
+     * reach outside the home directory), and $name is restricted to a bare
+     * basename (no `/`, no `.`/`..`) so it can't escape $parentPath either.
+     * On success, returns browse_dir() of the newly created folder itself -
+     * same response shape browse_dir() already returns, so the caller can
+     * feed it straight back into whatever renders a browse_dir() result
+     * rather than needing a second shape to handle.
+     *
+     * @return array{ok:bool, path?:string, parent?:?string, dirs?:string[], message?:string}
+     */
+    public static function create_dir(string $parentPath, string $name): array
+    {
+        $root = Config::home_root();
+        $realRoot = realpath($root);
+
+        if ($realRoot === false) {
+            return ['ok' => false, 'message' => 'Home directory is not configured correctly on the host'];
+        }
+
+        $realParent = realpath($parentPath);
+
+        if ($realParent === false || !is_dir($realParent) || ($realParent !== $realRoot && !str_starts_with($realParent . '/', $realRoot . '/'))) {
+            return ['ok' => false, 'message' => 'Path is outside the home directory'];
+        }
+
+        $name = trim($name);
+
+        if ($name === '' || $name !== basename($name) || $name === '.' || $name === '..') {
+            return ['ok' => false, 'message' => 'Invalid folder name'];
+        }
+
+        $target = $realParent . '/' . $name;
+
+        if (file_exists($target)) {
+            return ['ok' => false, 'message' => 'A file or folder with that name already exists'];
+        }
+
+        if (!mkdir($target, 0755)) {
+            return ['ok' => false, 'message' => 'Could not create the folder'];
+        }
+
+        return self::browse_dir($target);
     }
 }

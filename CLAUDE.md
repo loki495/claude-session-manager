@@ -167,6 +167,20 @@ that only `create_cc_session()`-spawned sessions have).
 
 ## Conventions worth knowing before editing
 
+- **OpenCode server integration: prefer the v2 `/api/session` API for
+  everything possible from now on** (decided 2026-08-26). v1 `/session`
+  only returns the tiny "currently live" set and is unreliable for
+  enumeration (caused the headless sync to prune just-resumed sessions);
+  v2 is the fuller, canonical surface (see the "Convention" note in
+  `docs/headless-runtime-plan.md`). When touching any opencode-server
+  call, check whether a v2 endpoint exists and use it; fall back to v1
+  only where v2 genuinely isn't available/working for that operation.
+ - **OpenCode event streams (as of 1.18.21):** the global `GET /event`
+   stream only emits `server.connected`/`server.heartbeat` — no session
+   status/step/permission events. The per-session `GET /api/session/:id/event`
+   serves HTML, not SSE. Session status detection relies on throttled
+   `GET /session/status` polling (in `csm_headless_sync()`).
+
 - **Claude Code tools/hooks questions: check the real docs first, not
   memory.** Whenever a change or investigation touches what tools/hooks a
   Claude Code session has available (this came up 2026-08-22/23
@@ -248,3 +262,20 @@ that only `create_cc_session()`-spawned sessions have).
   (`public/.htaccess`, added preemptively) or nginx (documented `try_files`
   equivalent in the README). Flag the trade-off if you're unsure it's
   worth the extra effort in a given case, but lean portable by default.
+
+## Feature atlas
+
+`.claude/feature-atlas/` is the source of truth for this project's
+feature/subsystem inventory: one `DETAILS.md` + `AUDIT.md` per subsystem,
+plus `SUMMARY.md` (registry + digest) and `REPORT.md` (ranked, cross-subsystem
+findings). Read it before re-deriving feature boundaries from scratch, and
+run `/feature-atlas` after adding/removing or substantially changing a
+feature, or at minimum before a refactor spanning multiple subsystems.
+`/feature-atlas-subsystem <id>` refreshes one subsystem; `/feature-atlas-report`
+re-ranks existing audits without rescanning. Note that the atlas only reports
+feature attribution across files (a file can be listed under several
+subsystems); it does not imply or require any physical file split.
+
+`docs/features.md` is the canonical, exhaustive capability list for the tool
+(what it can do), plus a per-agent coverage matrix and the known parity gaps —
+read it with `REPORT.md` when planning "same features for each agent" work.

@@ -40,12 +40,28 @@ fi
 # ITS OWN paths instead of silently carrying over the original author's.
 PHP_BIN="$(command -v php)"
 SOCKET_GROUP="$(id -gn)"
+HOME_DIR="$HOME"
+# opencode-serve.service needs the real `opencode` binary path. Prefer the
+# explicitly-configured OPENCODE_BIN from .env (same source Config::
+# opencode_bin() reads), falling back to PATH so a fresh clone without a
+# .env yet still installs a unit whose ExecStart isn't a literal empty path.
+OPENCODE_BIN="$(grep -E '^OPENCODE_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+if [ -z "$OPENCODE_BIN" ]; then
+    OPENCODE_BIN="$(command -v opencode || true)"
+fi
+CODEX_BIN="$(grep -E '^CODEX_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+if [ -z "$CODEX_BIN" ]; then
+    CODEX_BIN="$(command -v codex || true)"
+fi
 
 render_unit() {
     sed \
         -e "s|@REPO_ROOT@|$REPO_ROOT|g" \
         -e "s|@PHP_BIN@|$PHP_BIN|g" \
         -e "s|@SOCKET_GROUP@|$SOCKET_GROUP|g" \
+        -e "s|@OPENCODE_BIN@|$OPENCODE_BIN|g" \
+        -e "s|@CODEX_BIN@|$CODEX_BIN|g" \
+        -e "s|@HOME@|$HOME|g" \
         "$SCRIPT_DIR/systemd/$1" > "$UNIT_DIR/$1"
 }
 
@@ -91,6 +107,62 @@ echo "Antigravity quota-poll timer units installed but NOT enabled - only"
 echo "useful if you've set ANTIGRAVITY_BIN in .env (see"
 echo "docs/antigravity-adapter-plan.md), then run:"
 echo "  systemctl --user enable --now csm-antigravity-quota-check.timer"
+
+# OpenCode headless server: unlike the two timers above, this one IS
+# enabled/started here - it's a live long-running daemon with no
+# un-configured no-op state (a missing OPENCODE_BIN either fails the
+# render or is caught by the health-check box), and the web UI/agent
+# reads opencode.db directly regardless, so this server is genuinely part
+# of the running setup rather than an opt-in extra. See
+# PushHealthService::health_check() for the matching health-box entry.
+if [ -n "$OPENCODE_BIN" ]; then
+    render_unit opencode-serve.service
+    systemctl --user daemon-reload
+    systemctl --user enable --now opencode-serve.service
+    echo
+    echo "opencode-serve.service installed and enabled (at $UNIT_DIR/opencode-serve.service)."
+    systemctl --user is-active opencode-serve.service || true
+
+else
+    echo
+    echo "WARNING: OPENCODE_BIN not set and no 'opencode' on PATH -"
+    echo "opencode-serve.service NOT installed. Run \`which opencode\` and"
+    echo "set OPENCODE_BIN in host-agent/.env, then re-run install.sh."
+fi
+
+# Codex is always headless in CSM. The bridge owns the long-lived
+# bidirectional app-server connection needed for approvals and questions;
+# no Codex process is spawned into tmux.
+if [ -n "$CODEX_BIN" ]; then
+    if ! grep -qE '^CODEX_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null; then
+        printf '\nCODEX_BIN=%s\n' "$CODEX_BIN" >> "$SCRIPT_DIR/.env"
+    fi
+    render_unit csm-codex-bridge.service
+    systemctl --user daemon-reload
+    systemctl --user enable --now csm-codex-bridge.service
+    echo
+    echo "csm-codex-bridge.service installed and enabled (native app-server; no tmux)."
+else
+    echo
+    echo "WARNING: no 'codex' on PATH and CODEX_BIN is unset - Codex sessions are unavailable."
+fi
+
+# OpenCode CSM plugin: the authoritative pending-permission signal (see
+# host-agent/opencode-plugins/csm-permissions.js). opencode 1.18.21 keeps
+# permission state in-memory in the `opencode serve` process and exposes it
+# only as a `permission.asked` bus EVENT (the plugin `permission.ask` HOOK is
+# dormant, and /permission + the api return empty) - so the plugin subscribes
+# to that event and records it to a store the host-agent reads. It must load
+# in the SERVE process (not just the TUIs), so it's installed here as a global
+# plugin and the serve enable--now below picks it up. opencode-serve.service is
+# enabled/restarted earlier in this script.
+if [ -n "$OPENCODE_BIN" ]; then
+    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins"
+    cp "$SCRIPT_DIR/opencode-plugins/csm-permissions.js" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/csm-permissions.js"
+    echo
+    echo "CSM OpenCode plugin installed to ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/csm-permissions.js."
+    echo "NOTE: opencode-serve.service was (re)started above so the serve loads it; the load is verified by the health-check box."
+fi
 
 echo
 echo "Lingering must be enabled for this user so the socket survives"

@@ -32,6 +32,7 @@ class SessionController extends Controller
         }
 
         $csrfToken = AuthService::csrf_token();
+        AuthService::close_app_session();
 
         $detail = AgentClient::agent_call(['action' => 'session_detail', 'session' => $sessionName]);
         $found = (bool)($detail['ok'] ?? false);
@@ -334,8 +335,42 @@ class SessionController extends Controller
 
         $sessionName = trim((string)($_POST['session'] ?? ''));
         $model = trim((string)($_POST['model'] ?? ''));
+        $provider = trim((string)($_POST['model_provider'] ?? ''));
+        $effort = trim((string)($_POST['effort'] ?? ''));
 
-        echo json_encode(AgentClient::agent_call(['action' => 'set_model', 'session' => $sessionName, 'model' => $model]));
+        echo json_encode(AgentClient::agent_call(['action' => 'set_model', 'session' => $sessionName, 'model' => $model, 'model_provider' => $provider, 'effort' => $effort]));
+    }
+
+    /**
+     * GET-only JSON endpoint backing the OpenCode (headless) session page's
+     * model dropdown - returns the serve's available models (list_models, the
+     * sync's cached /config/providers). Read-only.
+     */
+    public function listModels(): void
+    {
+        $this->start_readonly_json();
+
+        echo json_encode(AgentClient::agent_call(['action' => 'list_models', 'agent' => (string)($_GET['agent'] ?? 'opencode')]));
+    }
+
+    /**
+     * POST-only JSON endpoint for session.php's Antigravity "Select model"
+     * dropdown (Andres's own ask, 2026-08-24) - same AJAX pattern as
+     * setModel() above, but a DIFFERENT underlying action
+     * (set_antigravity_model, not set_model): unlike Claude Code's picker,
+     * Antigravity's has no session-only option - this always overwrites the
+     * account-wide default model for every future `agy` session. Confirmed
+     * live and a deliberate decision, not an oversight - see
+     * PromptInteractionService::set_antigravity_model()'s own docblock.
+     */
+    public function setAntigravityModel(): void
+    {
+        $this->require_post_json();
+
+        $sessionName = trim((string)($_POST['session'] ?? ''));
+        $model = trim((string)($_POST['model'] ?? ''));
+
+        echo json_encode(AgentClient::agent_call(['action' => 'set_antigravity_model', 'session' => $sessionName, 'model' => $model]));
     }
 
     /**
@@ -407,6 +442,24 @@ class SessionController extends Controller
             'session' => (string)($_GET['session'] ?? ''),
             'filename' => (string)($_GET['filename'] ?? ''),
         ]), immutable: false, inlineText: true);
+    }
+
+    /**
+     * GET-only JSON endpoint backing the sidebar's "Todo" link (Andres's own
+     * ask, 2026-08-25) - opens the session's cwd-level `todo` file in the
+     * fullscreen text modal, rather than a new tab. Read-only (no state
+     * mutated), same no-CSRF-needed reasoning as detail() above; workdir is
+     * re-derived server-side by the host-agent, never accepted from the
+     * client.
+     */
+    public function todoFile(): void
+    {
+        $this->start_readonly_json();
+
+        echo json_encode(AgentClient::agent_call([
+            'action' => 'read_todo_file',
+            'session' => trim((string)($_GET['session'] ?? '')),
+        ]));
     }
 
     /**

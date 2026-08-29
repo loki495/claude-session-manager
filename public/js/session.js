@@ -27,6 +27,7 @@
   var btn = document.getElementById('load-more-btn');
   var untilUserBtn = document.getElementById('load-until-user-btn');
   var thinkingIndicator = document.getElementById('thinking-indicator');
+  var turnError = document.getElementById('turn-error');
   var todoListSection = document.getElementById('todo-list-section');
   var blockedSection = document.getElementById('blocked-prompt-section');
   var composeBar = document.getElementById('compose-bar');
@@ -43,7 +44,7 @@
   // a change on its own, only a real id -> a DIFFERENT real id is.
   var currentClaudeSessionId = window.CSM_BOOTSTRAP.claudeSessionId || null;
   var sessionAgent = window.CSM_BOOTSTRAP.agent || 'claude';
-  var sessionAgentLabel = window.CSM_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : 'Claude Code');
+  var sessionAgentLabel = window.CSM_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : (sessionAgent === 'codex' ? 'Codex' : 'Claude Code'));
 
   // --- optimistic UI state: entries appended locally right after sending,
   // before a poll has confirmed they actually landed. See appendPendingEntry()
@@ -66,6 +67,7 @@
   var answerPendingHistoryEl = null;
   var lastRenderedBlockedKey; // undefined, not null - see renderBlockedSection()
   var lastRenderedThinkingShown; // undefined, not null - see renderThinkingIndicator()
+  var lastRenderedTurnError; // undefined, not null - see renderTurnError()
   // Mirrors the $composeBlocked SSR toggle above - hides the message
   // input (not the whole compose bar; quota/mode stay visible) while a
   // prompt is pending, forcing it to be answered first. The textarea
@@ -172,7 +174,7 @@
       // targets" as the trigger instead correctly covers the row's own
       // padding/gutters too, not just a sliver that's rarely hit in
       // practice.
-      if (!e.target.closest('a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')) {
+      if (!closestEventTarget(e, 'a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')) {
         pageContent.scrollTo({ top: 0, behavior: 'smooth' });
       }
     });
@@ -184,6 +186,22 @@
     var firstLine = trimmed.split('\n', 1)[0];
     var summary = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
     return summary + (trimmed.length > summary.length ? ' …' : '');
+  }
+
+  // Mirrors TranscriptView::maybe_prettify_json() (PHP) - detects valid
+  // JSON objects/arrays and returns a pretty-printed version with 2-space
+  // indentation. Scalars (numbers, booleans, null) and non-JSON text
+  // pass through unchanged.
+  function maybePrettifyJson(text) {
+    var trimmed = text.trim();
+    if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) { return text; }
+    try {
+      var parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object') {
+        return JSON.stringify(parsed, null, 2);
+      }
+    } catch (e) { /* not valid JSON — pass through */ }
+    return text;
   }
 
   // Mirrors BlockedPromptView::render_collapsible_block() - tool commands/
@@ -391,7 +409,7 @@
         return '<div class="tool-detail' + (isSubagent ? ' subagent-detail' : '') + '" data-line="' + line + '">'
           + (block.agent_type != null
             ? renderCollapsibleMarkdownBlock(block.text, 'border-slate-800', 'text-slate-400', '')
-            : renderCollapsibleBlock(block.text, 'border-slate-800', 'text-slate-400', '')) + '</div>' + imageHtml + attachmentsHtml;
+            : renderCollapsibleBlock(maybePrettifyJson(block.text), 'border-slate-800', 'text-slate-400', '')) + '</div>' + imageHtml + attachmentsHtml;
       case 'task_notification':
         // Mirrors TranscriptView::render_transcript_block()'s task_notification
         // case (PHP) - a backgrounded subagent's <task-notification> report,
@@ -638,6 +656,10 @@
       }
 
       if (callBlock.tool_name === 'Bash' && callBlock.command) {
+        return 'Ran ' + collapsibleSummary(callBlock.command);
+      }
+
+      if (callBlock.command && (callBlock.tool_name === 'bash' || callBlock.tool_name === 'execute' || callBlock.tool_name === 'run_command')) {
         return 'Ran ' + collapsibleSummary(callBlock.command);
       }
 
@@ -1056,6 +1078,39 @@
       + '</div>';
   }
 
+  // Mirrors TranscriptView::render_turn_error_html() - Antigravity-only,
+  // see that method's own docblock for why this exists (a quota-exhausted
+  // turn writes nothing at all to Antigravity's own transcript file, so
+  // without this a failed reply looks identical to one that's just slow).
+  // Same dedup-by-last-rendered-value pattern as renderThinkingIndicator()
+  // above, keyed on the error text itself rather than a boolean, since the
+  // shown/hidden state alone isn't enough here - two DIFFERENT errors in a
+  // row (e.g. two separate quota-exhausted questions) must each actually
+  // replace the card, not no-op because something was already showing.
+  function renderTurnError(detail) {
+    if (!turnError) {
+      return;
+    }
+
+    var errorText = detail.last_turn_error || null;
+
+    if (errorText === lastRenderedTurnError) {
+      return;
+    }
+
+    lastRenderedTurnError = errorText;
+
+    if (!errorText) {
+      turnError.innerHTML = '';
+      return;
+    }
+
+    turnError.innerHTML = '<div class="select-none rounded-lg border border-amber-800/60 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">'
+      + '<div class="font-medium mb-1">Antigravity did not reply</div>'
+      + '<div class="text-amber-300/80">' + escapeHtml(errorText) + '</div>'
+      + '</div>';
+  }
+
   // Mirrors TranscriptView::render_mode_toggle_html() - options are static
   // (rendered once server-side), only the selected value/disabled state
   // changes here. Left showing its last known value (just disabled) if
@@ -1087,6 +1142,25 @@
     if (detail.current_model) {
       modelSelect.value = detail.current_model;
     }
+  }
+
+  // Mirrors TranscriptView::render_antigravity_model_toggle_html() - same
+  // shape as renderModelToggle() above, but always re-enabled here (see
+  // AntigravitySelectableModel::parse_current_model()'s own docblock -
+  // unlike Claude Code's set_model(), Antigravity's picker-driving switch
+  // doesn't need a known starting position, so there's nothing to
+  // permanently block the dropdown on - this is also what un-disables it
+  // again after the change handler below disables it for the duration of
+  // a request). Left on the placeholder option whenever the current model
+  // isn't currently readable from the pane (e.g. a prompt is covering the
+  // footer) rather than guessing.
+  function renderAntigravityModelToggle(detail) {
+    if (!antigravityModelSelect) {
+      return;
+    }
+
+    antigravityModelSelect.disabled = false;
+    antigravityModelSelect.value = detail.current_antigravity_model || '';
   }
 
   // Mirrors TranscriptView::render_todo_list_html()/sidebar/todo-list.php
@@ -1334,9 +1408,9 @@
     // expanded (typically just the first poll after page load, landing on
     // the same prompt the server already rendered) - preserved as a safety
     // net for that case, same mechanism as before, just rarely exercised now.
-    var existingReply = blockedSection.querySelector('.freetext-reply');
+    var existingReply = /** @type {HTMLElement|null} */ (blockedSection.querySelector('.freetext-reply'));
     var freetextWasOpen = existingReply && !existingReply.classList.contains('hidden');
-    var existingTextarea = existingReply ? existingReply.querySelector('.freetext-reply-textarea') : null;
+    var existingTextarea = /** @type {HTMLTextAreaElement|null} */ (existingReply ? existingReply.querySelector('.freetext-reply-textarea') : null);
     var freetextDraft = existingTextarea ? existingTextarea.value : '';
     var freetextOption = existingReply ? existingReply.dataset.option : null;
     var freetextHadFocus = existingTextarea !== null && existingTextarea === document.activeElement;
@@ -1386,12 +1460,12 @@
     }
 
     if (freetextWasOpen) {
-      var newReply = blockedSection.querySelector('.freetext-reply');
+      var newReply = /** @type {HTMLElement|null} */ (blockedSection.querySelector('.freetext-reply'));
 
       if (newReply) {
         newReply.classList.remove('hidden');
         newReply.dataset.option = freetextOption;
-        var newTextarea = newReply.querySelector('.freetext-reply-textarea');
+        var newTextarea = /** @type {HTMLTextAreaElement|null} */ (newReply.querySelector('.freetext-reply-textarea'));
         newTextarea.value = freetextDraft;
 
         if (freetextHadFocus) {
@@ -1496,7 +1570,9 @@
     // the browser, even though it still LOOKED like a real request went
     // out. Regression test: test_session_replay_browser.php's "the click's
     // real submit reached /answer_prompt.php" assertion.
-    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) { el.disabled = true; });
+    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) {
+      if (el instanceof HTMLButtonElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || el instanceof HTMLInputElement) el.disabled = true;
+    });
   }
 
   function markBlockedSectionAnswerPending() {
@@ -1518,7 +1594,9 @@
     // Same :not([type="hidden"]) exclusion as markBlockedSectionPending()
     // above, kept symmetric even though re-enabling a hidden field was
     // never itself the bug - see that function's own comment.
-    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) { el.disabled = false; });
+    blockedSection.querySelectorAll('button, textarea, select, input:not([type="hidden"])').forEach(function (el) {
+      if (el instanceof HTMLButtonElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || el instanceof HTMLInputElement) el.disabled = false;
+    });
   }
 
   // Event delegation, not per-form listeners: covers both the
@@ -1529,7 +1607,7 @@
   // (same reasoning as compose send).
   if (blockedSection) {
     blockedSection.addEventListener('submit', function (e) {
-      var form = e.target.closest('form[data-confirm-label]');
+      var form = closestEventTarget(e, 'form[data-confirm-label]');
 
       if (!form) {
         return;
@@ -1684,7 +1762,7 @@
     }
 
     blockedSection.addEventListener('click', function (e) {
-      var revealBtn = e.target.closest('.reveal-freetext-btn');
+      var revealBtn = closestEventTarget(e, '.reveal-freetext-btn');
 
       if (revealBtn) {
         var replyDiv = revealBtn.closest('.prompt-options-wrapper').querySelector('.freetext-reply');
@@ -1698,14 +1776,14 @@
         return;
       }
 
-      var sendBtn = e.target.closest('.freetext-reply-send-btn');
+      var sendBtn = closestEventTarget(e, '.freetext-reply-send-btn');
 
       if (sendBtn) {
         submitFreetextReply(sendBtn.closest('.freetext-reply'));
         return;
       }
 
-      var submitBtn = e.target.closest('.multi-question-submit-btn');
+      var submitBtn = closestEventTarget(e, '.multi-question-submit-btn');
 
       if (submitBtn) {
         submitMultiQuestionAnswers(submitBtn.closest('.multi-question-wrapper'));
@@ -1725,9 +1803,9 @@
     // the compose box. shiftKeyPhysicallyHeld cross-check - see its own
     // doc comment in common.js.
     blockedSection.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && e.target.classList.contains('freetext-reply-textarea')) {
+      if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && eventTargetHasClass(e, 'freetext-reply-textarea')) {
         e.preventDefault();
-        submitFreetextReply(e.target.closest('.freetext-reply'));
+        submitFreetextReply(closestEventTarget(e, '.freetext-reply'));
       }
     });
   }
@@ -1881,26 +1959,30 @@
           // reported the scrollable transcript area visibly "jittering"
           // while typing a message, which is exactly what a smooth
           // scrollTo() re-firing every poll interval looks like even when
-          // the target position hasn't meaningfully moved. Only the
-          // thinking indicator and the blocked-prompt card actually add
-          // scrollable content near the bottom worth auto-scrolling for -
+          // the target position hasn't meaningfully moved. The thinking
+          // indicator, the blocked-prompt card, and (Antigravity only) the
+          // turn-error card are the ones that actually add scrollable
+          // content near the bottom worth auto-scrolling for -
           // renderModeToggle()/renderComposeVisibility() never do, and
           // renderStaticInfo() above touches the top of the page, not the
-          // bottom - so this only calls it when one of those two actually
-          // changed (both already track their own last-rendered key/state
-          // for their own poll-no-op dedup, reused here rather than
-          // duplicating it).
+          // bottom - so this only calls it when one of those three actually
+          // changed (all three already track their own last-rendered
+          // key/state for their own poll-no-op dedup, reused here rather
+          // than duplicating it).
           var thinkingShownBefore = lastRenderedThinkingShown;
           var blockedKeyBefore = lastRenderedBlockedKey;
+          var turnErrorBefore = lastRenderedTurnError;
 
           renderThinkingIndicator(data);
+          renderTurnError(data);
           renderModeToggle(data);
           renderModelToggle(data);
+          renderAntigravityModelToggle(data);
           renderTodoList(data);
           renderBlockedSection(data);
           renderComposeVisibility(data);
 
-          if (lastRenderedThinkingShown !== thinkingShownBefore || lastRenderedBlockedKey !== blockedKeyBefore) {
+          if (lastRenderedThinkingShown !== thinkingShownBefore || lastRenderedBlockedKey !== blockedKeyBefore || lastRenderedTurnError !== turnErrorBefore) {
             maybeAutoScroll(wasNearBottom);
           } else {
             updateGoToBottomVisibility();
@@ -2393,7 +2475,7 @@
       // to clean it up. Delegated (not bound directly to each chip's own
       // button) since chips are rebuilt wholesale on every render.
       document.addEventListener('click', function (e) {
-        var removeBtn = e.target.closest('.remove-compose-attachment-btn');
+        var removeBtn = closestEventTarget(e, '.remove-compose-attachment-btn');
 
         if (!removeBtn) {
           return;
@@ -2524,6 +2606,173 @@
     });
   }
 
+  // --- antigravity model select: drives Antigravity's real /model picker
+  // the same way (Up-to-row-1-then-Down-to-target, see
+  // PromptInteractionService::set_antigravity_model()'s own docblock for
+  // the mechanics), but UNLIKE the Claude Code select above, this always
+  // overwrites Antigravity's ACCOUNT-WIDE default model - confirmed live
+  // 2026-08-24, there is no session-only option in Antigravity's picker.
+  // Same "disable during the request, let the next poll's
+  // renderAntigravityModelToggle() reflect the real new value" pattern as
+  // the Claude Code select above - AntigravitySelectableModel::
+  // parse_current_model() reads it straight back off the live pane. ---
+  var antigravityModelSelect = document.getElementById('antigravity-model-select');
+
+  if (antigravityModelSelect) {
+    antigravityModelSelect.addEventListener('change', function () {
+      var chosenModel = antigravityModelSelect.value;
+      antigravityModelSelect.disabled = true;
+
+      fetch('/session_antigravity_model.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken, model: chosenModel }).toString()
+      })
+        .then(function () {
+          setTimeout(pollOnce, 300);
+        })
+        .catch(function () {
+          antigravityModelSelect.disabled = false;
+        });
+    });
+  }
+
+  // --- opencode model select (headless session): the session's model list
+  // is dynamic (the serve's /config/providers), so fill the dropdown from
+  // /session_list_models.php then let the user pick; posts model + provider
+  // to set_model (routed to the serve for a headless session). ES5 only -
+  // this file deliberately avoids ES6+ (mobile Safari). ---
+  var opencodeModelSelect = document.getElementById('opencode-model-select');
+
+  if (opencodeModelSelect) {
+    var ocCurrentModel = opencodeModelSelect.getAttribute('data-current-model') || '';
+    var ocCurrentProvider = opencodeModelSelect.getAttribute('data-current-provider') || '';
+
+    fetch('/session_list_models.php', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok || !data.models) {
+          return;
+        }
+
+        var placeholder = opencodeModelSelect.options[0];
+        while (opencodeModelSelect.options.length > 1) {
+          opencodeModelSelect.remove(1);
+        }
+
+        data.models.forEach(function (m) {
+          var opt = document.createElement('option');
+          opt.value = m.id;
+          opt.setAttribute('data-provider', m.providerID);
+          opt.textContent = (m.providerID ? m.providerID + '/' : '') + (m.id || m.name || '');
+          opencodeModelSelect.appendChild(opt);
+        });
+
+        // preselect the session's current model (if it appears in the list)
+        for (var i = 1; i < opencodeModelSelect.options.length; i++) {
+          var o = opencodeModelSelect.options[i];
+          if (o.value === ocCurrentModel && o.getAttribute('data-provider') === ocCurrentProvider) {
+            opencodeModelSelect.selectedIndex = i;
+            break;
+          }
+        }
+        opencodeModelSelect.disabled = false;
+      })
+      .catch(function () {});
+
+    opencodeModelSelect.addEventListener('change', function () {
+      var opt = opencodeModelSelect.options[opencodeModelSelect.selectedIndex];
+      var chosenModel = opencodeModelSelect.value;
+      var chosenProvider = opt ? opt.getAttribute('data-provider') : '';
+      opencodeModelSelect.disabled = true;
+
+      fetch('/session_model.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken, model: chosenModel, model_provider: chosenProvider }).toString()
+      })
+        .then(function () {
+          setTimeout(pollOnce, 300);
+        })
+        .catch(function () {
+          opencodeModelSelect.disabled = false;
+        });
+    });
+  }
+
+  // --- Codex app-server model + reasoning effort selects. The catalog is
+  // account-aware and dynamic, so never hard-code model names here. ---
+  var codexModelSelect = document.getElementById('codex-model-select');
+  var codexEffortSelect = document.getElementById('codex-effort-select');
+
+  if (codexModelSelect && codexEffortSelect) {
+    var codexModels = [];
+    var codexCurrentModel = codexModelSelect.getAttribute('data-current-model') || '';
+    var codexCurrentEffort = codexEffortSelect.getAttribute('data-current-effort') || '';
+
+    function fillCodexEfforts(model) {
+      while (codexEffortSelect.options.length > 1) { codexEffortSelect.remove(1); }
+      var efforts = model && model.efforts ? model.efforts : [];
+      efforts.forEach(function (effort) {
+        var option = document.createElement('option');
+        option.value = effort;
+        option.textContent = effort.charAt(0).toUpperCase() + effort.slice(1);
+        codexEffortSelect.appendChild(option);
+      });
+      codexEffortSelect.value = codexCurrentEffort || (model ? model.defaultEffort || '' : '');
+      codexEffortSelect.disabled = efforts.length === 0;
+    }
+
+    function saveCodexSettings() {
+      codexModelSelect.disabled = true;
+      codexEffortSelect.disabled = true;
+      fetch('/session_model.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ session: sessionName, csrf_token: csrfToken, model: codexModelSelect.value, effort: codexEffortSelect.value }).toString()
+      }).then(function () {
+        codexCurrentModel = codexModelSelect.value;
+        codexCurrentEffort = codexEffortSelect.value;
+        codexModelSelect.disabled = false;
+        fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      }).catch(function () {
+        codexModelSelect.disabled = false;
+        fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      });
+    }
+
+    fetch('/session_list_models.php?agent=codex', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok || !data.models) { return; }
+        codexModels = data.models;
+        data.models.forEach(function (model) {
+          var option = document.createElement('option');
+          option.value = model.id;
+          option.textContent = model.name || model.id;
+          codexModelSelect.appendChild(option);
+        });
+        codexModelSelect.value = codexCurrentModel;
+        if (!codexModelSelect.value) {
+          for (var i = 0; i < codexModels.length; i++) {
+            if (codexModels[i].isDefault) { codexModelSelect.selectedIndex = i + 1; break; }
+          }
+        }
+        codexModelSelect.disabled = false;
+        fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      }).catch(function () {});
+
+    codexModelSelect.addEventListener('change', function () {
+      codexCurrentEffort = '';
+      fillCodexEfforts(codexModels[codexModelSelect.selectedIndex - 1] || null);
+      saveCodexSettings();
+    });
+    codexEffortSelect.addEventListener('change', saveCodexSettings);
+  }
+
   // --- transcript images: start as a small square thumbnail (see
   // renderImageHtml()/render_transcript_image_html()), tapping toggles to
   // full size and back - not a separate lightbox/modal, just swapping the
@@ -2532,7 +2781,7 @@
   var TRANSCRIPT_IMAGE_FULL_CLASSES = ['w-full', 'h-auto', 'object-contain'];
 
   document.addEventListener('click', function (e) {
-    var img = e.target.closest('.transcript-image');
+    var img = closestEventTarget(e, '.transcript-image');
 
     if (!img) {
       return;
@@ -2562,11 +2811,11 @@
   // fullscreen modal opens over it (or right as its own Copy button shows
   // its "Copied!" feedback) would leave it collapsed once that resolves. ---
   document.addEventListener('click', function (e) {
-    if (e.target.closest('summary, .expand-fullscreen-btn, .copy-btn')) {
+    if (closestEventTarget(e, 'summary, .expand-fullscreen-btn, .copy-btn')) {
       return;
     }
 
-    var details = e.target.closest('.tool-use-block details, .tool-detail details');
+    var details = closestEventTarget(e, '.tool-use-block details, .tool-detail details');
 
     if (!details) {
       return;
@@ -2586,7 +2835,7 @@
   // attached directly to the button, since renderThinkingIndicator()
   // recreates it (or removes it entirely) on every poll. ---
   document.addEventListener('click', function (e) {
-    var stopBtn = e.target.closest('#stop-btn');
+    var stopBtn = closestEventTarget(e, '#stop-btn');
 
     if (!stopBtn) {
       return;

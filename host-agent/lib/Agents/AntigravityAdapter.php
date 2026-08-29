@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace HostAgent\Agents;
 
+use HostAgent\Runtimes\RuntimeType;
 use HostAgent\Services\AntigravityHookService;
 use HostAgent\Services\Config;
 
@@ -131,5 +132,14 @@ class AntigravityAdapter implements AgentAdapter
     public function permission_mode_map(): array
     {
         return array_flip(self::STARTING_MODE_FLAGS);
+    }
+
+    /**
+     * Antigravity has no headless session mode - `agy -p` is one-shot
+     * (usage/print), not a drivable session. Stays tmux-only.
+     */
+    public function supported_runtimes(): array
+    {
+        return [RuntimeType::TMUX];
     }
 }

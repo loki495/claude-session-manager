@@ -28,6 +28,22 @@ class TranscriptView extends View
     public const MODEL_OPTIONS = ['default' => 'Default', 'sonnet' => 'Sonnet', 'fable' => 'Fable', 'opus' => 'Opus', 'haiku' => 'Haiku'];
 
     /**
+     * Mirrors AntigravitySelectableModel::PICKER_OPTIONS's key order
+     * (host-agent, a separate process reached only via the socket - not
+     * directly shareable) - keys must match set_antigravity_model()'s
+     * $targetModel exactly.
+     */
+    public const ANTIGRAVITY_MODEL_OPTIONS = [
+        'gemini-3.7-flash' => 'Gemini 3.7 Flash',
+        'gemini-3.6-flash' => 'Gemini 3.6 Flash',
+        'gemini-3.5-flash' => 'Gemini 3.5 Flash',
+        'gemini-3.1-pro' => 'Gemini 3.1 Pro',
+        'claude-sonnet-4.6-thinking' => 'Claude Sonnet 4.6 (Thinking)',
+        'claude-opus-4.6-thinking' => 'Claude Opus 4.6 (Thinking)',
+        'gpt-oss-120b-medium' => 'GPT-OSS 120B (Medium)',
+    ];
+
+    /**
      * @param array{media_type:string, data:string} $image
      */
     // Starts as a small square thumbnail (cropped via object-cover, not
@@ -164,7 +180,7 @@ class TranscriptView extends View
                 ? BlockedPromptView::render_full_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; ')
                 : BlockedPromptView::render_collapsible_block($block['text'], 'border-sky-800/40', 'text-sky-300', '&rarr; '),
             $block['kind'] === 'tool_result' && isset($block['agent_type']) => BlockedPromptView::render_collapsible_markdown_block($block['text'], 'border-slate-800', 'text-slate-400', ''),
-            $block['kind'] === 'tool_result' => BlockedPromptView::render_collapsible_block($block['text'], 'border-slate-800', 'text-slate-400', ''),
+            $block['kind'] === 'tool_result' => BlockedPromptView::render_collapsible_block(self::maybe_prettify_json($block['text']), 'border-slate-800', 'text-slate-400', ''),
             $block['kind'] === 'task_notification' => BlockedPromptView::render_collapsible_markdown_block($block['text'], 'border-fuchsia-800/40', 'text-fuchsia-300', ''),
             default => '',
         };
@@ -230,6 +246,35 @@ class TranscriptView extends View
     }
 
     /**
+     * Antigravity-only: a turn that failed without producing any reply at
+     * all (e.g. account quota exhausted) writes NOTHING to Antigravity's
+     * own transcript file - see host-agent/hooks/antigravity/stop.php's
+     * own docblock for the live-verified finding behind this (grepped a
+     * real transcript after three separate quota-exhausted questions: only
+     * the USER_INPUT lines were ever written, never a response or an error
+     * entry). Without this, that turn would look, from the transcript
+     * alone, exactly like the question was silently ignored - no different
+     * from Claude Code simply still being slow. Shown in the same spot the
+     * thinking indicator itself occupies (mutually exclusive with it -
+     * 'working' is false by the time last_turn_error is ever set, since
+     * both are only ever written by the same Stop hook firing) so a failed
+     * turn reads the same way a real reply would: something appears where
+     * one was expected.
+     */
+    public static function render_turn_error_html(array $detail): string
+    {
+        $errorText = is_string($detail['last_turn_error'] ?? null) ? $detail['last_turn_error'] : null;
+
+        if ($errorText === null || $errorText === '') {
+            return '';
+        }
+
+        return self::render('transcript/turn-error', [
+            'errorText' => $errorText,
+        ]);
+    }
+
+    /**
      * The sidebar's live task checklist - sourced from the top-level
      * agent's own TodoWrite OR Task-family (TaskCreate/TaskUpdate) tool
      * calls, read straight off the transcript, no hook involved (see
@@ -291,6 +336,76 @@ class TranscriptView extends View
         return self::render('transcript/model-toggle', [
             'model' => $model,
             'options' => self::MODEL_OPTIONS,
+        ]);
+    }
+
+    /**
+     * Antigravity equivalent of render_model_toggle_html() above, for an
+     * antigravity-agent session. Shows the live current model as the
+     * selected option (from $detail['current_antigravity_model'], read off
+     * the pane's own footer text - see AntigravitySelectableModel::
+     * parse_current_model()'s own docblock, there's no transcript-derived
+     * signal the way Claude Code's TranscriptService::find_latest_model()
+     * has), falling back to a plain "Switch model..." placeholder when it
+     * isn't currently readable (e.g. a prompt is covering the footer).
+     * Never disabled either way, unlike Claude Code's toggle - Antigravity's
+     * set_antigravity_model() doesn't need a known starting position the
+     * way Claude Code's Shift+Tab-based set_mode() does (it always
+     * normalizes to row 1 first via repeated Up presses).
+     *
+     * Also unlike Claude Code's toggle, this always changes Antigravity's
+     * ACCOUNT-WIDE default model, not a session-only switch - see
+     * set_antigravity_model()'s own docblock for the live-verified finding
+     * behind that, and session.js's matching comment on the wiring below.
+     */
+    public static function render_antigravity_model_toggle_html(array $detail): string
+    {
+        $model = is_string($detail['current_antigravity_model'] ?? null) ? $detail['current_antigravity_model'] : null;
+
+        return self::render('transcript/antigravity-model-toggle', [
+            'model' => $model,
+            'options' => self::ANTIGRAVITY_MODEL_OPTIONS,
+        ]);
+    }
+
+    /**
+     * OpenCode (headless) session model toggle - a session-only switch driven
+     * entirely client-side: the select is rendered empty with the session's
+     * current model/provider carried as data attributes, then session.js
+     * fetches the serve's available models (GET /session_list_models.php ->
+     * list_models -> cached /config/providers) and fills the dropdown, and
+     * posts the chosen model + provider to set_model. OpenCode has no mode
+     * toggle (no Shift+Tab permission modes), so this is the only footer
+     * extra for an opencode session - the compose bar renders no mode select.
+     */
+    /**
+     * OpenCode (headless) session model toggle - a session-only switch driven
+     * entirely client-side: the select is rendered empty with the session's
+     * current model/provider carried as data attributes, then session.js
+     * fetches the serve's available models (GET /session_list_models.php ->
+     * list_models -> cached /config/providers) and fills the dropdown, and
+     * posts the chosen model + provider to set_model. OpenCode has no mode
+     * toggle (no Shift+Tab permission modes), so this is the only footer
+     * extra for an opencode session - the compose bar renders no mode select.
+     *
+     * @param array<string, mixed> $detail
+     */
+    public static function render_opencode_model_toggle_html(array $detail): string
+    {
+        return self::render('transcript/opencode-model-toggle', [            'model' => is_string($detail['current_model'] ?? null) ? $detail['current_model'] : null,
+            'provider' => is_string($detail['current_provider'] ?? null) ? $detail['current_provider'] : null,
+        ]);
+    }
+
+    /**
+     * Codex app-server model catalog and reasoning-effort controls.
+     * @param array<string,mixed> $detail
+     */
+    public static function render_codex_model_toggle_html(array $detail): string
+    {
+        return self::render('transcript/codex-model-toggle', [
+            'model' => is_string($detail['current_model'] ?? null) ? $detail['current_model'] : null,
+            'effort' => is_string($detail['current_effort'] ?? null) ? $detail['current_effort'] : null,
         ]);
     }
 
@@ -585,6 +700,10 @@ class TranscriptView extends View
                 return 'Ran ' . BlockedPromptView::collapsible_summary($command);
             }
 
+            if (in_array($toolName, ['bash', 'execute', 'run_command'], true) && $command !== null) {
+                return 'Ran ' . BlockedPromptView::collapsible_summary($command);
+            }
+
             $description = $callBlock['description'] ?? null;
 
             return $description !== null && $description !== '' ? $description : BlockedPromptView::collapsible_summary($callBlock['text']);
@@ -593,6 +712,32 @@ class TranscriptView extends View
         $resultBlock = self::first_text_bearing_block($resultEntry);
 
         return $resultBlock !== null ? BlockedPromptView::collapsible_summary($resultBlock['text']) : 'Tool call';
+    }
+
+    /**
+     * Detects valid JSON strings (objects/arrays) and returns a
+     * pretty-printed version with 2-space indentation. Everything else
+     * passes through unchanged. Only triggers on content that decodes to
+     * an array or object — plain scalar JSON strings (numbers, booleans,
+     * null) are left alone since pretty-printing them adds no value.
+     */
+    private static function maybe_prettify_json(string $text): string
+    {
+        $trimmed = trim($text);
+
+        if ($trimmed === '' || $trimmed[0] !== '{' && $trimmed[0] !== '[') {
+            return $text;
+        }
+
+        $decoded = json_decode($trimmed, true);
+
+        if (!is_array($decoded)) {
+            return $text;
+        }
+
+        $pretty = json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        return $pretty !== false ? $pretty : $text;
     }
 
     /**

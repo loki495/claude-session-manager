@@ -52,30 +52,39 @@ class PromptInteractionService
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
         }
 
+        // Antigravity's own numbered-option prompt shape (see
+        // AntigravityPromptParser's own docblock) already returns the same
+        // canonical {question, context, options, multi_question,
+        // is_folder_trust} shape Claude Code's own parser does, and its
+        // multi_question is always false - so everything below (the
+        // separate-Enter path, PendingToolStore/SessionStatusStore cleanup)
+        // already applies correctly to it unchanged, no further branching
+        // needed past which parser reads the pane.
         $agent = SidecarStore::read_sidecar($name)['agent'] ?? 'claude';
 
         if ($agent === 'opencode') {
             $sidecarOc = SidecarStore::read_sidecar($name);
             $ocSessionId = is_string($sidecarOc['claude_session_id'] ?? null) ? $sidecarOc['claude_session_id'] : null;
-            $ocQ = $ocSessionId !== null ? OpenCodeTranscriptService::find_pending_question($ocSessionId) : null;
 
-            if ($ocQ !== null) {
-                $prompt = [
-                    'question' => $ocQ['question'],
-                    'context' => $ocQ['header'] ?? '',
-                    'options' => $ocQ['options'],
-                    'multi_question' => false,
-                ];
+            // Prefer the serve API (authoritative, orphan-safe: GET /question
+            // returns the live request or [] when nothing/orphaned). Fall back
+            // to the pane if the serve is unreachable.
+            $ocPending = $ocSessionId !== null ? OpenCodeQuestionService::pending_question($ocSessionId) : null;
+
+            if ($ocPending !== null) {
+                $prompt = OpenCodeQuestionService::to_prompt($ocPending);
             } else {
                 // Fallback: pane parse for opencode (TUI does show the question when blocked)
                 $prompt = OpenCodePromptParser::parse_blocking_prompt(TmuxService::tmux_capture_pane($name));
 
-                if ($prompt === null) {
+                if ($prompt === null || ($prompt['tool_name'] ?? null) === 'permission') {
                     return ['ok' => false, 'message' => 'Rejected: this session is not currently waiting on a prompt'];
                 }
             }
         } else {
-            $prompt = PromptParser::parse_blocking_prompt(TmuxService::tmux_capture_pane($name));
+            $prompt = $agent === 'antigravity'
+                ? AntigravityPromptParser::parse_blocking_prompt(TmuxService::tmux_capture_pane($name))
+                : PromptParser::parse_blocking_prompt(TmuxService::tmux_capture_pane($name));
 
             if ($prompt === null) {
                 return ['ok' => false, 'message' => 'Rejected: this session is not currently waiting on a prompt'];
@@ -84,6 +93,69 @@ class PromptInteractionService
 
         if (!in_array($option, array_column($prompt['options'], 'number'), true)) {
             return ['ok' => false, 'message' => 'Rejected: that option is not currently offered by this prompt'];
+        }
+
+        // OpenCode QUESTION prompt - answer via the serve API (POST
+        // /question/{requestID}/reply with the chosen label). The pane modal is
+        // orphan-prone and its nav shape (↑↓ list vs ⇆ tab) varies, so mapping
+        // the chosen option number to its label and answering over HTTP is the
+        // reliable path - mirrors how opencode/web answers.
+        if (($prompt['tool_name'] ?? null) === 'question') {
+            $sidecarQ = SidecarStore::read_sidecar($name);
+            $ocQid = is_string($sidecarQ['claude_session_id'] ?? null) ? $sidecarQ['claude_session_id'] : null;
+
+            if ($ocQid === null) {
+                return ['ok' => false, 'message' => 'Rejected: no OpenCode session id for this question'];
+            }
+
+            $chosenLabel = $prompt['options'][$option - 1]['label'] ?? '';
+
+            if ($chosenLabel === '') {
+                return ['ok' => false, 'message' => 'Rejected: could not resolve the selected option'];
+            }
+
+            $answerResult = OpenCodeQuestionService::answer($ocQid, [$chosenLabel]);
+
+            if (!($answerResult['ok'] ?? false)) {
+                return ['ok' => false, 'message' => (string)($answerResult['message'] ?? 'Failed to answer question')];
+            }
+
+            PendingToolStore::delete_pending_tool($name);
+            SessionStatusStore::update_status($name, ['status' => 'working', 'blocked' => null]);
+
+            return ['ok' => true, 'message' => "Answered '{$chosenLabel}' for {$name}"];
+        }
+
+        // OpenCode permission prompt: answer it in the pane via the tab bar
+        // (Left/Right to move the highlight, Enter to confirm). The permission
+        // dialog is owned by the `opencode serve` process's in-memory state
+        // (see PermissionStore's docblock - no queryable state, and the plugin
+        // permission.ask HOOK is dormant in opencode 1.18.21, so an intent-
+        // based answer can't be auto-applied). The pane reliably renders the
+        // dialog and accepts arrow+Enter, so that's the answer path here. The
+        // option numbers mirror tab order (1=Allow once, 2=Allow always,
+        // 3=Reject / Confirm, Cancel).
+        if (($prompt['tool_name'] ?? null) === 'permission') {
+            for ($i = 1; $i < $option; $i++) {
+                usleep(self::TMUX_KEY_STEP_DELAY_USEC);
+                $arrow = TmuxService::tmux_run(['send-keys', '-t', $name, 'Right']);
+
+                if ($arrow['exit'] !== 0) {
+                    return ['ok' => false, 'message' => "Failed to select the {$prompt['options'][$option - 1]['label']} option: " . trim($arrow['stderr'])];
+                }
+            }
+
+            usleep(self::TMUX_KEY_STEP_DELAY_USEC);
+            $enterResult = TmuxService::tmux_run(['send-keys', '-t', $name, 'Enter']);
+
+            if ($enterResult['exit'] !== 0) {
+                return ['ok' => false, 'message' => "Failed to confirm: " . trim($enterResult['stderr'])];
+            }
+
+            PendingToolStore::delete_pending_tool($name);
+            SessionStatusStore::update_status($name, ['status' => 'working', 'blocked' => null]);
+
+            return ['ok' => true, 'message' => "Confirmed '{$prompt['options'][$option - 1]['label']}' for {$name}"];
         }
 
         $digitResult = TmuxService::tmux_run(['send-keys', '-t', $name, (string)$option]);
@@ -454,6 +526,141 @@ class PromptInteractionService
         return ['ok' => true, 'message' => "Set model for {$name} to {$targetModel} (this session only)"];
     }
 
+    /**
+     * Antigravity equivalent of set_model() above, driving the real
+     * `/model` picker: '/model' + Enter opens it, then Up/Down presses walk
+     * the cursor to the target row, then Enter confirms it.
+     *
+     * UNLIKE set_model() above, there is no final "session only" key to
+     * send - Antigravity's picker has no such option. Confirmed live: this
+     * always overwrites the ACCOUNT-WIDE default model, applying to every
+     * future `agy` session (see AntigravitySelectableModel's own docblock
+     * for the disposable-session test that proved this). Andres's own
+     * explicit decision 2026-08-24, after being shown this finding, was to
+     * ship it anyway rather than wait for a session-scoped mechanism that
+     * doesn't exist - callers must label this as a global default switch,
+     * not a per-session one.
+     *
+     * Found live 2026-08-24 (Andres: "when I change the model on an agy
+     * session, it immediately reverts to the old one"): an EARLIER version
+     * of this method fired a fixed-count Up-then-Down key sequence blind
+     * (same shape as set_mode()'s own Shift+Tab cycling), trusting that
+     * count(PICKER_OPTIONS) Up presses always lands on row 1 regardless of
+     * starting position. Reproduced directly: from row 2 (Gemini 3.6 Flash
+     * current), 7 Up presses 300ms apart landed on ROW 2 STILL - zero
+     * movement - and the very next single Up press then moved it. Antigravity's
+     * own TUI silently drops arrow keys sent in a rapid burst to this
+     * specific picker screen (a different, apparently WORSE debounce than
+     * Claude Code's own picker/BTab cycling, where a fixed count has always
+     * been reliable - see set_model()'s own docblock) - a fixed count key
+     * sequence is therefore NOT safe here, unlike set_mode()/set_model().
+     * Fixed by verifying the actual cursor position against the live pane
+     * after each press and only stopping once it's confirmed on the right
+     * row - see move_antigravity_picker_cursor() below.
+     *
+     * Rejects while the session is busy (status 'working') rather than
+     * 'blocked' the way set_mode()/set_model() do - Antigravity has no
+     * blocked-prompt detection built yet (see docs/antigravity-adapter-plan.md
+     * Phase 6, still open), so 'blocked' never actually occurs for an
+     * antigravity-agent session; a slash command typed while genuinely busy
+     * gets silently QUEUED behind other input instead of failing (confirmed
+     * live), which would desync this method's own key sequence from
+     * whatever screen is actually showing when it's finally processed.
+     *
+     * @return array{ok:bool, message:string}
+     */
+    public static function set_antigravity_model(string $name, string $targetModel): array
+    {
+        if (!array_key_exists($targetModel, AntigravitySelectableModel::PICKER_OPTIONS)) {
+            return ['ok' => false, 'message' => 'Rejected: not a recognized model'];
+        }
+
+        if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
+            return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
+        }
+
+        $sidecar = SidecarStore::read_sidecar($name);
+
+        if (($sidecar['agent'] ?? 'claude') !== 'antigravity') {
+            return ['ok' => false, 'message' => 'Rejected: not an Antigravity session'];
+        }
+
+        if ((SessionStatusStore::read_status($name)['status'] ?? null) === 'working') {
+            return ['ok' => false, 'message' => 'Rejected: this session is currently busy'];
+        }
+
+        $targetLabel = AntigravitySelectableModel::PICKER_OPTIONS[$targetModel];
+
+        TmuxService::tmux_run(['send-keys', '-t', $name, '-l', '/model']);
+        usleep(self::TMUX_KEY_STEP_DELAY_USEC);
+        TmuxService::tmux_run(['send-keys', '-t', $name, 'Enter']);
+        usleep(self::TMUX_KEY_STEP_DELAY_USEC);
+
+        // Walk toward row 1 first (Up never wraps past it - still true, only
+        // the "one fixed-count burst" assumption was wrong), THEN toward the
+        // actual target - two monotonic passes, never needing to know which
+        // row the cursor started on relative to the target.
+        if (!self::move_antigravity_picker_cursor($name, AntigravitySelectableModel::PICKER_OPTIONS[array_key_first(AntigravitySelectableModel::PICKER_OPTIONS)], 'Up', count(AntigravitySelectableModel::PICKER_OPTIONS))) {
+            return ['ok' => false, 'message' => 'Failed to set model: could not confirm the picker cursor reached the top row'];
+        }
+
+        if (!self::move_antigravity_picker_cursor($name, $targetLabel, 'Down', count(AntigravitySelectableModel::PICKER_OPTIONS))) {
+            return ['ok' => false, 'message' => 'Failed to set model: could not confirm the picker cursor reached the target row'];
+        }
+
+        TmuxService::tmux_run(['send-keys', '-t', $name, 'Enter']);
+
+        return ['ok' => true, 'message' => "Set default model to {$targetModel} (applies to all future Antigravity sessions)"];
+    }
+
+    /**
+     * Presses $direction ('Up' or 'Down') against the /model picker up to
+     * $maxPresses times, re-capturing the live pane after EACH press (not
+     * just at the end) and stopping the moment it shows the cursor
+     * ("> ") directly in front of $targetLabel - see set_antigravity_model()'s
+     * own docblock for why a blind fixed-count burst isn't safe here
+     * (Antigravity's TUI silently drops some fraction of rapid arrow-key
+     * presses to this specific screen). $maxPresses is deliberately the
+     * full row count, not just the theoretical minimum distance - if presses
+     * ARE being dropped, more attempts than the theoretical minimum may be
+     * needed to actually cover that distance.
+     */
+    private static function move_antigravity_picker_cursor(string $name, string $targetLabel, string $direction, int $maxPresses): bool
+    {
+        for ($attempt = 0; $attempt < $maxPresses; $attempt++) {
+            if (str_contains(TmuxService::tmux_capture_pane($name), "> {$targetLabel}")) {
+                return true;
+            }
+
+            TmuxService::tmux_run(['send-keys', '-t', $name, $direction]);
+            usleep(self::TMUX_KEY_STEP_DELAY_USEC);
+        }
+
+        return str_contains(TmuxService::tmux_capture_pane($name), "> {$targetLabel}");
+    }
+
+    /**
+     * Sends a free-text message to a session, exactly as if a human had
+     * typed it while attached, then pressed Enter to submit - the actual,
+     * intended point of this whole app (remote-controlling a session, same
+     * as attaching from the iOS app). Uses a tmux paste-buffer, not
+     * send-keys with the raw text as a "key": send-keys treats embedded
+     * newlines in a multi-line message as individual Enter keypresses, each
+     * prematurely submitting whatever's been typed so far, where a real
+     * terminal paste delivers the whole block as one unit (verified live)
+     * and only the explicit trailing Enter submits it.
+     *
+     * $attachmentPaths (compose-bar file uploads still pending when Send is
+     * pressed) each become their own "[Attached: <path>]" line appended
+     * after $text - added here, not client-side, so the user's own draft
+     * never shows that bookkeeping text while they're still typing (see
+     * session.js's compose-attachments preview, which shows the files as
+     * their own removable chips instead). $text may be empty as long as at
+     * least one attachment is present - an attachment-only send is valid.
+     *
+     * @param string[] $attachmentPaths
+     * @return array{ok:bool, message:string}
+     */
     public static function send_message(string $name, string $text, array $attachmentPaths = []): array
     {
         $attachmentLines = array_map(static fn(string $path): string => '[Attached: ' . $path . ']', $attachmentPaths);

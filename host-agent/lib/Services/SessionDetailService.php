@@ -174,10 +174,26 @@ class SessionDetailService
      */
     public static function archived_session_detail(string $claudeSessionId): array
     {
-        $path = TranscriptService::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Session not found'];
+        }
+
+        if (TranscriptRouter::is_codex_path($path)) {
+            $thread = CodexTranscriptService::thread_metadata($claudeSessionId);
+            if ($thread === null) return ['ok' => false, 'message' => 'Session not found'];
+            $cwd = is_string($thread['cwd'] ?? null) ? $thread['cwd'] : null;
+            $nativeTitle = is_string($thread['name'] ?? null) && trim($thread['name']) !== ''
+                ? $thread['name']
+                : (is_string($thread['preview'] ?? null) ? $thread['preview'] : null);
+            return [
+                'ok' => true,
+                'claude_session_id' => $claudeSessionId,
+                'cwd' => $cwd,
+                'title' => SessionService::title_cascade($nativeTitle, null, $cwd, $claudeSessionId),
+                'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
+            ];
         }
 
         $cwd = TranscriptService::find_first_cwd($path);

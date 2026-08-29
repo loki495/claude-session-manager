@@ -84,6 +84,83 @@ class PushHealthService
     }
 
     /**
+     * opencode-serve.service - the OpenCode headless server this app's
+     * OpenCode integration talks to (see .ai/PLAN.md). Checks two things:
+     * the systemd unit is enabled AND currently active, and the server
+     * itself answers its /global/health endpoint on the configured port.
+     * Not gated on OPENCODE_BIN being set - the app never reads opencode.db
+     * directly for the serve path, and a unit that's absent/stopped is
+     * exactly the failure this should surface (same as every other check
+     * here: a missing piece reported, not silently skipped).
+     *
+     * @return array{key:string, label:string, ok:bool, detail:?string}
+     */
+    public static function opencode_serve_check(): array
+    {
+        $unitName = 'opencode-serve.service';
+
+        $activeResult = ProcessRunner::run_process(['systemctl', '--user', 'is-active', $unitName]);
+        $unitActive = trim($activeResult['stdout']) === 'active';
+        $unitDetail = trim($activeResult['stdout']) ?: trim($activeResult['stderr']);
+
+        $isEnabled = trim(ProcessRunner::run_process(['systemctl', '--user', 'is-enabled', $unitName])['stdout']) !== '';
+
+        if (!$unitActive || !$isEnabled) {
+            return [
+                'key' => 'opencode_serve',
+                'label' => 'OpenCode server',
+                'ok' => false,
+                'detail' => "{$unitName}: " . ($unitDetail !== '' ? $unitDetail : 'not enabled'),
+            ];
+        }
+
+        $healthResult = ProcessRunner::run_process([
+            'curl', '--silent', '--max-time', '3',
+            'http://localhost:4096/global/health',
+        ]);
+
+        $healthy = trim($healthResult['stdout']) !== '' && $healthResult['exit'] === 0;
+
+        return [
+            'key' => 'opencode_serve',
+            'label' => 'OpenCode server',
+            'ok' => $healthy,
+            'detail' => $healthy
+                ? "{$unitName} active, healthy on :4096"
+                : "{$unitName} active but /global/health did not answer",
+        ];
+    }
+
+    /**
+     * The CSM OpenCode plugin (host-agent/opencode-plugins/csm-permissions.js)
+     * - the authoritative pending-permission signal, loaded as a global plugin
+     * by install.sh. A session survives this check only if the file is present
+     * at the global plugin path; missing means blocked-prompts for OpenCode
+     * silently won't appear (same "report a missing piece, don't skip it"
+     * rule as every other check here). Not gated on OPENCODE_BIN - the file is
+     * harmless to report even when no opencode_bin is configured.
+     *
+     * @return array{key:string, label:string, ok:bool, detail:?string}
+     */
+    public static function opencode_plugin_check(): array
+    {
+        $pluginPath = Config::home_root() . '/.config/opencode/plugins/csm-permissions.js';
+
+        if ($pluginPath === '') {
+            return ['key' => 'opencode_plugin', 'label' => 'OpenCode CSM plugin', 'ok' => false, 'detail' => 'home root unknown'];
+        }
+
+        $ok = is_file($pluginPath);
+
+        return [
+            'key' => 'opencode_plugin',
+            'label' => 'OpenCode CSM plugin',
+            'ok' => $ok,
+            'detail' => $ok ? $pluginPath : 'not installed (run host-agent/install.sh; restart opencode TUIs to load it)',
+        ];
+    }
+
+    /**
      * "Is everything this app needs actually installed/configured" - one
      * combined check for the dashboard's health box, instead of leaving
      * Andres to discover each missing piece separately (a stale/never-set
@@ -117,6 +194,7 @@ class PushHealthService
         foreach (HookService::app_hooks_status($settings) as $hook) {
             $checks[] = [
                 'key' => 'hook_' . strtolower($hook['event']),
+                'section' => 'Claude Code',
                 'label' => $hook['event'] . ' hook',
                 'ok' => $settingsOk && $hook['present'],
                 'detail' => $settingsOk ? null : $settingsMessage,
@@ -126,6 +204,7 @@ class PushHealthService
         $tmuxSocketDir = dirname(Config::tmux_socket());
         $checks[] = [
             'key' => 'tmux_socket_dir',
+            'section' => 'Global',
             'label' => 'tmux socket dir',
             'ok' => is_dir($tmuxSocketDir),
             'detail' => $tmuxSocketDir,
@@ -133,17 +212,32 @@ class PushHealthService
 
         $checks[] = [
             'key' => 'vapid_keys',
+            'section' => 'Global',
             'label' => 'VAPID push keys',
             'ok' => PushDeliveryService::push_configured(),
             'detail' => null,
         ];
 
-        $checks[] = self::push_delivery_check();
-        $checks[] = self::push_quota_delivery_check();
+        $pushDelivery = self::push_delivery_check();
+        $pushDelivery['section'] = 'Global';
+        $checks[] = $pushDelivery;
+
+        $pushQuota = self::push_quota_delivery_check();
+        $pushQuota['section'] = 'Global';
+        $checks[] = $pushQuota;
+
+        $opencodeServe = self::opencode_serve_check();
+        $opencodeServe['section'] = 'OpenCode';
+        $checks[] = $opencodeServe;
+
+        $opencodePlugin = self::opencode_plugin_check();
+        $opencodePlugin['section'] = 'OpenCode';
+        $checks[] = $opencodePlugin;
 
         $vendorAutoload = Config::csm_repo_root() . '/vendor/autoload.php';
         $checks[] = [
             'key' => 'composer_vendor',
+            'section' => 'Global',
             'label' => 'Composer vendor/',
             'ok' => is_file($vendorAutoload),
             'detail' => $vendorAutoload,

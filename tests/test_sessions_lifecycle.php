@@ -40,8 +40,11 @@ if (Config::tmux_socket() === REAL_TMUX_SOCKET) {
 
 $pushSqliteFixture = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 $opencodeDbFixtureLc = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/opencode.db';
+$opencodeAuthFixtureLc = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/auth.json';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
 putenv("OPENCODE_DB_PATH={$opencodeDbFixtureLc}");
+putenv("OPENCODE_AUTH_PATH={$opencodeAuthFixtureLc}");
+putenv('OPENCODE_GO_API_KEY=');
 
 if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_LC) {
     fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE resolves to the real host state file.\n");
@@ -514,6 +517,28 @@ assert_equal(false, PlanFileService::read_plan_file($planFilesSession, 'CLAUDE.m
 assert_equal(false, PlanFileService::read_plan_file($planFilesSession, 'does-not-exist.md')['ok'] ?? null, 'read_plan_file: rejects a filename that does not exist on disk');
 assert_equal(false, PlanFileService::read_plan_file($planFilesSession, '../../../../etc/passwd')['ok'] ?? null, 'read_plan_file: rejects a path-traversal attempt (also fails the .md check)');
 assert_equal(false, PlanFileService::read_plan_file($planFilesSession, 'nested/deep-plan.md')['ok'] ?? null, 'read_plan_file: rejects a subdirectory path, not just top-level filenames (basename() strips the directory part, so this resolves to a nonexistent top-level file)');
+
+// --- PlanFileService::read_todo_file(): the sidebar's "Open todo file"
+// link - reads the session's cwd-level `todo` file (no extension, unlike
+// the *.md plan-file glance above). Independent of workdir existence and
+// of the .md/README/CLAUDE.md rules. ---
+assert_equal(false, PlanFileService::read_todo_file('cc-not-a-real-session')['ok'] ?? null, 'read_todo_file: rejects a session with no sidecar (unknown workdir)');
+
+$todoFileSession = 'cc-test-todo-file-' . getmypid();
+$todoFileDir = Config::www_root() . '/project-b';
+SidecarStore::write_sidecar($todoFileSession, ['workdir' => $todoFileDir, 'spawned_at' => time()]);
+
+assert_equal(false, PlanFileService::read_todo_file($todoFileSession)['ok'] ?? null, 'read_todo_file: ok=false when the cwd has no todo file yet');
+
+file_put_contents($todoFileDir . '/todo', "- job one\n- job two\n");
+$readTodoResult = PlanFileService::read_todo_file($todoFileSession);
+assert_true($readTodoResult['ok'] ?? false, 'read_todo_file: ok=true for a real todo file');
+assert_equal("- job one\n- job two\n", base64_decode((string)($readTodoResult['data'] ?? ''), true), 'read_todo_file: returns the real todo file content, base64-encoded');
+assert_equal('todo', $readTodoResult['filename'] ?? null, 'read_todo_file: reports the filename');
+assert_equal('text/plain; charset=utf-8', $readTodoResult['media_type'] ?? null, 'read_todo_file: reports a plain-text media_type');
+
+@unlink($todoFileDir . '/todo');
+SidecarStore::delete_sidecar($todoFileSession);
 
 @unlink($planFilesDir . '/README.md');
 @unlink($planFilesDir . '/CLAUDE.md');
@@ -1901,6 +1926,8 @@ try {
     @unlink($pushSqliteFixture . '-shm');
     @unlink($opencodeDbFixtureLc);
     @rmdir(dirname($opencodeDbFixtureLc));
+    @unlink($opencodeAuthFixtureLc);
+    @rmdir(dirname($opencodeAuthFixtureLc));
     putenv('OPENCODE_DB_PATH');
     foreach ($createdSessions as $leftover) {
         SessionLifecycleService::kill_cc_session($leftover);

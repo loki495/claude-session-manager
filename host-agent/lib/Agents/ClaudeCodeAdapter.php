@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace HostAgent\Agents;
 
+use HostAgent\Runtimes\RuntimeType;
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
 use HostAgent\Services\PermissionMode;
@@ -77,5 +78,16 @@ class ClaudeCodeAdapter implements AgentAdapter
     public function permission_mode_map(): array
     {
         return PermissionMode::HOOK_PERMISSION_MODE_MAP;
+    }
+
+    /**
+     * Claude Code's headless path (the Agent SDK, or one-shot `claude -p`)
+     * is pay-per-API and not a drivable session CSM can watch like a tmux
+     * pane, so headless is intentionally not offered here - see the
+     * headless-runtime plan. Tmux is the only runtime.
+     */
+    public function supported_runtimes(): array
+    {
+        return [RuntimeType::TMUX];
     }
 }

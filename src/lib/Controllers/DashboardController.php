@@ -99,9 +99,18 @@ class DashboardController extends Controller
                 $enableTaskTools = ($_POST['enable_task_tools'] ?? '') === '1';
                 $startingMode = trim((string)($_POST['starting_mode'] ?? ''));
                 $agent = trim((string)($_POST['agent'] ?? ''));
-                $result = AgentClient::agent_call(['action' => 'create', 'workdir' => $workdir, 'enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode, 'agent' => $agent]);
+                $model = trim((string)($_POST['model'] ?? ''));
+                $modelProvider = trim((string)($_POST['model_provider'] ?? ''));
+                $createParams = ['action' => 'create', 'workdir' => $workdir, 'enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode, 'agent' => $agent];
+                if ($model !== '') {
+                    $createParams['model'] = $model;
+                    $createParams['model_provider'] = $modelProvider;
+                }
+                $result = AgentClient::agent_call($createParams);
                 $ok = (bool)($result['ok'] ?? false);
-                $message = (string)($result['message'] ?? 'Unknown error');
+                $message = $ok
+                    ? (string)($result['message'] ?? 'Created session')
+                    : (string)($result['message'] ?? 'Unknown error');
                 break;
 
             case 'resume':

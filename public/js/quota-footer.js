@@ -51,6 +51,7 @@
     if (key === 'context') return 'Context';
     if (key === 'session') return 'Session';
     if (key === 'week_all') return 'Week';
+    if (key === 'month_all') return 'Monthly';
     if (key === 'gemini-weekly') return 'Gemini';
     if (key === '3p-weekly') return 'Claude & GPT';
     return key.replace(/^week_/, '').replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }) + ' (week)';
@@ -111,14 +112,24 @@
     if (!bar || typeof bar.pct !== 'number') return null;
     var nowSeconds = Math.floor(Date.now() / 1000);
     var text = bar.pct + '%';
+    var duration = null;
     var absolute = null;
 
     if (typeof bar.resets_at === 'number') {
-      text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind);
+      duration = formatDuration(bar.resets_at - nowSeconds, kind);
+      text += ' · ' + duration;
       absolute = formatAbsolute(bar.resets_at);
     }
 
-    return { pct: bar.pct, text: text, absolute: absolute };
+    return { pct: bar.pct, text: text, duration: duration, absolute: absolute };
+  }
+
+  function dashboardBucketText(info) {
+    return info.pct + '%' + (info.duration ? ' (' + info.duration + ')' : '');
+  }
+
+  function tokenText(value) {
+    return typeof value === 'number' ? Math.round(value).toLocaleString() : '0';
   }
 
   function showUnavailable(data) {
@@ -135,27 +146,33 @@
     var claude = agents.claude;
     var ag = agents.antigravity;
     var oc = agents.opencode;
+    var codex = agents.codex;
 
     var hasClaude = claude && claude.quota;
     var hasAg = ag && ag.quota;
     var hasOc = oc && oc.quota;
+    var hasCodex = codex && codex.quota;
 
-    if (!hasClaude && !hasAg && !hasOc) {
+    if (!hasClaude && !hasAg && !hasOc && !hasCodex) {
       showUnavailable(data);
       return;
     }
 
     var container = document.createElement('div');
     container.className = 'w-full overflow-x-auto';
+    container.style.maxWidth = '100%';
+    container.style.overflowX = 'auto';
 
     var table = document.createElement('table');
     table.className = 'w-full text-xs text-left border-collapse';
+    table.style.minWidth = '34rem';
 
     var thead = document.createElement('thead');
     thead.innerHTML = '<tr class="text-slate-500 border-b border-slate-800">'
       + '<th class="py-1 pr-3 font-medium">Agent</th>'
-      + '<th class="py-1 px-3 font-medium">Session</th>'
-      + '<th class="py-1 pl-3 font-medium">Weekly</th>'
+      + '<th class="py-1 px-2 font-medium">5hr</th>'
+      + '<th class="py-1 px-2 font-medium">Weekly</th>'
+      + '<th class="py-1 pl-2 font-medium">Monthly</th>'
       + '</tr>';
     table.appendChild(thead);
 
@@ -171,26 +188,28 @@
     trClaude.appendChild(tdC1);
 
     var tdC2 = document.createElement('td');
-    tdC2.className = 'py-1.5 px-3 whitespace-nowrap';
+    tdC2.className = 'py-1.5 px-2 whitespace-nowrap';
     if (claude && claude.quota && claude.quota.session) {
       var sInfo = renderBucketText(claude.quota.session, 'session');
-      tdC2.innerHTML = '<span class="' + pctColorClass(sInfo.pct) + '">' + escapeHtml(sInfo.text) + '</span>'
-        + (sInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(sInfo.absolute) + ')</span>' : '');
+      tdC2.innerHTML = '<span class="' + pctColorClass(sInfo.pct) + '">' + escapeHtml(dashboardBucketText(sInfo)) + '</span>';
     } else {
       tdC2.innerHTML = '<span class="text-slate-600 font-normal">' + (claude && claude.message ? 'No data' : '—') + '</span>';
     }
     trClaude.appendChild(tdC2);
 
     var tdC3 = document.createElement('td');
-    tdC3.className = 'py-1.5 pl-3 whitespace-nowrap';
+    tdC3.className = 'py-1.5 px-2 whitespace-nowrap';
     if (claude && claude.quota && claude.quota.week_all) {
       var wInfo = renderBucketText(claude.quota.week_all, 'week');
-      tdC3.innerHTML = '<span class="' + pctColorClass(wInfo.pct) + '">' + escapeHtml(wInfo.text) + '</span>'
-        + (wInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(wInfo.absolute) + ')</span>' : '');
+      tdC3.innerHTML = '<span class="' + pctColorClass(wInfo.pct) + '">' + escapeHtml(dashboardBucketText(wInfo)) + '</span>';
     } else {
       tdC3.innerHTML = '<span class="text-slate-600 font-normal">' + (claude && claude.message ? 'No data' : '—') + '</span>';
     }
     trClaude.appendChild(tdC3);
+    var tdC4 = document.createElement('td');
+    tdC4.className = 'py-1.5 pl-2 whitespace-nowrap text-slate-600';
+    tdC4.textContent = '—';
+    trClaude.appendChild(tdC4);
     tbody.appendChild(trClaude);
 
     // Antigravity row
@@ -202,30 +221,65 @@
     trAg.appendChild(tdA1);
 
     var tdA2 = document.createElement('td');
-    tdA2.className = 'py-1.5 px-3 text-slate-600 whitespace-nowrap font-normal';
+    tdA2.className = 'py-1.5 px-2 text-slate-600 whitespace-nowrap font-normal';
     tdA2.textContent = '—';
     trAg.appendChild(tdA2);
 
     var tdA3 = document.createElement('td');
-    tdA3.className = 'py-1.5 pl-3 whitespace-nowrap';
+    tdA3.className = 'py-1.5 px-2 whitespace-nowrap';
     if (ag && ag.quota && (ag.quota['gemini-weekly'] || ag.quota['3p-weekly'])) {
       var agItems = [];
       if (ag.quota['gemini-weekly']) {
         var gInfo = renderBucketText(ag.quota['gemini-weekly'], 'week');
-        agItems.push('<div><span class="text-slate-400 font-normal">Gemini: </span><span class="' + pctColorClass(gInfo.pct) + '">' + escapeHtml(gInfo.text) + '</span>' + (gInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(gInfo.absolute) + ')</span>' : '') + '</div>');
+        agItems.push('<div><span class="text-slate-400 font-normal">Gemini: </span><span class="' + pctColorClass(gInfo.pct) + '">' + escapeHtml(dashboardBucketText(gInfo)) + '</span></div>');
       }
       if (ag.quota['3p-weekly']) {
         var pInfo = renderBucketText(ag.quota['3p-weekly'], 'week');
-        agItems.push('<div class="mt-0.5"><span class="text-slate-400 font-normal">Claude & GPT: </span><span class="' + pctColorClass(pInfo.pct) + '">' + escapeHtml(pInfo.text) + '</span>' + (pInfo.absolute ? '<span class="text-xs font-normal text-slate-500 ml-1">(' + escapeHtml(pInfo.absolute) + ')</span>' : '') + '</div>');
+        agItems.push('<div class="mt-0.5"><span class="text-slate-400 font-normal">Claude & GPT: </span><span class="' + pctColorClass(pInfo.pct) + '">' + escapeHtml(dashboardBucketText(pInfo)) + '</span></div>');
       }
       tdA3.innerHTML = agItems.join('');
     } else {
       tdA3.innerHTML = '<span class="text-slate-600 font-normal">' + (ag && ag.message ? 'No data' : '—') + '</span>';
     }
     trAg.appendChild(tdA3);
+    var tdA4 = document.createElement('td');
+    tdA4.className = 'py-1.5 pl-2 whitespace-nowrap text-slate-600';
+    tdA4.textContent = '—';
+    trAg.appendChild(tdA4);
     tbody.appendChild(trAg);
 
-    // OpenCode row — cost/tokens (not pct), so different rendering
+    // Codex exposes the same primary/secondary account windows as its
+    // native app-server client: normally 5-hour and weekly.
+    var trCodex = document.createElement('tr');
+    var tdX1 = document.createElement('td');
+    tdX1.className = 'py-1.5 pr-3 text-cyan-300 whitespace-nowrap font-medium';
+    tdX1.textContent = (codex && codex.label) ? codex.label : 'Codex';
+    trCodex.appendChild(tdX1);
+    var tdX2 = document.createElement('td');
+    tdX2.className = 'py-1.5 px-2 whitespace-nowrap';
+    if (codex && codex.quota && codex.quota.session) {
+      var xSession = renderBucketText(codex.quota.session, 'session');
+      tdX2.innerHTML = '<span class="' + pctColorClass(xSession.pct) + '">' + escapeHtml(dashboardBucketText(xSession)) + '</span>';
+    } else {
+      tdX2.innerHTML = '<span class="text-slate-600 font-normal">No data</span>';
+    }
+    trCodex.appendChild(tdX2);
+    var tdX3 = document.createElement('td');
+    tdX3.className = 'py-1.5 px-2 whitespace-nowrap';
+    if (codex && codex.quota && codex.quota.week_all) {
+      var xWeek = renderBucketText(codex.quota.week_all, 'week');
+      tdX3.innerHTML = '<span class="' + pctColorClass(xWeek.pct) + '">' + escapeHtml(dashboardBucketText(xWeek)) + '</span>';
+    } else {
+      tdX3.innerHTML = '<span class="text-slate-600 font-normal">—</span>';
+    }
+    trCodex.appendChild(tdX3);
+    var tdX4 = document.createElement('td');
+    tdX4.className = 'py-1.5 pl-2 whitespace-nowrap text-slate-600';
+    tdX4.textContent = '—';
+    trCodex.appendChild(tdX4);
+    tbody.appendChild(trCodex);
+
+    // OpenCode has cumulative local usage, not percentage-based windows.
     var trOc = document.createElement('tr');
     var ocLabel = (oc && oc.label) ? oc.label : 'OpenCode';
     var tdO1 = document.createElement('td');
@@ -234,30 +288,39 @@
     trOc.appendChild(tdO1);
 
     var tdO2 = document.createElement('td');
-    tdO2.className = 'py-1.5 px-3 whitespace-nowrap text-xs';
+    tdO2.className = 'py-1.5 px-2 whitespace-nowrap text-xs';
     if (oc && oc.quota) {
       var ocQ = oc.quota;
-      var costStr = typeof ocQ.cost === 'number' ? ('$' + ocQ.cost.toFixed(2)) : '—';
-      var tokStr = typeof ocQ.tokens_input === 'number' ? (Math.round((ocQ.tokens_input + (ocQ.tokens_output || 0)) / 1000) + 'k') : '';
-      tdO2.innerHTML = '<span class="text-slate-300">' + escapeHtml(costStr) + '</span>' + (tokStr ? '<span class="text-slate-500 ml-1">' + escapeHtml(tokStr) + ' tok</span>' : '');
-      if (ocQ.session_count) {
-        tdO2.innerHTML += '<span class="text-slate-500 ml-1">· ' + ocQ.session_count + ' sess</span>';
-      }
+      var ocCost = typeof ocQ.cost === 'number' ? ('$' + ocQ.cost.toFixed(2)) : '—';
+      tdO2.innerHTML = '<span class="text-slate-300">Cost ' + escapeHtml(ocCost) + '</span>';
     } else {
       tdO2.innerHTML = '<span class="text-slate-600 font-normal">' + (oc && oc.message ? 'No data' : '—') + '</span>';
     }
     trOc.appendChild(tdO2);
 
     var tdO3 = document.createElement('td');
-    tdO3.className = 'py-1.5 pl-3 whitespace-nowrap text-xs text-slate-600';
-    tdO3.textContent = '—';
+    tdO3.className = 'py-1.5 px-2 whitespace-nowrap text-xs';
+    if (oc && oc.quota) {
+      tdO3.innerHTML = '<span class="text-slate-300">In ' + escapeHtml(tokenText(oc.quota.tokens_input)) + '</span>'
+        + '<span class="text-slate-500"> · Out ' + escapeHtml(tokenText(oc.quota.tokens_output)) + '</span>';
+    } else {
+      tdO3.innerHTML = '<span class="text-slate-600">—</span>';
+    }
     trOc.appendChild(tdO3);
+    var tdO4 = document.createElement('td');
+    tdO4.className = 'py-1.5 pl-2 whitespace-nowrap text-xs';
+    if (oc && oc.quota && typeof oc.quota.session_count === 'number') {
+      tdO4.innerHTML = '<span class="text-slate-300">' + escapeHtml(String(oc.quota.session_count)) + ' sessions</span>';
+    } else {
+      tdO4.innerHTML = '<span class="text-slate-600">—</span>';
+    }
+    trOc.appendChild(tdO4);
     tbody.appendChild(trOc);
 
     table.appendChild(tbody);
     container.appendChild(table);
 
-    var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at) || (oc && oc.quota && oc.quota.captured_at);
+    var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at) || (codex && codex.quota && codex.quota.captured_at) || (oc && oc.quota && oc.quota.captured_at);
     el.title = capturedAt ? 'Captured ' + relativeTimeAgo(capturedAt) : '';
     el.innerHTML = '';
     el.appendChild(container);
@@ -281,7 +344,7 @@
     }
 
     // OpenCode per-session quota is cost/tokens (not pct) — render differently
-    if (data.agent === 'opencode' && (typeof q.cost === 'number' || typeof q.tokens_input === 'number')) {
+    if (data.agent === 'opencode' && !q.session && !q.week_all && !q.month_all && (typeof q.cost === 'number' || typeof q.tokens_input === 'number')) {
       el.title = q.captured_at ? 'Captured ' + relativeTimeAgo(q.captured_at) : '';
       el.innerHTML = '';
       var costLine = document.createElement('div');
@@ -364,6 +427,17 @@
 
       el.appendChild(item);
     });
+
+    if (data.agent === 'codex' && typeof q.tokens_total === 'number') {
+      var codexTokens = document.createElement('div');
+      codexTokens.className = 'text-xs font-normal text-slate-500';
+      codexTokens.textContent = 'Tokens ' + tokenText(q.tokens_total)
+        + ' · in ' + tokenText(q.tokens_input)
+        + ' · out ' + tokenText(q.tokens_output)
+        + (q.tokens_reasoning ? (' · reasoning ' + tokenText(q.tokens_reasoning)) : '')
+        + (q.tokens_cached ? (' · cached ' + tokenText(q.tokens_cached)) : '');
+      el.appendChild(codexTokens);
+    }
 
     if (metaParts.length > 0) {
       var meta = document.createElement('span');

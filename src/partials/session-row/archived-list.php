@@ -1,4 +1,11 @@
 <div>
+  <div id="archived-agent-filters" class="flex gap-1.5 mb-3 flex-wrap">
+    <button type="button" data-agent-filter="all" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-indigo-600 text-white border-indigo-500" data-selected="1">All</button>
+    <button type="button" data-agent-filter="claude" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">Claude Code</button>
+    <button type="button" data-agent-filter="antigravity" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">Antigravity</button>
+    <button type="button" data-agent-filter="opencode" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">OpenCode</button>
+    <button type="button" data-agent-filter="codex" class="archived-agent-filter-btn select-none text-xs font-medium px-3 py-1 rounded-full border bg-slate-800 text-slate-400 border-slate-700">Codex</button>
+  </div>
   <!-- text-base (16px), not text-sm - iOS Safari auto-zooms the whole
        viewport in on focusing any text input rendered under 16px. -->
   <div class="relative mb-3">

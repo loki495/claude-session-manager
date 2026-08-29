@@ -129,6 +129,7 @@ class SqliteDb
                 blocked_json TEXT,
                 mode TEXT,
                 last_message TEXT,
+                last_turn_error TEXT,
                 updated_at INTEGER
             );
             CREATE TABLE IF NOT EXISTS pending_tools (

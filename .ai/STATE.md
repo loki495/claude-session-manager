@@ -1,7 +1,7 @@
 # STATE.md — OpenCode TUI agent integration
 
 - **Current objective:** Integrate OpenCode TUI (`opencode` binary) as a third agent alongside Claude Code and Antigravity, via the existing AgentAdapter abstraction. MVP: spawn, list, see status, read transcript from the web UI.
-- **Current step:** 0.1 + 0.2 + 1.1 + 2.1 + 3.1 + 4.1 + reactive binding fix + Phase 6 backend done. Basic piping (spawn + list + transcript) and quotas backend complete. Next: Phase 5 plugin (blocked prompts via Hooks permission.ask + event), Phase 7 polish.
+- **Current step:** 0.1 + 0.2 + 1.1 + 2.1 + 3.1 + 4.1 + reactive binding fix + Phase 6 done. Basic piping (spawn + list + transcript), quotas backend, and quota display are complete. Next: Phase 5 plugin (blocked prompts via Hooks permission.ask + event), Phase 7 polish.
 - **Worker status:** 0.1 done (muse-spark). 0.2 done (orchestrator-direct, isolated tmux + WAL verified). 1.1 done (orchestrator-direct). 2.1 done (orchestrator-direct; oc-* spawn). 3.1 done (orchestrator-direct; OpenCodeTranscriptService, 62 assertions). 4.1 done (orchestrator-direct; is_opencode guard + find_session_title). Reactive binding fix done (live oc-20260825-075821 → ses_fc8124, transcript 4 entries). Phase 6 backend done (opencode_quota_state WAL+readonly, per-session + dashboard, OPENCODE_DB_PATH isolation, all 22 tests PASS). Workers: Phase 5 (ses_fc80b807 big-pickle stalled, ses_fc804fbd nemotron 5b at 2 msgs) — plugin still pending.
 - **Worker model:** To be set per task (default: muse-spark-1.2-contributor-free via `opencode run --model opencode/muse-spark-1.2-contributor-free` or equivalent free model; verified available on this machine).
 - **Important decisions:**

@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch OpenCode source for patch overwrite
+After=network.target
+
+[Path]
+PathModified=/home/user/opencode-1.18.21/packages/opencode/src/effect/instance-state.ts
+PathModified=/home/user/opencode-1.18.21/packages/opencode/src/provider/provider.ts
+
+[Install]
+WantedBy=default.target

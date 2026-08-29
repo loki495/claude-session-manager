@@ -39,9 +39,12 @@ const REAL_SESSIONS_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-
 $pushSqliteFixture = sys_get_temp_dir() . '/csm-test-quota-live-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 $sessionsSqliteFixture = sys_get_temp_dir() . '/csm-test-quota-sessions-' . bin2hex(random_bytes(4)) . '/sessions.sqlite';
 $opencodeDbFixture = sys_get_temp_dir() . '/csm-test-quota-opencode-' . bin2hex(random_bytes(4)) . '/opencode.db';
+$opencodeAuthFixture = sys_get_temp_dir() . '/csm-test-quota-opencode-' . bin2hex(random_bytes(4)) . '/auth.json';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
 putenv("SESSIONS_SQLITE_FILE={$sessionsSqliteFixture}");
 putenv("OPENCODE_DB_PATH={$opencodeDbFixture}");
+putenv("OPENCODE_AUTH_PATH={$opencodeAuthFixture}");
+putenv('OPENCODE_GO_API_KEY=');
 
 if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_Q || Config::sessions_sqlite_path() === REAL_SESSIONS_SQLITE_FILE_Q) {
     fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE or SESSIONS_SQLITE_FILE resolves to real host state file. Check tests/.env.testing.\n");
@@ -209,4 +212,6 @@ try {
     @unlink($sessionsSqliteFixture . '-shm');
     @unlink($opencodeDbFixture);
     @rmdir(dirname($opencodeDbFixture));
+    @unlink($opencodeAuthFixture);
+    @rmdir(dirname($opencodeAuthFixture));
 }

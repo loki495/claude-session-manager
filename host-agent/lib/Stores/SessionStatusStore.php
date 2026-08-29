@@ -41,15 +41,19 @@ class SessionStatusStore
 {
     private static function db(): \PDO
     {
-        return SqliteDb::connect(Config::sessions_sqlite_path(), SqliteDb::sessions_schema());
+        $pdo = SqliteDb::connect(Config::sessions_sqlite_path(), SqliteDb::sessions_schema());
+        SqliteDb::add_column_if_missing($pdo, 'session_status', 'last_turn_error', 'TEXT');
+        SqliteDb::add_column_if_missing($pdo, 'session_status', 'token_usage_json', 'TEXT');
+
+        return $pdo;
     }
 
     /**
-     * @return array{mode:?string, status:?string, blocked:?array, last_message:?string, updated_at:?int}|null
+     * @return array{mode:?string, status:?string, blocked:?array, last_message:?string, last_turn_error:?string, token_usage:?array<string,mixed>, updated_at:?int}|null
      */
     public static function read_status(string $sessionName): ?array
     {
-        $stmt = self::db()->prepare('SELECT status, blocked_json, mode, last_message, updated_at FROM session_status WHERE session_name = ?');
+        $stmt = self::db()->prepare('SELECT status, blocked_json, mode, last_message, last_turn_error, token_usage_json, updated_at FROM session_status WHERE session_name = ?');
         $stmt->execute([$sessionName]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -59,6 +63,8 @@ class SessionStatusStore
                 'blocked' => $row['blocked_json'] !== null ? json_decode($row['blocked_json'], true) : null,
                 'mode' => $row['mode'],
                 'last_message' => $row['last_message'],
+                'last_turn_error' => $row['last_turn_error'],
+                'token_usage' => $row['token_usage_json'] !== null ? json_decode($row['token_usage_json'], true) : null,
                 'updated_at' => $row['updated_at'] !== null ? (int)$row['updated_at'] : null,
             ];
         }
@@ -97,7 +103,7 @@ class SessionStatusStore
         $sets = [];
         $params = [':session_name' => $sessionName];
 
-        foreach (['status', 'mode', 'last_message'] as $column) {
+        foreach (['status', 'mode', 'last_message', 'last_turn_error'] as $column) {
             if (array_key_exists($column, $fields)) {
                 $sets[] = "{$column} = :{$column}";
                 $params[":{$column}"] = $fields[$column];
@@ -107,6 +113,11 @@ class SessionStatusStore
         if (array_key_exists('blocked', $fields)) {
             $sets[] = 'blocked_json = :blocked_json';
             $params[':blocked_json'] = $fields['blocked'] !== null ? json_encode($fields['blocked']) : null;
+        }
+
+        if (array_key_exists('token_usage', $fields)) {
+            $sets[] = 'token_usage_json = :token_usage_json';
+            $params[':token_usage_json'] = $fields['token_usage'] !== null ? json_encode($fields['token_usage']) : null;
         }
 
         $sets[] = 'updated_at = :updated_at';
@@ -143,5 +154,30 @@ class SessionStatusStore
     {
         $stmt = self::db()->prepare('DELETE FROM session_status WHERE session_name = ?');
         $stmt->execute([$sessionName]);
+    }
+
+    /**
+     * Server-to-client prompt request ids are scoped to one app-server
+     * process. After that process exits, retaining a blocked prompt would
+     * invite the UI to submit an answer to an id that can no longer be
+     * acknowledged. Clear only the affected agent's persisted prompts and
+     * retain an explicit error explaining why the interrupted turn needs to
+     * be retried; other agents' hook-owned status rows remain untouched.
+     */
+    public static function clear_stale_blocked_for_agent(string $agent, string $message): int
+    {
+        $stmt = self::db()->prepare(
+            "UPDATE session_status
+             SET status = 'idle', blocked_json = NULL, last_turn_error = :message, updated_at = :updated_at
+             WHERE blocked_json IS NOT NULL
+               AND session_name IN (SELECT session_name FROM sidecars WHERE agent = :agent)"
+        );
+        $stmt->execute([
+            ':message' => $message,
+            ':updated_at' => time(),
+            ':agent' => $agent,
+        ]);
+
+        return $stmt->rowCount();
     }
 }

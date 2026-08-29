@@ -31,6 +31,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../lib/Sessions.php';
 
+use HostAgent\Services\PromptInteractionService;
+use HostAgent\Services\TmuxService;
 use HostAgent\Stores\SessionStatusStore;
 
 /**
@@ -95,6 +97,111 @@ function antigravity_find_last_planner_response(string $path): ?string
     return $lastContent;
 }
 
+/**
+ * Found live 2026-08-24 (Andres: asked a real question in an Antigravity
+ * session that had hit "Individual quota reached", waited for a reply,
+ * never got one - not even an error - anywhere in this app): confirmed by
+ * grepping the real transcript file that Antigravity writes NOTHING at all
+ * to transcript_full.jsonl for a turn that fails this way - only the
+ * USER_INPUT line for the question itself, no PLANNER_RESPONSE, no error
+ * entry, nothing (reproduced three times in the same live session). The
+ * ONLY place the failure is ever shown is the live pane's own "⚠ ..."
+ * banner text, and only ephemerally (scrolls away, gone once the session
+ * exits) - so unlike find_last_planner_response() above (a pure file
+ * read), this function needs the live pane too.
+ *
+ * Scans the transcript tail for the most recent USER_INPUT's step_index,
+ * then checks whether anything with a HIGHER step_index exists after it -
+ * if so, that turn got a real response (even a tool-calls-only one),
+ * nothing to do here. If not, the pane is searched bottom-up for the last
+ * "⚠ "-prefixed line, stopping (returning null) if a "> " prompt-echo line
+ * is reached first - that would mean walking back into an OLDER exchange
+ * without finding a fresh error, so nothing genuinely failed just now.
+ *
+ * Found live 2026-08-24 (a real reproduction, not a hypothetical): the
+ * FIRST version of this function took a single pre-captured $paneContent
+ * and came back null even on a turn independently confirmed (moments
+ * later, manually) to have the "⚠ Individual quota reached" banner sitting
+ * right there in the pane - Stop fires the instant Antigravity's own
+ * internal turn-handling concludes, which can beat its own TUI's re-render
+ * of the error banner text by enough to matter, unlike
+ * find_last_planner_response() above (a pure file read with no such race).
+ * Fixed by re-capturing the pane fresh on up to 3 attempts, TMUX_KEY_STEP_
+ * DELAY_USEC (300ms, same delay unit PromptInteractionService's own
+ * key-sequence pacing uses) apart - only ever reached on the rare
+ * no-response path (the transcript-tail check above already short-circuits
+ * every normal successful turn before this), so the common case pays
+ * nothing extra.
+ */
+function antigravity_find_unanswered_turn_error(string $transcriptPath, string $sessionName): ?string
+{
+    // Same tail-scan window as find_last_planner_response() above.
+    $tailScanBytes = 262144;
+
+    $size = @filesize($transcriptPath);
+
+    if ($size === false || $size === 0) {
+        return null;
+    }
+
+    $handle = @fopen($transcriptPath, 'rb');
+
+    if ($handle === false) {
+        return null;
+    }
+
+    $tailBytes = min($size, $tailScanBytes);
+    fseek($handle, -$tailBytes, SEEK_END);
+    $chunk = fread($handle, $tailBytes);
+    fclose($handle);
+
+    if ($chunk === false) {
+        return null;
+    }
+
+    $lastUserStepIndex = null;
+    $hasResponseAfterLastUser = false;
+
+    foreach (explode("\n", $chunk) as $line) {
+        $decoded = json_decode($line, true);
+
+        if (!is_array($decoded) || !isset($decoded['step_index'], $decoded['type']) || !is_int($decoded['step_index'])) {
+            continue;
+        }
+
+        if ($decoded['type'] === 'USER_INPUT') {
+            $lastUserStepIndex = $decoded['step_index'];
+            $hasResponseAfterLastUser = false;
+        } elseif ($lastUserStepIndex !== null && $decoded['step_index'] > $lastUserStepIndex) {
+            $hasResponseAfterLastUser = true;
+        }
+    }
+
+    if ($lastUserStepIndex === null || $hasResponseAfterLastUser) {
+        return null;
+    }
+
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        if ($attempt > 0) {
+            usleep(PromptInteractionService::TMUX_KEY_STEP_DELAY_USEC);
+        }
+
+        foreach (array_reverse(explode("\n", TmuxService::tmux_capture_pane($sessionName))) as $paneLine) {
+            $trimmed = trim($paneLine);
+
+            if (str_starts_with($trimmed, '⚠')) {
+                return $trimmed;
+            }
+
+            if (str_starts_with($trimmed, '> ')) {
+                break;
+            }
+        }
+    }
+
+    return null;
+}
+
 $sessionName = getenv('CSM_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
@@ -110,13 +217,17 @@ if (!is_array($payload)) {
     exit(0);
 }
 
-$fields = ['status' => 'idle', 'blocked' => null];
+$fields = ['status' => 'idle', 'blocked' => null, 'last_turn_error' => null];
 
 $transcriptPath = is_string($payload['transcriptPath'] ?? null) ? $payload['transcriptPath'] : null;
 $lastMessage = $transcriptPath !== null ? antigravity_find_last_planner_response($transcriptPath) : null;
 
 if ($lastMessage !== null) {
     $fields['last_message'] = $lastMessage;
+}
+
+if ($transcriptPath !== null) {
+    $fields['last_turn_error'] = antigravity_find_unanswered_turn_error($transcriptPath, $sessionName);
 }
 
 SessionStatusStore::update_status($sessionName, $fields);

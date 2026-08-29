@@ -269,6 +269,9 @@ $response = match ($action) {
         'parent' => '/home/user',
         'dirs' => ['project-a', 'project-b'],
     ],
+    'create_dir' => (string)($request['name'] ?? '') === 'new-folder'
+        ? ['ok' => true, 'path' => '/home/user/www/new-folder', 'parent' => '/home/user/www', 'dirs' => []]
+        : ['ok' => false, 'message' => 'Invalid folder name'],
     'create' => ['ok' => true, 'message' => 'Created session cc-20260101-1300 in /home/user/www/demo-project'],
     'resume' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID && (string)($request['workdir'] ?? '') === '/home/user/www/old-project'
         ? ['ok' => true, 'message' => 'Resumed session ' . CANNED_RESUMED_SESSION_NAME . ' in /home/user/www/old-project', 'name' => CANNED_RESUMED_SESSION_NAME]
@@ -374,6 +377,19 @@ $response = match ($action) {
                 'quota' => [
                     'gemini-weekly' => ['pct' => 25, 'resets_at' => time() + 5 * 86400, 'group_name' => 'Gemini Models'],
                     '3p-weekly' => ['pct' => 0, 'resets_at' => time() + 5 * 86400, 'group_name' => 'Claude and GPT models'],
+                    'captured_at' => '2026-07-08T12:00:00-0700',
+                ],
+                'fetched_at' => time() - 120,
+                'message' => null,
+            ],
+            'opencode' => [
+                'label' => 'OpenCode',
+                'ok' => true,
+                'quota' => [
+                    'cost' => 12.34,
+                    'tokens_input' => 12345,
+                    'tokens_output' => 678,
+                    'session_count' => 4,
                     'captured_at' => '2026-07-08T12:00:00-0700',
                 ],
                 'fetched_at' => time() - 120,

@@ -87,8 +87,23 @@ class HealthBoxView extends View
 
         $intervalControl = self::push_timer_interval_control_html($pushTimerIntervalSeconds, $csrfToken);
 
+        // Group checks by section, preserving first-seen order with
+        // Global first (it contains the foundational infrastructure).
+        $grouped = [];
+
+        foreach ($checks as $check) {
+            $section = $check['section'] ?? 'General';
+            $grouped[$section][] = $check;
+        }
+
+        if (isset($grouped['Global'])) {
+            $global = $grouped['Global'];
+            unset($grouped['Global']);
+            $grouped = ['Global' => $global] + $grouped;
+        }
+
         return self::render('health-box/box', [
-            'checks' => $checks,
+            'grouped' => $grouped,
             'dotColor' => $dotColor,
             'summaryColor' => $summaryColor,
             'summaryText' => $summaryText,

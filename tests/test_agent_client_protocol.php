@@ -41,6 +41,20 @@ try {
     $result = AgentClient::agent_call(['action' => 'browse_dir', 'path' => '/etc']);
     assert_equal(false, $result['ok'] ?? null, 'browse_dir (/etc): rejected as outside the home directory');
 
+    // --- create_dir: dispatched through to SessionService::create_dir() over the real socket ---
+    $newDirPath = getenv('WWW_ROOT') . '/csm-test-protocol-new-folder';
+    @rmdir($newDirPath); // in case a previous failed run left it behind
+
+    $result = AgentClient::agent_call(['action' => 'create_dir', 'path' => getenv('WWW_ROOT'), 'name' => 'csm-test-protocol-new-folder']);
+    assert_true($result['ok'] ?? false, 'create_dir: ok=true');
+    assert_true(is_dir($newDirPath), 'create_dir: the directory really exists on disk afterward');
+    assert_equal($newDirPath, $result['path'] ?? null, 'create_dir: response path is the new folder itself');
+
+    @rmdir($newDirPath);
+
+    $result = AgentClient::agent_call(['action' => 'create_dir', 'path' => '/etc', 'name' => 'csm-test-protocol-escape']);
+    assert_equal(false, $result['ok'] ?? null, 'create_dir (/etc): rejected as outside the home directory');
+
     // --- session_detail / session_history: wired over the socket (deeper
     // coverage, incl. the actual create -> transcript-not-found path, lives
     // in test_sessions_lifecycle.php against real tmux) ---

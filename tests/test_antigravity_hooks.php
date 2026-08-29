@@ -236,7 +236,45 @@ try {
     assert_equal('idle', $stopStatus['status'] ?? null, 'stop.php: marks the session idle');
     assert_equal(null, $stopStatus['blocked'], 'stop.php: clears any blocked state');
     assert_equal('done, the thing is finished', $stopStatus['last_message'] ?? null, 'stop.php: last_message comes from the transcript\'s LAST PLANNER_RESPONSE entry, skipping the earlier tool-calls-only one with content:null');
+    assert_equal(null, $stopStatus['last_turn_error'] ?? null, 'stop.php: a turn that DID get a real response never sets last_turn_error - the transcript-tail check short-circuits before ever touching the pane');
     unlink($fixtureTranscriptPath);
+
+    // --- stop.php: a turn that got NO response at all (quota exhausted, etc.) - Antigravity itself
+    // writes nothing to the transcript for this (confirmed live 2026-08-24, see this function's own
+    // docblock in stop.php), so the only place the failure is ever visible is the live pane's own
+    // "⚠ ..." banner text - last_turn_error captures it from there instead ---
+
+    $stopErrName = 'ag-test-stoperr-' . bin2hex(random_bytes(3));
+    $stopErrCreate = TmuxService::tmux_run(['new-session', '-d', '-s', $stopErrName, '-c', sys_get_temp_dir(), 'bash', '-c', 'stty -echo; exec cat']);
+    assert_equal(0, $stopErrCreate['exit'], 'stop.php unanswered-turn test setup: created a live fixture tmux pane');
+    // A stale, OLDER error further up in scrollback, and a real answered
+    // exchange for a DIFFERENT session's own test above already covers the
+    // "must not false-positive on an old ⚠ line" case via a transcript with
+    // a real response - this pane only ever needs the CURRENT exchange.
+    TmuxService::tmux_run(['send-keys', '-t', $stopErrName, '-l', "> What models still have quota available?\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 5h.\nError ID: fixture-error-id\n"]);
+
+    $stopErrTranscriptPath = sys_get_temp_dir() . '/csm-test-agy-transcript-' . bin2hex(random_bytes(4)) . '.jsonl';
+    file_put_contents($stopErrTranscriptPath, json_encode(['step_index' => 0, 'source' => 'USER_EXPLICIT', 'type' => 'USER_INPUT', 'status' => 'DONE', 'content' => 'What models still have quota available?']) . "\n");
+
+    $stopErrOut = run_antigravity_hook_script("{$hooksDir}/stop.php", $stopErrName, ['executionNum' => 0, 'terminationReason' => 'NO_TOOL_CALL', 'fullyIdle' => true, 'transcriptPath' => $stopErrTranscriptPath]);
+    assert_equal('{"decision":"allow_stop"}', trim($stopErrOut), 'stop.php: still a valid decision for an unanswered turn');
+    $stopErrStatus = SessionStatusStore::read_status($stopErrName);
+    assert_equal('⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 5h.', $stopErrStatus['last_turn_error'] ?? null, 'stop.php: last_turn_error captures the pane\'s own "⚠ ..." banner when the transcript shows no response at all for the most recent turn');
+    assert_equal(null, $stopErrStatus['last_message'] ?? null, 'stop.php: last_message stays null for an unanswered turn - there really is no PLANNER_RESPONSE to find');
+
+    unlink($stopErrTranscriptPath);
+    TmuxService::tmux_run(['kill-session', '-t', $stopErrName]);
+    SessionStatusStore::delete_status($stopErrName);
+
+    // --- pre_invocation.php: clears a stale last_turn_error the moment a NEW turn starts,
+    // so a failed reply's banner doesn't linger once the user has already moved on ---
+
+    $piClearName = 'ag-test-piclear-' . bin2hex(random_bytes(3));
+    SessionStatusStore::update_status($piClearName, ['status' => 'idle', 'last_turn_error' => '⚠ stale error from a previous turn']);
+    run_antigravity_hook_script("{$hooksDir}/pre_invocation.php", $piClearName, ['conversationId' => 'conv-piclear', 'workspacePaths' => ['/fixture/workdir']]);
+    assert_equal(null, SessionStatusStore::read_status($piClearName)['last_turn_error'] ?? null, 'pre_invocation.php: clears last_turn_error when a new turn starts');
+    SidecarStore::delete_sidecar($piClearName);
+    SessionStatusStore::delete_status($piClearName);
 
     // --- stop.php: no transcript path at all - still marks idle, just no last_message ---
 

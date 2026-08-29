@@ -23,6 +23,7 @@ use HostAgent\Agents\AgentRegistry;
 use HostAgent\Agents\AntigravityAdapter;
 use HostAgent\Agents\ClaudeCodeAdapter;
 use HostAgent\Agents\OpenCodeAdapter;
+use HostAgent\Agents\CodexAdapter;
 use HostAgent\Services\AntigravityHookService;
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
@@ -44,7 +45,7 @@ try {
     // --- AgentRegistry: identity/lookup ---
 
     assert_equal('claude', AgentRegistry::default_agent_id(), 'default_agent_id: claude, unchanged from every existing caller before this class existed');
-    assert_equal(['claude', 'antigravity', 'opencode'], AgentRegistry::known_agent_ids(), 'known_agent_ids: claude, antigravity, and opencode registered');
+    assert_equal(['claude', 'antigravity', 'opencode', 'codex'], AgentRegistry::known_agent_ids(), 'known_agent_ids: all four agents registered');
 
     $adapter = AgentRegistry::get('claude');
     assert_true($adapter instanceof ClaudeCodeAdapter, 'AgentRegistry::get(\'claude\'): returns a ClaudeCodeAdapter instance');
@@ -187,6 +188,12 @@ try {
 
     $ocInstall = $opencode->install_hooks();
     assert_equal(false, $ocInstall['installed'], 'install_hooks(): honestly reports not installed (stub, Phase 5 will implement)');
+
+    $codex = AgentRegistry::get('codex');
+    assert_true($codex instanceof CodexAdapter, "AgentRegistry::get('codex'): returns a CodexAdapter instance");
+    assert_equal('Codex', $codex->label(), 'CodexAdapter::label(): Codex');
+    assert_equal([], $codex->build_spawn_argv([])['argv'], 'CodexAdapter never builds a tmux/TUI spawn argv');
+    assert_equal(true, $codex->check_hooks()['installed'], 'Codex needs no hooks because app-server is authoritative');
 
     $agInstall = $antigravity->install_hooks();
     assert_equal(true, $agInstall['ok'], 'AntigravityAdapter::install_hooks(): succeeds against a fresh fixture hooks.json');

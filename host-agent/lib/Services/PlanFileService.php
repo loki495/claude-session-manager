@@ -142,4 +142,53 @@ class PlanFileService
             'filename' => basename($path),
         ];
     }
+
+    /**
+     * The sidebar "Todo" link (Andres's own ask, 2026-08-25): opens a
+     * session's own cwd-level `todo` file (the same convention this app's
+     * own project keeps a `todo` file at its root for) in a fullscreen
+     * modal. Deliberately separate from list_plan_files()/read_plan_file()
+     * above - those are scoped to *.md scratch docs with README.md/
+     * CLAUDE.md excluded, whereas `todo` is a no-extension, always-expected
+     * project bookkeeping file that must stay readable regardless. Same
+     * realpath boundary discipline as resolve_plan_file_path() (never trust
+     * a caller - the workdir is re-derived from the sidecar, never supplied
+     * by the client).
+     *
+     * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string}
+     */
+    public static function read_todo_file(string $sessionName): array
+    {
+        $sidecar = SidecarStore::read_sidecar($sessionName);
+        $workdir = is_string($sidecar['workdir'] ?? null) ? $sidecar['workdir'] : null;
+
+        if ($workdir === null) {
+            return ['ok' => false, 'message' => 'Unknown working directory for this session'];
+        }
+
+        $realDir = realpath($workdir);
+
+        if ($realDir === false) {
+            return ['ok' => false, 'message' => 'Working directory no longer exists'];
+        }
+
+        $path = $realDir . '/todo';
+
+        if (!is_file($path)) {
+            return ['ok' => false, 'message' => 'No todo file in this session\'s working directory'];
+        }
+
+        $data = file_get_contents($path);
+
+        if ($data === false) {
+            return ['ok' => false, 'message' => 'Could not read todo file'];
+        }
+
+        return [
+            'ok' => true,
+            'data' => base64_encode($data),
+            'media_type' => 'text/plain; charset=utf-8',
+            'filename' => 'todo',
+        ];
+    }
 }

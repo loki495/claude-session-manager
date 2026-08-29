@@ -484,7 +484,7 @@ try {
         'GET /js/common.js: a window scroll listener snaps the outer page back to (0,0) - found live 2026-08-22 (real iOS Safari screen recording, Andres): focusing the compose textarea panned the WHOLE layout viewport off-screen (not a DOM scroll, so overflow:hidden on body did not stop it), dragging position:fixed elements along with it and leaving the page entirely blank'
     );
     assert_contains('function copyTextToClipboard(', $commonJs['body'], 'GET /js/common.js: copyTextToClipboard() (navigator.clipboard with an execCommand fallback for insecure-context LAN access) is shipped');
-    assert_contains("closest('.copy-btn')", $commonJs['body'], 'GET /js/common.js: the delegated .copy-btn click handler is shipped');
+    assert_contains("closestEventTarget(e, '.copy-btn')", $commonJs['body'], 'GET /js/common.js: the delegated .copy-btn click handler is shipped through the safe event-target helper');
     assert_contains('fullscreen-text-modal-copy', $commonJs['body'], 'GET /js/common.js: the fullscreen text modal\'s own Copy button is wired up');
     assert_contains('fullscreenTextModal.addEventListener(\'touchstart\'', $commonJs['body'], 'GET /js/common.js: the fullscreen text modal has its own swipe-to-close touch handling (Andres 2026-08-22), not just the close button/Escape');
     assert_contains('FULLSCREEN_SWIPE_MIN_DISTANCE_PX', $commonJs['body'], 'GET /js/common.js: the swipe-to-close gesture is shipped with its own distance/ratio thresholds');
@@ -556,14 +556,14 @@ try {
     assert_contains('.older-content-highlight', $result['body'], 'GET /session.php: the older-content-highlight CSS (distinct cyan glow) is shipped');
     assert_contains('function resetHistoryForRotatedTranscript(', $sessionJs['body'], 'GET /js/session.js: resetHistoryForRotatedTranscript() (clears the rendered history on /clear, /compact, --resume, --fork-session) is shipped');
     assert_contains("sessionHeader = document.getElementById('session-header')", $sessionJs['body'], 'GET /js/session.js: the iOS tap-header-to-scroll-to-top handler is shipped');
-    assert_contains("closest('a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')", $sessionJs['body'], 'GET /js/session.js: the tap-to-scroll-to-top handler excludes the header\'s own real tap targets (back link, title/cwd, poll interval, sidebar toggle)');
+    assert_contains("closestEventTarget(e, 'a, #header-title, #header-cwd, #poll-interval-select, #sidebar-toggle-btn')", $sessionJs['body'], 'GET /js/session.js: the tap-to-scroll-to-top handler excludes the header\'s own real tap targets through the safe event-target helper');
     // renderStaticInfo() no longer carries a session-info card (removed
     // 2026-08-20 - just title+cwd in the fixed header now, see header.php)
     // - only the header title/tooltip need live updating (cwd never
     // changes for a session's lifetime).
     assert_contains('headerTitle.title = title', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() keeps the header title\'s tooltip (title attribute) in sync too, not just its visible text');
     assert_contains("class=\"copy-block\" data-line=\"' + line + '\"><div class=\"markdown-body", $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button (and data-line, for search-result jump/highlight) on plain text entries');
-    assert_contains("closest('summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
+    assert_contains("closestEventTarget(e, 'summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler safely excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
     assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
     // --- standalone tool-call entries (TranscriptView::render_transcript_
     // entries_html()/render_tool_call_entry_html() - bundling under a
@@ -1172,6 +1172,28 @@ try {
     $archivedNoJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
     assert_true(!str_contains($archivedNoJumpResult['body'], 'Showing a search result'), 'GET /archived_session.php (no jump_line): the jump banner is NOT shown on an ordinary visit');
 
+    // --- create_folder.php: GET not allowed, CSRF enforced, canned agent accepts/rejects by name ---
+    $result = curl_request('GET', "{$baseUrl}/create_folder.php");
+    assert_equal(405, $result['status'], 'GET /create_folder.php: 405 (POST required)');
+
+    $result = curl_request('POST', "{$baseUrl}/create_folder.php", [
+        '-d', 'path=' . urlencode('/home/user/www') . '&name=new-folder&csrf_token=not-the-real-token',
+    ]);
+    assert_equal(403, $result['status'], 'POST /create_folder.php with a wrong csrf_token: 403');
+
+    $result = curl_request('POST', "{$baseUrl}/create_folder.php", [
+        '-d', 'path=' . urlencode('/home/user/www') . '&name=' . urlencode('new-folder') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $createFolderBody = json_decode($result['body'], true);
+    assert_true(is_array($createFolderBody) && ($createFolderBody['ok'] ?? false), 'POST /create_folder.php: canned agent accepts the name, response decodes as ok=true JSON');
+    assert_equal('/home/user/www/new-folder', $createFolderBody['path'] ?? null, 'POST /create_folder.php: the canned new folder path is passed through');
+
+    $result = curl_request('POST', "{$baseUrl}/create_folder.php", [
+        '-d', 'path=' . urlencode('/home/user/www') . '&name=' . urlencode('bad name') . '&csrf_token=' . urlencode((string)$csrfForSend),
+    ], $cookieJar);
+    $createFolderRejectedBody = json_decode($result['body'], true);
+    assert_equal(false, $createFolderRejectedBody['ok'] ?? null, 'POST /create_folder.php: canned agent rejects an unrecognized name');
+
     // --- delete_uploaded_file.php: GET not allowed, CSRF enforced, canned agent accepts/rejects by filename ---
     $result = curl_request('GET', "{$baseUrl}/delete_uploaded_file.php");
     assert_equal(405, $result['status'], 'GET /delete_uploaded_file.php: 405 (POST required)');
@@ -1466,6 +1488,11 @@ function run_headless_browser_checks(string $browser, int $port): void
     }
 
     assert_contains('id="new-session-details"', $home['dom'], 'headless browser: renders the New Session folder browser');
+    assert_contains('OpenCode', $home['dom'], 'headless browser: dashboard renders the OpenCode quota row');
+    assert_contains('Cost $12.34', $home['dom'], 'headless browser: OpenCode quota row renders cumulative cost');
+    assert_contains('In 12,345', $home['dom'], 'headless browser: OpenCode quota row renders input tokens');
+    assert_contains('Out 678', $home['dom'], 'headless browser: OpenCode quota row renders output tokens');
+    assert_contains('4 sessions', $home['dom'], 'headless browser: OpenCode quota row renders session count');
     assert_true(!str_contains($home['stderr'], 'Uncaught'), 'headless browser: no uncaught JS errors on load');
 
     $detail = headless_dump_dom($browser, "{$base}/session.php?session=cc-20260101-1200");

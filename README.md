@@ -15,6 +15,10 @@ user accounts - access control is the network binding, not a login.
 
 ## What it does
 
+> For the exhaustive capability list and the per-agent coverage matrix
+> (which agents support which feature, and where parity is partial), see
+> [`docs/features.md`](docs/features.md).
+
 - Lists `cc-*` tmux sessions: name/title, working directory, relative
   last-active time, attached/detached, live context-usage percentage.
 - **Blocked-on-input warning**: if a session's pane is currently showing an

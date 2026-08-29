@@ -97,4 +97,21 @@ interface AgentAdapter
      * @return array<string, string>
      */
     public function permission_mode_map(): array;
+
+    /**
+     * Which hostings this agent's sessions can live under (see RuntimeType).
+     * The ordering is a preference - the first entry is the default when
+     * nothing else says otherwise. An agent that has no headless session
+     * mode at all just returns [RuntimeType::TMUX], and CSM should not
+     * pretend it can spawn it headless.
+     *
+     * Deliberately lives on the adapter (not the runtime) because whether a
+     * headless mode is usable is a property of the CLI itself (opencode has
+     * `opencode serve`; claude's Agent SDK is pay-per-API; antigravity has
+     * only one-shot `agy -p`), i.e. exactly the per-agent knowledge
+     * AgentAdapter already owns.
+     *
+     * @return array<int, string> a subset of RuntimeType::all()
+     */
+    public function supported_runtimes(): array;
 }

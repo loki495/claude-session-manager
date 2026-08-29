@@ -356,6 +356,8 @@ var uploadedFilesList = document.getElementById('uploaded-files-list');
 var uploadedFilesTotal = document.getElementById('uploaded-files-total');
 var deleteAllUploadsBtn = document.getElementById('delete-all-uploads-btn');
 var planFilesList = document.getElementById('plan-files-list');
+var todoFileLink = document.getElementById('todo-file-link');
+var todoFileStatus = document.getElementById('todo-file-status');
 
 // Mirrors PHP's number_format($n, 1) exactly (comma thousands separator,
 // dot decimal point, always 1 decimal place) - NOT toLocaleString(),
@@ -470,9 +472,47 @@ function loadPlanFiles() {
     });
 }
 
+// Sidebar "Open todo file" link (Andres's own ask, 2026-08-25) - fetches
+// the session's cwd-level `todo` file and opens it in the shared fullscreen
+// text modal (openFullscreenTextModal, common.js) rather than a new tab like
+// plan-file content does, since a todo is a quick glance, not a document to
+// keep open. Workdir is re-derived server-side (read_todo_file), never
+// accepted from this client.
+if (todoFileLink) {
+  todoFileLink.addEventListener('click', function () {
+    function resetStatus(text) {
+      if (!todoFileStatus) { return; }
+      todoFileStatus.textContent = text || '';
+      todoFileStatus.classList.toggle('hidden', !text);
+    }
+
+    resetStatus('Loading\u2026');
+    todoFileLink.disabled = true;
+
+    fetch('/session_todo_file.php?session=' + encodeURIComponent(sessionName), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        todoFileLink.disabled = false;
+
+        if (!data || !data.ok) {
+          resetStatus((data && data.message) || 'Could not load todo file.');
+          return;
+        }
+
+        resetStatus('');
+        var rawText = window.atob(data.data);
+        window.openFullscreenTextModal(rawText, renderMarkdown(rawText));
+      })
+      .catch(function () {
+        todoFileLink.disabled = false;
+        resetStatus('Could not load todo file.');
+      });
+  });
+}
+
 if (uploadedFilesList) {
   uploadedFilesList.addEventListener('click', function (e) {
-    var btn = e.target.closest('.delete-upload-btn');
+    var btn = closestEventTarget(e, '.delete-upload-btn');
 
     if (!btn) {
       return;
@@ -637,14 +677,14 @@ if (sidebarToggleBtn) {
   // that gesture belongs to the textarea (caret placement, selecting,
   // scrolling a tall one), never to the app-level swipe.
   function touchTargetsTextarea(e) {
-    return !!(e.target.closest && e.target.closest('textarea'));
+    return !!closestEventTarget(e, 'textarea');
   }
 
   document.addEventListener('touchstart', function (e) {
     // Ignore touches starting inside a horizontally-scrollable command/
     // output block - that gesture is for scrolling the block itself,
     // not for opening/closing the sidebar.
-    if (e.touches.length !== 1 || (e.target.closest && e.target.closest('.overflow-x-auto, .overflow-auto')) || touchTargetsActiveSelection() || touchTargetsTextarea(e)) {
+    if (e.touches.length !== 1 || closestEventTarget(e, '.overflow-x-auto, .overflow-auto') || touchTargetsActiveSelection() || touchTargetsTextarea(e)) {
       touchStartX = null;
       touchStartY = null;
       return;

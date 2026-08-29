@@ -68,6 +68,10 @@ class SessionRowView extends View
             'gitWorktree' => $s['git_worktree'] ?? null,
             'blockedHtml' => $blockedHtml,
             'csrfToken' => $csrfToken,
+            'agentId' => $s['agent'] ?? 'claude',
+            'agentLabel' => $s['agent_label'] ?? 'Claude Code',
+            'status' => $s['status'] ?? 'idle',
+            'runtime' => $s['runtime'] ?? 'tmux',
         ]);
     }
 
@@ -172,6 +176,9 @@ class SessionRowView extends View
             'cwd' => $a['cwd'] ?? null,
             'relativeTime' => self::relative_time((int)($a['last_activity'] ?? 0)),
             'csrfToken' => $csrfToken,
+            'agentId' => $a['agent'] ?? 'claude',
+            'agentLabel' => $a['agent_label'] ?? 'Claude Code',
+            'runtime' => $a['runtime'] ?? (($a['agent'] ?? 'claude') === 'opencode' ? 'headless' : 'tmux'),
         ]);
     }
 

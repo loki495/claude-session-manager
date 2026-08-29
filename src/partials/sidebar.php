@@ -60,6 +60,13 @@
          session that never touches either tool at all. -->
     <div id="todo-list-section"><?= \App\Views\TranscriptView::render_todo_list_html($detail) ?></div>
     <div class="px-4 py-3 border-t border-slate-800">
+      <button type="button" id="todo-file-link"
+        class="w-full text-left text-xs font-medium text-indigo-400 active:text-indigo-300">
+        Open todo file
+      </button>
+      <span id="todo-file-status" class="hidden block mt-1 text-xs text-slate-500"></span>
+    </div>
+    <div class="px-4 py-3 border-t border-slate-800">
       <div class="flex items-center justify-between mb-2">
         <span class="text-xs font-medium text-slate-500">Uploaded files</span>
         <span id="uploaded-files-total" class="text-xs text-slate-500"></span>

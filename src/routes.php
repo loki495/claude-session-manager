@@ -37,6 +37,7 @@ $router->post('/session.php', [SessionController::class, 'show']);
 $router->get('/session_detail.php', [SessionController::class, 'detail']);
 $router->get('/session_plan_files.php', [SessionController::class, 'planFiles']);
 $router->get('/session_plan_file.php', [SessionController::class, 'planFileContent']);
+$router->get('/session_todo_file.php', [SessionController::class, 'todoFile']);
 $router->get('/session_history.php', [SessionController::class, 'history']);
 $router->get('/session_attachment.php', [SessionController::class, 'attachment']);
 $router->get('/session_search.php', [SessionController::class, 'search']);
@@ -54,6 +55,9 @@ $router->get('/session_mode.php', [SessionController::class, 'setMode']);
 $router->post('/session_mode.php', [SessionController::class, 'setMode']);
 $router->get('/session_model.php', [SessionController::class, 'setModel']);
 $router->post('/session_model.php', [SessionController::class, 'setModel']);
+$router->get('/session_antigravity_model.php', [SessionController::class, 'setAntigravityModel']);
+$router->post('/session_antigravity_model.php', [SessionController::class, 'setAntigravityModel']);
+$router->get('/session_list_models.php', [SessionController::class, 'listModels']);
 $router->get('/session_escape.php', [SessionController::class, 'escape']);
 $router->post('/session_escape.php', [SessionController::class, 'escape']);
 $router->get('/answer_prompt.php', [SessionController::class, 'answerPrompt']);
@@ -62,6 +66,8 @@ $router->get('/answer_multi_question.php', [SessionController::class, 'answerMul
 $router->post('/answer_multi_question.php', [SessionController::class, 'answerMultiQuestion']);
 
 $router->get('/browse.php', [BrowseController::class, 'browse']);
+$router->get('/create_folder.php', [BrowseController::class, 'mkdir']);
+$router->post('/create_folder.php', [BrowseController::class, 'mkdir']);
 
 $router->get('/uploaded_files.php', [UploadController::class, 'list']);
 $router->get('/uploaded_file_view.php', [UploadController::class, 'view']);

@@ -34,24 +34,88 @@ queued behind.
   session-page agent label, real data, zero console errors) before
   committing.
 
+- **Live in-session model switch** (2026-08-24): a "Select model" dropdown
+  on session.php for an antigravity session, driving the real `/model`
+  picker (`AntigravitySelectableModel`, `PromptInteractionService::
+  set_antigravity_model()`/`move_antigravity_picker_cursor()`,
+  `render_antigravity_model_toggle_html()`). UNLIKE Claude Code's own
+  model dropdown, this is NOT session-scoped - confirmed live (two
+  disposable throwaway sessions, never Andres's real one) that
+  Antigravity's picker has no session-only option at all, so this always
+  overwrites the ACCOUNT-WIDE default model for every future `agy`
+  session. Andres's own explicit decision after being shown this finding:
+  ship it anyway, labeled honestly as a global-default switch. Also found
+  and fixed live: an earlier version sent a fixed-count blind Up/Down key
+  sequence (mirroring how Claude Code's own set_mode()/set_model() work)
+  - reproduced that Antigravity's real picker silently drops some
+  fraction of rapid keypresses, so a fixed count under/over-shoots
+  unpredictably ("changes the model, then immediately reverts to the old
+  one"). Fixed by verifying the actual cursor position against the live
+  pane after every single press instead of trusting a count. Covered by
+  `tests/test_antigravity_model_switch.php` against a fake deterministic
+  picker fixture.
+- **Turn-error surfacing** (2026-08-24): confirmed live (grepped a real
+  transcript_full.jsonl three times in a row) that a turn which fails
+  outright (e.g. "Individual quota reached") writes NOTHING to
+  Antigravity's own transcript file - no PLANNER_RESPONSE, no error
+  entry, nothing. Without any fix, that turn looks from the transcript
+  alone exactly like the question was silently ignored. Fixed by having
+  `stop.php` detect "no response after the most recent USER_INPUT" from
+  the transcript tail, then capture the live pane's own "⚠ ..." banner
+  text (with a bounded retry - the SAME kind of hook-fires-before-the-
+  pane-finishes-rendering race the model-switch fix above ran into) into
+  a new `last_turn_error` column (`SessionStatusStore`/`SqliteDb`), shown
+  as its own card in session.php in the same spot the thinking indicator
+  occupies (`render_turn_error_html()`). Covered by
+  `tests/test_antigravity_hooks.php`.
+- **Phase 6 (blocked-prompt detection + real interactive answering) -
+  done for the one prompt shape confirmed live so far**: a tool-permission
+  request (`Requesting permission for: <command>` / `Do you want to
+  proceed?` / 4 numbered options). Antigravity has no PermissionRequest-
+  equivalent hook at all (confirmed in Phase 3's own research), so
+  detection is unconditional live-pane parsing for every antigravity
+  session, every poll - `AntigravityPromptParser::parse_blocking_prompt()`,
+  wired into `SessionService::build_session_entry()` (antigravity branches
+  BEFORE the hook-status checks, not after) and `PromptInteractionService::
+  answer_prompt()` (routes to this parser instead of Claude's by session
+  agent). Returns the SAME canonical shape Claude Code's own
+  `PromptParser::parse_blocking_prompt()` does, so `BlockedPromptView`/
+  session.js's rendering and the whole answer-button flow needed ZERO
+  changes - this is the same UI Claude Code's own blocked prompts already
+  use. Found and fixed live: a long option label (the command name is
+  embedded in it) wraps across two printed lines - the parser now joins a
+  non-numbered continuation line onto the option being built instead of
+  treating it as the end of the list. Verified end to end against a real
+  reproduction (a real `agy models`/`echo` permission prompt, approved
+  both via a direct PromptInteractionService call AND via a real browser
+  screenshot of session.php's rendered Approve/Deny buttons, zero console
+  errors). Covered by `tests/test_antigravity_prompt_parser.php` against a
+  real captured pane fixture. **Scope**: only this one prompt shape - the
+  initial per-folder trust dialog and any AskUserQuestion-equivalent
+  Antigravity might have are NOT covered (never seen live yet, so nothing
+  to build against without guessing).
+- **"regular text messages from agy are not showing" - CONFIRMED FIXED,
+  verified live 2026-08-24** (was previously flagged "status unverified"
+  in this doc): checked a real session's `session_history()` output after
+  a real successful multi-paragraph reply with a tool call - rendered
+  correctly, Phase 4's transcript pipeline already covered this. The
+  earlier report was actually the turn-error gap above (a FAILED turn
+  looks like a missing message) plus the Phase 6 gap above (a session
+  stuck on an unanswerable blocked prompt also looks like "no reply") -
+  both now fixed.
+
 **Not done yet:**
 - Phase 5's OTHER half - permission-MODE display (agent-aware mode
   control on the dashboard/session page, not just agent-name/quota) is
   still unbuilt.
-- Phase 6 (blocked-prompt detection + real interactive answering) -
-  unbuilt. This is the one Andres's own `agy` session flagged too (see
-  its queued, unprocessed message: "looks like blocked prompt or
-  permissions are not being displayed correctly in this UI. Fix that
-  too") - same gap, independently noticed from two directions.
-- Two more queued-but-unprocessed asks from Andres to that `agy` session,
-  not yet acted on by anyone: (1) "read the global ~/.claude/ setup to
-  try to match it, in particular global memory and requirements, and
+- Phase 6's remaining prompt shapes: the initial per-folder trust dialog,
+  and anything AskUserQuestion-equivalent Antigravity might have (not yet
+  seen live).
+- One more queued-but-unprocessed ask from Andres to his own `agy`
+  session, not yet acted on by anyone: "read the global ~/.claude/ setup
+  to try to match it, in particular global memory and requirements, and
   maybe skills or something analogous" - i.e. give Antigravity sessions
-  something like this app's own CLAUDE.md-awareness; (2) "regular text
-  messages from agy are not showing" - **status unverified** - Phase 4's
-  transcript rendering (committed before this was raised) may already
-  cover this; needs a fresh live check before assuming either way, don't
-  assume it's fixed just because Phase 4 landed.
+  something like this app's own CLAUDE.md-awareness.
 
 ## Coordination note (2026-08-24, Andres's own instruction)
 

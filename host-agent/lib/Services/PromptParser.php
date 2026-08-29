@@ -228,6 +228,25 @@ class PromptParser
         $contextLines = array_map('rtrim', array_slice($lines, $start, $choiceIndex - $start));
         $contextLines = array_values(array_filter($contextLines, fn(string $l) => !self::is_decorative_pane_line($l)));
 
+        // A multi-question tab's current question renders with a leading
+        // "│ " quote-marker (found live 2026-08-29, session blocked on
+        // homie.example.com's admin-tool-exposure prompt: "│ How do you want
+        // to handle adminer, redis-ui, and git..." vs the hook's raw
+        // "How do you want to..." with no marker) - a single leading
+        // box-drawing glyph is never real content, only ever decoration
+        // is_decorative_pane_line() didn't catch because the REST of the
+        // line has real text. Left unstripped, this made
+        // PromptInteractionService::answer_multi_question()'s live-pane
+        // pre-flight check ($paneScraped['question'] === $firstQuestionText)
+        // fail on every submission for a prompt shaped this way, rejecting
+        // it as "already moved on" even though it hadn't - not specific to
+        // free-text answers, just whatever the user happened to be
+        // submitting when this was caught.
+        $contextLines = array_map(
+            fn(string $l) => preg_replace('/^[\x{2500}-\x{257F}\x{2580}-\x{259F}]\s?/u', '', $l) ?? $l,
+            $contextLines
+        );
+
         while ($contextLines !== [] && trim($contextLines[0]) === '') {
             array_shift($contextLines);
         }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HostAgent\Agents;
 
 use HostAgent\Services\Config;
+use HostAgent\Runtimes\RuntimeType;
 
 /**
  * Third AgentAdapter implementation, for the OpenCode TUI CLI
@@ -106,5 +107,16 @@ class OpenCodeAdapter implements AgentAdapter
     public function permission_mode_map(): array
     {
         return [];
+    }
+
+    /**
+     * OpenCode is the one agent with a real headless session runtime
+     * (`opencode serve`) as well as the tmux TUI, so both are offered -
+     * headless first (the headless-runtime plan's intended default for the
+     * reliable permission/question path), tmux as the existing fallback.
+     */
+    public function supported_runtimes(): array
+    {
+        return [RuntimeType::HEADLESS, RuntimeType::TMUX];
     }
 }

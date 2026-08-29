@@ -535,13 +535,25 @@ function copyTextToClipboard(text) {
     textarea.setSelectionRange(0, textarea.value.length);
 
     try {
-      document.execCommand('copy') ? resolve() : reject(new Error('execCommand(copy) returned false'));
+      document.execCommand('copy') ? resolve(undefined) : reject(new Error('execCommand(copy) returned false'));
     } catch (e) {
       reject(e);
     } finally {
       document.body.removeChild(textarea);
     }
   });
+}
+
+// DOM event targets are typed as EventTarget because non-element targets are
+// possible in the platform generally. CSM's delegated handlers need closest()
+// only when the target is a real Element; centralize that runtime guard so the
+// handlers are both checkJs-clean and safe for synthetic/non-element events.
+function closestEventTarget(event, selector) {
+  return event.target instanceof Element ? event.target.closest(selector) : null;
+}
+
+function eventTargetHasClass(event, className) {
+  return event.target instanceof Element && event.target.classList.contains(className);
 }
 
 // Finds the text this trigger button is meant to copy - either its own
@@ -552,7 +564,7 @@ function copyTextToClipboard(text) {
 // off the rendered element" approach as openFullscreenTextModal() below,
 // so copied text can never drift from what's actually shown.
 document.addEventListener('click', function (e) {
-  var trigger = e.target.closest('.copy-btn');
+  var trigger = closestEventTarget(e, '.copy-btn');
 
   if (!trigger) {
     return;
@@ -690,7 +702,7 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
   }
 
   document.addEventListener('click', function (e) {
-    var trigger = e.target.closest('.expand-fullscreen-btn');
+    var trigger = closestEventTarget(e, '.expand-fullscreen-btn');
 
     if (trigger) {
       var container = trigger.closest('details, .copy-block');
@@ -721,8 +733,8 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
       return;
     }
 
-    if (e.target.closest('#fullscreen-text-modal-copy')) {
-      var copyTrigger = e.target.closest('#fullscreen-text-modal-copy');
+    if (closestEventTarget(e, '#fullscreen-text-modal-copy')) {
+      var copyTrigger = closestEventTarget(e, '#fullscreen-text-modal-copy');
       var originalLabel = copyTrigger.textContent;
 
       copyTextToClipboard(fullscreenTextModalRawText).then(function () {
@@ -824,6 +836,13 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
   }, { passive: true });
 }
 
+// Exposed on window specifically - openFullscreenTextModal() is declared
+// inside the DOM-guard block above (a block scope, not the top-level one
+// parseJsonResponse()/escapeHtml() live in), so it would NOT otherwise be
+// reachable from sidebar.js/session.js as a plain global. Sidebar's "Open
+// todo file" link (Andres 2026-08-25) calls this directly.
+window.openFullscreenTextModal = openFullscreenTextModal;
+
 // --- Editable fullscreen text editor (Andres's own ask, 2026-08-24: a way
 // to expand a text area to full screen while typing, both compose and
 // answering a blocked prompt) - triggered by any .expand-edit-fullscreen-btn
@@ -884,7 +903,7 @@ if (fullscreenEditModal && fullscreenEditModalTextarea && fullscreenEditModalClo
   });
 
   document.addEventListener('click', function (e) {
-    var trigger = e.target.closest('.expand-edit-fullscreen-btn');
+    var trigger = closestEventTarget(e, '.expand-edit-fullscreen-btn');
 
     if (trigger) {
       // Every current call site wraps its own <textarea> + this button

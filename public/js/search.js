@@ -146,7 +146,7 @@ if (sessionSearchInput && sessionSearchResults) {
   });
 
   sessionSearchResults.addEventListener('click', function (e) {
-    var resultBtn = e.target.closest('.session-search-result-btn');
+    var resultBtn = closestEventTarget(e, '.session-search-result-btn');
 
     if (resultBtn) {
       window.location.href = '/session.php?session=' + encodeURIComponent(window.CSM_BOOTSTRAP.session) + '&jump_line=' + encodeURIComponent(resultBtn.dataset.line);

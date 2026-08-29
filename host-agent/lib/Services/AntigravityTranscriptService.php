@@ -58,6 +58,58 @@ class AntigravityTranscriptService
     }
 
     /**
+     * One entry per known Antigravity conversation under the brain
+     * directory - the Antigravity counterpart to
+     * TranscriptService::list_all_transcripts(), same shape plus an
+     * 'agent' key so callers can tell the two pools apart.
+     *
+     * The conversationId IS the session id for Antigravity - stored in
+     * 'claude_session_id' so the shared archived-session infrastructure
+     * (ArchivedSessionService, SessionRowView, archived-row.php) needs
+     * no field-name changes.
+     *
+     * @return array<int, array{claude_session_id:string, cwd:?string, ai_title:?string, last_activity:int, path:string, agent:string}>
+     */
+    public static function list_all_transcripts(): array
+    {
+        $brainDir = Config::home_root() . '/.gemini/antigravity-cli/brain';
+        $result   = [];
+
+        foreach (glob($brainDir . '/*', GLOB_ONLYDIR) ?: [] as $convDir) {
+            $conversationId = basename($convDir);
+
+            // Same UUID guard as find_transcript_path().
+            if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $conversationId) !== 1) {
+                continue;
+            }
+
+            $path = $convDir . '/.system_generated/logs/transcript_full.jsonl';
+
+            if (!is_file($path)) {
+                continue;
+            }
+
+            $mtime = @filemtime($path);
+
+            // Antigravity transcripts don't embed a cwd field the way
+            // Claude Code's own JSONL does - workdir is known at spawn
+            // time (sidecar) but not stored in the transcript itself.
+            // Returning null here is honest; the resume button is
+            // suppressed for null-cwd rows (same rule as Claude Code side).
+            $result[] = [
+                'claude_session_id' => $conversationId,
+                'cwd'               => null,
+                'ai_title'          => null,
+                'last_activity'     => $mtime !== false ? $mtime : 0,
+                'path'              => $path,
+                'agent'             => 'antigravity',
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
      * Extracts the real user-typed text from a USER_INPUT entry's raw
      * content, which wraps it in internal `<USER_REQUEST>...</USER_REQUEST>`
      * plus sibling `<ADDITIONAL_METADATA>`/`<USER_SETTINGS_CHANGE>` tags

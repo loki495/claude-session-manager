@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HostAgent\Services;
 
 use HostAgent\Stores\SidecarStore;
+use HostAgent\Runtimes\RuntimeType;
 
 /**
  * Archived/dormant session listing and dashboard-wide transcript search.
@@ -41,7 +42,109 @@ class ArchivedSessionService
                 'cwd' => $t['cwd'],
                 'title' => SessionService::title_cascade($t['ai_title'], null, $t['cwd'], $t['claude_session_id']),
                 'last_activity' => $t['last_activity'],
+                'agent' => 'claude',
+                'agent_label' => 'Claude Code',
             ];
+        }
+
+        foreach (AntigravityTranscriptService::list_all_transcripts() as $t) {
+            if (isset($exclude[$t['claude_session_id']])) {
+                continue;
+            }
+
+            $archived[] = [
+                'claude_session_id' => $t['claude_session_id'],
+                'cwd' => $t['cwd'],
+                'title' => SessionService::title_cascade(null, null, $t['cwd'], $t['claude_session_id']),
+                'last_activity' => $t['last_activity'],
+                'agent' => $t['agent'] ?? 'antigravity',
+                'agent_label' => 'Antigravity',
+            ];
+        }
+
+        // OpenCode archived sessions: every session in opencode.db not
+        // currently tracked (i.e. dormant). Title comes from session.title
+        // directly (see OpenCodeTranscriptService::find_session_title), not
+        // a transcript-file ai-title.
+        $opencodeDbPath = Config::opencode_db_path();
+
+        if (is_file($opencodeDbPath)) {
+            try {
+                $pdo = new \PDO('sqlite:' . $opencodeDbPath, null, null, [
+                    \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                    \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY,
+                ]);
+                $pdo->exec('PRAGMA busy_timeout=5000');
+                $stmt = $pdo->query('SELECT id, directory, title, time_updated FROM session ORDER BY time_updated DESC');
+                $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+                foreach ($rows as $row) {
+                    $id = is_string($row['id'] ?? null) ? $row['id'] : null;
+                    if ($id === null || isset($exclude[$id])) {
+                        continue;
+                    }
+                    if (!OpenCodeTranscriptService::is_opencode_id($id)) {
+                        continue;
+                    }
+                    $cwd = is_string($row['directory'] ?? null) && $row['directory'] !== '' ? $row['directory'] : null;
+                    $title = is_string($row['title'] ?? null) && trim($row['title']) !== '' ? $row['title'] : $id;
+                    $archived[] = [
+                        'claude_session_id' => $id,
+                        'cwd' => $cwd,
+                        'title' => $title,
+                        'last_activity' => is_numeric($row['time_updated'] ?? null) ? (int)($row['time_updated'] / 1000) : 0,
+                        'agent' => 'opencode',
+                        'agent_label' => 'OpenCode',
+                    ];
+                }
+            } catch (\Throwable $e) {
+                // Best-effort: on DB error, just skip opencode archived
+            }
+        }
+
+        // Codex threads live in app-server's durable catalog rather than a
+        // local transcript directory. Include both dormant non-archived
+        // threads (those outside CSM's active window) and explicitly archived
+        // threads; the tracked-id exclusion keeps recent rows in one section.
+        foreach ([false, true] as $nativeArchived) {
+            $catalog = CodexTranscriptService::list_threads($nativeArchived, null, true);
+            if (($catalog['ok'] ?? false) !== true) continue;
+
+            foreach (($catalog['threads'] ?? []) as $thread) {
+                $id = is_string($thread['id'] ?? null) ? $thread['id'] : null;
+                if ($id === null || isset($exclude[$id])) continue;
+
+                $cwd = is_string($thread['cwd'] ?? null) && $thread['cwd'] !== '' ? $thread['cwd'] : null;
+                $nativeTitle = is_string($thread['name'] ?? null) && trim($thread['name']) !== ''
+                    ? $thread['name']
+                    : (is_string($thread['preview'] ?? null) ? $thread['preview'] : null);
+                $archived[] = [
+                    'claude_session_id' => $id,
+                    'cwd' => $cwd,
+                    'title' => SessionService::title_cascade($nativeTitle, null, $cwd, $id),
+                    'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
+                    'agent' => 'codex',
+                    'agent_label' => 'Codex',
+                ];
+            }
+        }
+
+        // app-server may omit a freshly thread/archive'd rollout from both
+        // list partitions. Merge Codex's durable archive directory as the
+        // authoritative fallback, de-duplicating catalog rows by thread id.
+        $knownIds = array_flip(array_column($archived, 'claude_session_id'));
+        foreach (CodexTranscriptService::list_archived_rollouts() as $thread) {
+            $id = $thread['id'];
+            if (isset($exclude[$id]) || isset($knownIds[$id])) continue;
+            $cwd = is_string($thread['cwd'] ?? null) && $thread['cwd'] !== '' ? $thread['cwd'] : null;
+            $archived[] = [
+                'claude_session_id' => $id,
+                'cwd' => $cwd,
+                'title' => SessionService::title_cascade(null, null, $cwd, $id),
+                'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
+                'agent' => 'codex',
+                'agent_label' => 'Codex',
+            ];
+            $knownIds[$id] = true;
         }
 
         usort($archived, fn(array $a, array $b) => $b['last_activity'] <=> $a['last_activity']);
@@ -108,10 +211,18 @@ class ArchivedSessionService
             }
         }
 
-        $transcripts = TranscriptService::list_all_transcripts();
-        usort($transcripts, fn(array $a, array $b) => $b['last_activity'] <=> $a['last_activity']);
+        // Merge headless sessions into the live-name map too.
+        foreach (SidecarStore::list_runtime_sidecars(RuntimeType::HEADLESS) as $row) {
+            if (is_string($row['session_name'] ?? null)) {
+                $liveNamesByClaudeId[$row['session_name']] = $row['session_name'];
+            }
+        }
 
         $results = [];
+
+        // Claude Code transcripts (JSONL files).
+        $transcripts = TranscriptService::list_all_transcripts();
+        usort($transcripts, fn(array $a, array $b) => $b['last_activity'] <=> $a['last_activity']);
 
         foreach ($transcripts as $t) {
             $matches = TranscriptService::search_transcript_file($t['path'], $query, max(1, $maxMatchesPerSession));
@@ -131,6 +242,32 @@ class ArchivedSessionService
 
             if (count($results) >= $maxSessions) {
                 break;
+            }
+        }
+
+        // OpenCode transcripts (opencode.db).
+        if (count($results) < $maxSessions) {
+            $ocTranscripts = OpenCodeTranscriptService::list_all_transcripts();
+
+            foreach ($ocTranscripts as $t) {
+                $matches = OpenCodeTranscriptService::search_transcript($t['session_id'], $query, max(1, $maxMatchesPerSession));
+
+                if ($matches === []) {
+                    continue;
+                }
+
+                $results[] = [
+                    'claude_session_id' => $t['session_id'],
+                    'session_name' => $liveNamesByClaudeId[$t['session_id']] ?? null,
+                    'title' => SessionService::title_cascade($t['title'], null, $t['cwd'], $t['session_id']),
+                    'cwd' => $t['cwd'],
+                    'last_activity' => $t['last_activity'],
+                    'matches' => $matches,
+                ];
+
+                if (count($results) >= $maxSessions) {
+                    break;
+                }
             }
         }
 
@@ -179,10 +316,14 @@ class ArchivedSessionService
      */
     private static function transcript_search_for_claude_session(string $claudeSessionId, string $query, int $maxMatches): array
     {
-        $path = TranscriptService::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];
+        }
+
+        if (TranscriptRouter::is_opencode_path($path)) {
+            return ['ok' => true, 'matches' => OpenCodeTranscriptService::search_transcript($claudeSessionId, $query, max(1, min($maxMatches, 100)))];
         }
 
         return ['ok' => true, 'matches' => TranscriptService::search_transcript_file($path, $query, max(1, min($maxMatches, 100)))];
