@@ -159,6 +159,7 @@ sub-clause was trimmed for the same reason (its own UI-split ask stands).
 
 === Tier 4: cheap, low-risk polish (do opportunistically) ===
 
+- (Andres 2026-08-29) Show the current branch somewhere on session.php.
 - (Andres 2026-08-25) "Open todo file" sidebar link should actually parse
   the todos and display them nicely as markdown (not raw text).
 - (Andres 2026-08-25) JSON in the full-page view should be prettified.
