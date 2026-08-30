@@ -465,6 +465,29 @@ class OpenCodeTranscriptService
     }
 
     /**
+     * The session's own directory (session.directory), used when archived
+     * history needs to show the real cwd for an OpenCode session id.
+     */
+    public static function find_session_cwd(string $sessionId): ?string
+    {
+        if (!self::is_opencode_id($sessionId)) {
+            return null;
+        }
+
+        $pdo = self::open_db_readonly();
+
+        if ($pdo === null) {
+            return null;
+        }
+
+        $stmt = $pdo->prepare('SELECT directory FROM session WHERE id = ? LIMIT 1');
+        $stmt->execute([$sessionId]);
+        $cwd = $stmt->fetchColumn();
+
+        return is_string($cwd) && trim($cwd) !== '' ? $cwd : null;
+    }
+
+    /**
      * Reactive binding: finds the most recent OpenCode session row whose
      * directory matches $workdir and whose creation time is at or after
      * $spawnedAt (the tmux session's birth). This is the opencode

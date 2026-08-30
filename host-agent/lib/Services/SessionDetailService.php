@@ -131,9 +131,21 @@ class SessionDetailService
             return $result;
         }
 
-        $path = TranscriptService::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
+        $cwd = null;
 
-        return $result + ['cwd' => $path !== null ? TranscriptService::find_first_cwd($path) : null];
+        if ($path !== null) {
+            if (TranscriptRouter::is_codex_path($path)) {
+                $thread = CodexTranscriptService::thread_metadata($claudeSessionId);
+                $cwd = is_array($thread) && is_string($thread['cwd'] ?? null) && $thread['cwd'] !== '' ? $thread['cwd'] : null;
+            } elseif (TranscriptRouter::is_opencode_path($path)) {
+                $cwd = OpenCodeTranscriptService::find_session_cwd($claudeSessionId);
+            } else {
+                $cwd = TranscriptService::find_first_cwd($path);
+            }
+        }
+
+        return $result + ['cwd' => $cwd];
     }
 
     /**
@@ -196,8 +208,13 @@ class SessionDetailService
             ];
         }
 
-        $cwd = TranscriptService::find_first_cwd($path);
-        $aiTitle = TranscriptService::find_latest_ai_title($path);
+        $isOpenCodePath = TranscriptRouter::is_opencode_path($path);
+        $cwd = $isOpenCodePath
+            ? OpenCodeTranscriptService::find_session_cwd($claudeSessionId)
+            : TranscriptService::find_first_cwd($path);
+        $aiTitle = $isOpenCodePath
+            ? OpenCodeTranscriptService::find_session_title($claudeSessionId)
+            : TranscriptService::find_latest_ai_title($path);
         $mtime = @filemtime($path);
 
         return [

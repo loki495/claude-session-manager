@@ -13,6 +13,7 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/lib/assert.php';
+require __DIR__ . '/lib/harness.php';
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use HostAgent\Services\ArchivedSessionService;
@@ -596,6 +597,127 @@ assert_equal('hi', $archivedHistory['entries'][0]['blocks'][0]['text'] ?? null, 
 
 $missingArchivedHistory = SessionDetailService::archived_session_history('00000000-0000-4000-8000-000000000000', null, 10);
 assert_equal(false, $missingArchivedHistory['ok'] ?? null, 'archived_session_history: ok=false for a well-formed but unknown id');
+
+// --- SessionDetailService::archived_session_history()/archived_session_detail():
+// non-Claude backends must resolve real cwd (and, for OpenCode, title) instead
+// of silently coming back null/wrong when fed a non-file "path". ---
+try {
+    $archivedHistoryRoot = sys_get_temp_dir() . '/csm-test-archived-history-' . bin2hex(random_bytes(4));
+    @mkdir($archivedHistoryRoot, 0700, true);
+
+    $antigravityId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffffffff';
+    @mkdir($archivedHistoryRoot . '/.gemini/antigravity-cli/brain/' . $antigravityId . '/.system_generated/logs', 0700, true);
+    file_put_contents($archivedHistoryRoot . '/.gemini/antigravity-cli/brain/' . $antigravityId . '/.system_generated/logs/transcript_full.jsonl', implode("\n", [
+        json_encode(['step_index' => 0, 'source' => 'USER_EXPLICIT', 'type' => 'USER_INPUT', 'status' => 'DONE', 'created_at' => '2026-08-30T12:00:00Z', 'content' => "<USER_REQUEST>\nAntigravity cwd fixture\n</USER_REQUEST>"]),
+        json_encode(['step_index' => 1, 'source' => 'MODEL', 'type' => 'PLANNER_RESPONSE', 'status' => 'DONE', 'created_at' => '2026-08-30T12:00:01Z', 'content' => 'ok']),
+    ]) . "\n");
+    putenv("HOME_ROOT={$archivedHistoryRoot}");
+    $antigravityHistory = SessionDetailService::archived_session_history($antigravityId, null, 10);
+    assert_true($antigravityHistory['ok'] ?? false, 'archived_session_history: Antigravity ok=true');
+    // Antigravity transcripts never embed a cwd field at all (see
+    // AntigravityTranscriptService.php's own "don't embed a cwd field" comment) -
+    // null here is correct, by-design behavior, not a bug this task fixes.
+    assert_equal(null, $antigravityHistory['cwd'] ?? null, 'archived_session_history: Antigravity cwd is null - transcripts never carry one, by design');
+    assert_equal('Antigravity cwd fixture', $antigravityHistory['entries'][0]['blocks'][0]['text'] ?? null, 'archived_session_history: Antigravity transcript entries still page normally');
+
+    $opencodeDbPath = $archivedHistoryRoot . '/opencode.db';
+    putenv("OPENCODE_DB_PATH={$opencodeDbPath}");
+    $pdo = new PDO('sqlite:' . $opencodeDbPath);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec('CREATE TABLE session (id TEXT PRIMARY KEY, slug TEXT NOT NULL, directory TEXT NOT NULL, title TEXT NOT NULL, project_id TEXT NOT NULL, agent TEXT, model TEXT, version TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, tokens_input INTEGER DEFAULT 0, tokens_output INTEGER DEFAULT 0, tokens_reasoning INTEGER DEFAULT 0, tokens_cache_read INTEGER DEFAULT 0, tokens_cache_write INTEGER DEFAULT 0, cost REAL DEFAULT 0)');
+    $pdo->exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)');
+    $pdo->exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)');
+    $opencodeId = 'ses_historyfixture1';
+    $opencodeCwd = '/home/user/www/opencode-history-fixture';
+    $stmt = $pdo->prepare('INSERT INTO session (id, slug, directory, title, project_id, agent, model, version, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$opencodeId, 'history-fixture', $opencodeCwd, 'OpenCode history fixture', 'proj-history', 'build', 'opencode/test', '1.18.21', 1000, 2000]);
+    $stmt = $pdo->prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)');
+    $stmt->execute(['msg-history-1', $opencodeId, 1001, 1001, json_encode(['role' => 'user', 'time' => ['created' => 1001000]])]);
+    $stmt = $pdo->prepare('INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)');
+    $stmt->execute(['part-history-1', 'msg-history-1', $opencodeId, 1001, 1001, json_encode(['type' => 'text', 'text' => 'OpenCode cwd fixture'])]);
+
+    $opencodeDetail = SessionDetailService::archived_session_detail($opencodeId);
+    assert_true($opencodeDetail['ok'] ?? false, 'archived_session_detail: OpenCode ok=true');
+    assert_equal($opencodeCwd, $opencodeDetail['cwd'] ?? null, 'archived_session_detail: OpenCode cwd comes from the session row');
+    assert_equal('OpenCode history fixture', $opencodeDetail['title'] ?? null, 'archived_session_detail: OpenCode title comes from the session row, not the cwd basename');
+
+    $opencodeHistory = SessionDetailService::archived_session_history($opencodeId, null, 10);
+    assert_true($opencodeHistory['ok'] ?? false, 'archived_session_history: OpenCode ok=true');
+    assert_equal($opencodeCwd, $opencodeHistory['cwd'] ?? null, 'archived_session_history: OpenCode cwd comes from the session row');
+    assert_equal('OpenCode cwd fixture', $opencodeHistory['entries'][0]['blocks'][0]['text'] ?? null, 'archived_session_history: OpenCode transcript entries still page normally');
+
+    $codexBridgeSocket = $archivedHistoryRoot . '/codex-bridge.sock';
+    $codexBridgeScript = $archivedHistoryRoot . '/codex-bridge.php';
+    $codexCwd = '/home/user/www/codex-history-fixture';
+    $codexId = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+    $codexHome = $archivedHistoryRoot . '/codex-home';
+    @mkdir($codexHome . '/.codex/archived_sessions', 0700, true);
+    file_put_contents($codexHome . '/.codex/archived_sessions/rollout-2026-08-30T12-00-00-' . $codexId . '.jsonl', json_encode(['type' => 'session_meta', 'payload' => ['session_id' => $codexId, 'timestamp' => '2026-08-30T12:00:00Z', 'cwd' => $codexCwd]]) . "\n");
+    file_put_contents($codexBridgeScript, <<<'PHP'
+<?php
+declare(strict_types=1);
+
+$line = fgets(STDIN);
+$request = is_string($line) ? json_decode($line, true) : null;
+$threadId = is_array($request) && is_string($request['params']['threadId'] ?? null) ? $request['params']['threadId'] : 'codex-history-fixture';
+$response = [
+    'ok' => true,
+    'result' => [
+        'thread' => [
+            'id' => $threadId,
+            'cwd' => '/home/user/www/codex-history-fixture',
+            'turns' => [[
+                'startedAt' => 1725033600,
+                'items' => [
+                    ['type' => 'userMessage', 'content' => [['type' => 'text', 'text' => 'Codex cwd fixture']]],
+                ],
+            ]],
+        ],
+    ],
+];
+
+echo json_encode($response, JSON_UNESCAPED_SLASHES) . PHP_EOL;
+PHP);
+    $codexBridgeHarness = start_harness(['php', $codexBridgeScript], $codexBridgeSocket);
+    $originalCodexBridgeSocket = getenv('CODEX_BRIDGE_SOCKET');
+    putenv("CODEX_BRIDGE_SOCKET={$codexBridgeSocket}");
+    putenv("HOME_ROOT={$codexHome}");
+    $codexHistory = SessionDetailService::archived_session_history($codexId, null, 10);
+    assert_true($codexHistory['ok'] ?? false, 'archived_session_history: Codex ok=true');
+    assert_equal($codexCwd, $codexHistory['cwd'] ?? null, 'archived_session_history: Codex cwd comes from thread metadata');
+    assert_equal('Codex cwd fixture', $codexHistory['entries'][0]['blocks'][0]['text'] ?? null, 'archived_session_history: Codex transcript entries still page normally');
+} finally {
+    if (isset($codexBridgeHarness)) {
+        stop_harness($codexBridgeHarness, $codexBridgeSocket);
+    }
+    if (isset($codexBridgeScript)) {
+        @unlink($codexBridgeScript);
+    }
+    if (isset($opencodeDbPath)) {
+        @unlink($opencodeDbPath);
+    }
+    if (isset($archivedHistoryRoot)) {
+        @unlink($archivedHistoryRoot . '/.gemini/antigravity-cli/brain/' . ($antigravityId ?? '') . '/.system_generated/logs/transcript_full.jsonl');
+        @rmdir($archivedHistoryRoot . '/.gemini/antigravity-cli/brain/' . ($antigravityId ?? '') . '/.system_generated/logs');
+        @rmdir($archivedHistoryRoot . '/.gemini/antigravity-cli/brain/' . ($antigravityId ?? '') . '/.system_generated');
+        @rmdir($archivedHistoryRoot . '/.gemini/antigravity-cli/brain/' . ($antigravityId ?? ''));
+        @rmdir($archivedHistoryRoot . '/.gemini/antigravity-cli/brain');
+        @rmdir($archivedHistoryRoot . '/.gemini/antigravity-cli');
+        @rmdir($archivedHistoryRoot . '/.gemini');
+        @unlink($archivedHistoryRoot . '/codex-home/.codex/archived_sessions/rollout-2026-08-30T12-00-00-' . ($codexId ?? '') . '.jsonl');
+        @rmdir($archivedHistoryRoot . '/codex-home/.codex/archived_sessions');
+        @rmdir($archivedHistoryRoot . '/codex-home/.codex');
+        @rmdir($archivedHistoryRoot . '/codex-home');
+        @rmdir($archivedHistoryRoot);
+    }
+    if (isset($originalCodexBridgeSocket) && is_string($originalCodexBridgeSocket) && $originalCodexBridgeSocket !== '') {
+        putenv("CODEX_BRIDGE_SOCKET={$originalCodexBridgeSocket}");
+    } else {
+        putenv('CODEX_BRIDGE_SOCKET');
+    }
+    putenv("OPENCODE_DB_PATH");
+    putenv("HOME_ROOT={$fakeHome}");
+}
 
 @unlink($fakeHome . '/.claude/projects/-another-project/' . $uuid2 . '.jsonl');
 @rmdir($fakeHome . '/.claude/projects/-another-project');

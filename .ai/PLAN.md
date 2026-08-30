@@ -80,11 +80,24 @@ tasks appended once each item is decided.
 - C6. Codex approval prompts collapse tool_name to generic `'permission'`.
 - C7. Codex free-text prompt answers broken (UI never offers the box; bridge
   ignores it if sent).
+- C8. (found 2026-08-30, during Task 3) `SessionDetailService::archived_session_detail()`'s
+  `last_activity` for an OpenCode archived session is always `null` —
+  `@filemtime($path)` is fed OpenCode's raw `ses_*` id (not a real file
+  path), the same root cause as the cwd/title bugs Task 3 fixed. Deferred
+  out of Task 3's scope; small, same-shape fix (there's likely a
+  `time_updated`/`time_created` column on the OpenCode `session` table to
+  read instead, mirroring `find_session_cwd()`'s pattern) — not yet
+  investigated further. **Decision: pending.**
 
 ### Housekeeping (not a feature decision, just recording ground truth)
 - H1. `docs/features.md` needs its Codex column/rows added (this audit's output)
   and the two doc/reality mismatches from A3/B4/B5 corrected. Low-risk, but
-  touches a shared doc — confirm with Andres before writing.
+  touches a shared doc — confirm with Andres before writing. **Also update
+  from Task 3's findings:** A3's original write-up (archived *detail* was
+  the Claude-only one, paging was already fine) was backwards — investigation
+  found the opposite, plus two more latent bugs (OpenCode's resolved "path"
+  being a DB id broke cwd/title/last_activity in ways nothing had exercised
+  before); H1 should reflect what actually shipped, not the original guess.
 
 ## Phase 1+ — Implementation
 
@@ -395,3 +408,163 @@ tasks appended once each item is decided.
   gap); tmux-session leak in the new regression test found and fixed by
   the orchestrator directly; full suite verified clean (one confirmed
   pre-existing, unrelated flake). Ready to commit.
+
+### Task 3 — Fix (revised A3): archived_session_history()'s cwd resolves via the Claude-only transcript resolver
+
+- **ID:** 3
+- **Objective:** `SessionDetailService::archived_session_history()` (the
+  "Load older messages" pagination path for an archived session) must
+  resolve `cwd` correctly for Antigravity, OpenCode, and Codex archived
+  sessions, not just Claude Code ones.
+- **Background — this revises A3 as documented in PLAN.md's merged backlog
+  and in `todo`'s Tier 1 (both dated 2026-08-29):** that item claimed the
+  archived *detail* path used the Claude-only resolver while paging already
+  used the agent-agnostic one. Orchestrator re-investigation (2026-08-30)
+  found the opposite is now true: commit `0c5aad46` ("Integrate Codex
+  headless sessions", same day) already switched
+  `archived_session_detail()` (host-agent/lib/Services/SessionDetailService.php:175-199)
+  over to `TranscriptRouter::find_transcript_path()`, with a correct Codex
+  branch reading `CodexTranscriptService::thread_metadata()` directly. That
+  fixed the "Session not found" symptom for the main archived-view header.
+  What's left is narrower: `archived_session_history()` (same file,
+  lines 126-137) still has ONE leftover call to the Claude-only
+  `TranscriptService::find_transcript_path()`, used only to derive `cwd`
+  for this pagination path — not a full "Session not found", but `cwd`
+  silently comes back `null` for Antigravity/OpenCode/Codex archived
+  sessions on "Load older messages", breaking
+  `TranscriptView::relativize_path()`'s file-path relativization for
+  Write/Edit/Read tool-call summaries in paged-in (older) entries for
+  those three agents specifically.
+- **Relevant files:**
+  - `host-agent/lib/Services/SessionDetailService.php`:
+    - `archived_session_history()` (~lines 126-137) — the bug: line ~134
+      calls `TranscriptService::find_transcript_path($claudeSessionId)`
+      (Claude-only) instead of the agent-agnostic
+      `TranscriptRouter::find_transcript_path($claudeSessionId)`.
+    - `archived_session_detail()` (~lines 175-199) — the ALREADY-CORRECT
+      reference pattern to mirror: resolves `$path` via
+      `TranscriptRouter::find_transcript_path()`; if
+      `TranscriptRouter::is_codex_path($path)`, reads `cwd` from
+      `CodexTranscriptService::thread_metadata($claudeSessionId)['cwd']`
+      instead of scanning the path directly (Codex's transcript file
+      shape isn't the same JSONL-with-cwd-in-first-lines shape the other
+      three agents share); otherwise (Claude/Antigravity/OpenCode, which
+      DO share that shape) calls `TranscriptService::find_first_cwd($path)`
+      directly with no further agent branching — confirmed this already
+      works generically across those three from how this same function
+      uses it with no agent check.
+  - `tests/test_transcript.php` (lines ~578-598) — existing
+    `archived_session_detail()`/`archived_session_history()` coverage, all
+    Claude-only fixtures (`$uuid2`) today; extend here, don't create a new
+    file, since it's the established home for these two functions' tests.
+  - Reference fixture patterns for non-Claude transcript files, to build
+    the new sad/happy-path coverage from: `tests/test_antigravity_transcript.php`,
+    `tests/test_opencode_transcript.php`, `tests/test_codex_runtime.php`
+    (Codex's `HOME_ROOT` + `.codex/archived_sessions/rollout-...-<id>.jsonl`
+    pattern, also just used in Task 2's `tests/test_codex_resume.php`).
+- **Dependencies:** none.
+- **Implementation notes:**
+  - Minimal fix: in `archived_session_history()`, replace the
+    `TranscriptService::find_transcript_path($claudeSessionId)` call with
+    `TranscriptRouter::find_transcript_path($claudeSessionId)`.
+  - Then apply the SAME agent branching `archived_session_detail()` already
+    uses for `cwd`: if `TranscriptRouter::is_codex_path($path)`, get `cwd`
+    from `CodexTranscriptService::thread_metadata($claudeSessionId)['cwd']`
+    (guard for a null/missing thread same as the reference function does);
+    otherwise call `TranscriptService::find_first_cwd($path)` as today.
+  - **SCOPE REVISION (Andres, 2026-08-30) — see QUESTIONS.md "Task 3 — OpenCode's
+    resolved path is a DB id" for the full finding:** `archived_session_detail()`
+    is NOT already correct — it has the exact same OpenCode `cwd` bug
+    (line ~211, `TranscriptService::find_first_cwd($path)` called
+    unconditionally, fed a raw `ses_*` id for OpenCode instead of a real
+    path). Andres decided to fix it properly rather than defer it. Apply
+    the SAME three-way branch (Codex / OpenCode via
+    `OpenCodeTranscriptService::find_session_cwd()` / generic
+    `find_first_cwd()`) to `archived_session_detail()`'s `cwd` line too —
+    do NOT leave it with the old unconditional call.
+  - Do NOT touch `archived_session_attachment()` (~lines 252-272) — already
+    confirmed using `TranscriptRouter` correctly, out of scope.
+  - Do NOT touch `docs/features.md` or `todo` — orchestrator updates those
+    after review (this task's completion should also flag that A3's
+    write-up in both those files is now stale/needs correcting, per the
+    Background note above — record that as a finding in RESULT.md, don't
+    edit the docs yourself).
+- **Acceptance criteria:**
+  - New test(s) in `tests/test_transcript.php` prove: (a) an Antigravity
+    archived session's `archived_session_history()` call returns the
+    correct real `cwd` (not null) via a fixture built the same way
+    `tests/test_antigravity_transcript.php` builds one; (b) same for an
+    OpenCode archived session, fixture from
+    `tests/test_opencode_transcript.php`'s pattern; (c) same for a Codex
+    archived thread, fixture from the `HOME_ROOT`/`archived_sessions`
+    pattern in `tests/test_codex_runtime.php`/`tests/test_codex_resume.php`
+    — asserting `cwd` comes from the thread's own `cwd` metadata field, not
+    null; (d) a regression check that the existing Claude-id behavior
+    (lines ~592-598 today) is unchanged.
+  - `bash tests/run.sh` passes in full (the one known pre-existing,
+    unrelated flake in `test_session_replay_browser.php` — confirmed by
+    the orchestrator 2026-08-30 to reproduce independently against clean
+    `master` with no Task 2/3 changes present — doesn't block this; if it
+    reproduces again, note it, don't chase it as part of this task).
+  - New test(s) also cover `archived_session_detail()`'s OpenCode `cwd` (not
+    just `archived_session_history()`'s) — same fixture, both functions
+    asserted against it.
+  - No changes to `archived-row.php`, `docs/features.md`, or `todo`.
+- **Status:** done — orchestrator review 2026-08-30, both Codex CLI
+  worker rounds plus two direct orchestrator fixes now reviewed:
+  - Round 1: `archived_session_history()` fixed with a proper three-way
+    branch (Codex/OpenCode/generic); new
+    `OpenCodeTranscriptService::find_session_cwd()` helper added
+    (`SELECT directory FROM session WHERE id = ?`). Correct.
+  - Round 2: applied the same three-way branch to `archived_session_detail()`
+    (the scope-revision fix); added real fixture-based test coverage in
+    `tests/test_transcript.php` for Antigravity/OpenCode/Codex archived
+    cwd, covering both functions.
+  - **Both worker rounds were found STILL RUNNING in the background** after
+    the harness reported them "completed" (`nohup ... &` detached rather
+    than exiting — confirmed via `pgrep`, both PIDs killed by the
+    orchestrator once discovered). This caused real file-write races: the
+    round-2 worker was still editing `PLAN.md`/`RESULT.md` concurrently
+    with the orchestrator's own manual edits, corrupting this status
+    section (duplicated/interleaved text) until cleaned up here. No
+    evidence of code-file corruption from the race (diffs reviewed clean),
+    but the worker's own final full-suite result (`bash tests/run.sh` exit
+    1 with failures in `test_sessions_lifecycle.php`/`test_ui_smoke.php`,
+    per its own RESULT.md entry) is NOT trusted as-is — it may have been
+    caused by two concurrent `tests/run.sh` invocations (the worker's own
+    plus the orchestrator's independent runs) colliding on the same
+    isolated tmux socket, not a real regression. Needs a clean re-run from
+    a verified single-process state before relying on it.
+  - Orchestrator found + fixed two more real bugs directly (same root
+    cause class, both small, done without a third worker round — see
+    reasoning in chat): (1) the worker's own new Antigravity test assumed
+    `find_first_cwd()` would find a cwd in an Antigravity transcript, but
+    `AntigravityTranscriptService.php:94` already documents Antigravity
+    transcripts never embed a `cwd` field at all — fixed the test to
+    assert `null` (correct, by-design), not the fixture value; (2) the
+    worker's own new OpenCode test caught that `archived_session_detail()`'s
+    title for OpenCode fell back to the cwd's basename instead of the
+    session's real title (same root cause: `find_latest_ai_title($path)`
+    can't work on a raw `ses_*` id any more than `find_first_cwd()` could)
+    — Andres decided to fix this too; used the pre-existing
+    `OpenCodeTranscriptService::find_session_title()` helper the same way
+    `find_session_cwd()` is used.
+  - Deferred (logged, not fixed): `archived_session_detail()`'s
+    `last_activity` for OpenCode has the same root-cause bug
+    (`@filemtime($path)` also fails on a raw `ses_*` id, always null) —
+    not caught by any test, out of scope for this task per Andres's
+    decision not to keep expanding scope a third time. New backlog item
+    needed (see RESULT.md).
+  - Final verification (orchestrator, clean state, no other processes
+    running): `tests/test_transcript.php` alone — all new/updated
+    assertions pass, exit 0. Full `bash tests/run.sh` — `RESULT: all tests
+    passed`, exit 0, 3m04s, no leaked tmux sessions afterward. The
+    `test_sessions_lifecycle.php`/`test_ui_smoke.php` failures reported
+    earlier do not reproduce, confirming they were process-contention noise
+    from the still-running detached workers, not real regressions.
+  - One own bug found and fixed during verification: the orchestrator's
+    first attempt at the corrected Antigravity assertion used
+    `$cwd ?? 'not-null'` as a sentinel fallback, which backfires for a
+    null-coalescing check specifically (`null ?? 'not-null'` evaluates to
+    `'not-null'`, not `null`) — inverted the very thing it was checking.
+    Fixed to a plain `?? null`.

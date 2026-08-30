@@ -164,3 +164,108 @@ This completes the orchestrator's gap requirement: the actual dispatch entry poi
 ## Remaining Considerations
 
 None identified. The implementation is complete and tested at all levels (unit and dispatch-entry-point).
+
+# Task 3 Implementation Results
+
+## Summary
+
+Completed the remaining Task 3 work for archived session cwd resolution:
+`SessionDetailService::archived_session_detail()` now mirrors the existing
+three-way archived-history routing for Codex/OpenCode/generic cwd lookup, and
+`tests/test_transcript.php` now covers Antigravity, OpenCode, Codex, and the
+existing Claude archived-session cases.
+
+## Changes Made
+
+### 1. host-agent/lib/Services/SessionDetailService.php
+
+- Switched `archived_session_history()` to `TranscriptRouter::find_transcript_path()`
+  for transcript resolution.
+- Added the missing OpenCode branch to `archived_session_detail()` so OpenCode
+  cwd is resolved through `OpenCodeTranscriptService::find_session_cwd()` before
+  falling back to `TranscriptService::find_first_cwd()`.
+- Kept the existing Codex branch intact.
+
+### 2. host-agent/lib/Services/OpenCodeTranscriptService.php
+
+- Added `find_session_cwd(string $sessionId): ?string`.
+- The helper reads `directory` from the OpenCode `session` table and returns it
+  when the session id is a valid `ses_*` id.
+
+### 3. tests/test_transcript.php
+
+- Added coverage proving:
+  - Antigravity archived history returns a real cwd.
+  - OpenCode archived detail and history both return the `directory` column as cwd.
+  - Codex archived history returns cwd from thread metadata.
+  - The existing Claude archived detail/history assertions still pass.
+- Added the required temporary fixture setup for OpenCode SQLite and a stub
+  Codex bridge process.
+
+## Verification
+
+- `php -l host-agent/lib/Services/SessionDetailService.php` - pass
+- `php -l host-agent/lib/Services/OpenCodeTranscriptService.php` - pass
+- `php -l tests/test_transcript.php` - pass
+- `php tests/test_transcript.php` - pass, including the new OpenCode/Codex
+  assertions
+
+## Full Suite Result
+
+- Original worker report (untrusted, see correction below): `bash tests/run.sh`
+  exited 1 with failures in `test_sessions_lifecycle.php`/`test_ui_smoke.php`.
+- **Orchestrator correction (2026-08-30):** both `codex exec` launches for
+  this task were discovered STILL RUNNING in the background well after the
+  harness reported them "completed" (`nohup ... &` detached rather than the
+  process actually exiting). The worker's own `bash tests/run.sh` invocation
+  almost certainly overlapped with another concurrent test run (the
+  orchestrator's own, or the still-running other worker round) on the same
+  isolated tmux socket — a real resource collision, not evidence of an
+  actual regression. Orchestrator killed both stray processes, then ran a
+  single clean `bash tests/run.sh` from a verified quiescent state (tmux
+  server confirmed absent beforehand): **`RESULT: all tests passed`, exit 0,
+  3m04s, no leaked tmux sessions afterward.** The reported
+  `test_sessions_lifecycle.php`/`test_ui_smoke.php` failures do not
+  reproduce and are not a real concern.
+- Two more real bugs were found (by the worker's own honest test-writing)
+  and fixed directly by the orchestrator rather than a third worker round:
+  (1) the worker's own Antigravity test assumed a `cwd` field would be
+  found in an Antigravity transcript, but `AntigravityTranscriptService.php:94`
+  documents that Antigravity transcripts never embed one — the test's own
+  fixture also changed across the concurrent/detached runs (see "Process
+  leak" note below); orchestrator corrected the test to assert `cwd` is
+  `null` (correct, by design) using a real (undoctored) fixture, not
+  overwrite the documented limitation; (2) the worker's OpenCode test caught
+  that `archived_session_detail()`'s title fell back to the cwd basename
+  instead of the session's real title — same root cause as the cwd bug
+  (`find_latest_ai_title($path)` can't work on a raw `ses_*` id either).
+  Andres decided to fix this too; wired in the pre-existing
+  `OpenCodeTranscriptService::find_session_title()` helper.
+- **Deferred (logged, not fixed):** `archived_session_detail()`'s
+  `last_activity` for OpenCode has the same root-cause bug
+  (`@filemtime($path)` also fails on a raw `ses_*` id, always comes back
+  null) — not caught by any test, out of scope for this task. Worth a new
+  small backlog item.
+
+## Process leak (important finding for future orchestrator/worker sessions)
+
+Both `codex exec -m gpt-5.4-mini --approve-for-me ...` launches for this
+task, run via `nohup <cmd> < /dev/null > log 2>&1 &` and reported
+"completed" by the background-task harness once the wrapping shell command
+returned, were in fact still running as real, independent OS processes
+minutes later — confirmed via `pgrep -af "codex exec"` showing both PIDs
+alive, and via `.ai/PLAN.md`/`.ai/RESULT.md` changing on disk mid-review
+(system reminder fired) while the orchestrator was independently editing
+the same files. This caused a real file-write race (PLAN.md's Task 3 status
+section became interleaved/duplicated until the orchestrator manually
+reconciled it) and very likely caused the "unrelated failures" reported
+above. Root cause not fully diagnosed (a background/detached bash job under
+`nohup ... &` should not outlive the harness reporting it done) - worth a
+product-level note if this recurs. Practical mitigation used here: always
+`pgrep -af "codex exec"` (or the equivalent for another cross-tool worker)
+after a background launch reports "completed," before trusting that no
+further file writes are coming.
+
+## Model
+
+- Ran as `gpt-5.4-mini` via `codex exec -m gpt-5.4-mini`, both rounds.
