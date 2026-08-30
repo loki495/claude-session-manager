@@ -208,4 +208,190 @@ tasks appended once each item is decided.
   confirmed the ordinal→label fix and defensive fallbacks are correct,
   confirmed no unrelated files touched and no debug artifacts left, ran
   `tests/test_codex_prompt_protocol.php` and the full `bash tests/run.sh`
-  myself (both clean). Working tree left uncommitted for Andres.
+  myself (both clean). Committed 2026-08-29 (commit 714c467).
+
+### Task 2 — Fix A2: "Resume" on an archived Codex session runs the wrong CLI
+
+- **ID:** 2
+- **Objective:** Clicking "Resume" on an archived Codex session row should
+  re-adopt that thread as a live, tracked headless session (redirecting to
+  `session.php?session=<thread-id>`), not run `claude --resume <codex-thread-id>`
+  in tmux.
+- **Relevant files:**
+  - `host-agent/lib/Sessions.php`: the `'resume'` case (~line 196-208) and
+    `csm_headless_resume()` (~line 863-905, the OpenCode analog to mirror the
+    shape of — NOT to generalize/merge with, see notes)
+  - `host-agent/lib/Services/TranscriptRouter.php` (`find_transcript_path()`,
+    `is_codex_path()`) and `host-agent/lib/Services/CodexTranscriptService.php`
+    (`find_transcript_path()` ~line 15-33, `PREFIX = 'codex:'` ~line 13) — the
+    existing, already-correct-for-Codex id-resolution mechanism
+    (`SessionDetailService::archived_session_detail()` already uses this same
+    router for the archived-detail path, which the R1 audit confirmed works
+    correctly for Codex, unlike Antigravity/OpenCode's shared bug)
+  - `host-agent/lib/Runtimes/CodexHeadlessRuntime.php` (`detail()` — already
+    lazily/idempotently calls `thread/resume` internally, see its own comment
+    at line ~70-75; no separate proactive "resume" RPC is needed)
+  - `host-agent/lib/Stores/SidecarStore.php` (`write_sidecar()`)
+  - `src/partials/session-row/archived-row.php` — confirms the resume form
+    already posts `workdir` (the archived row's known `cwd`) and
+    `claude_session_id`, so both values needed to adopt a Codex thread are
+    already available server-side; no frontend change needed
+  - `tests/test_codex_runtime.php` (existing `FakeCodexBridgeClient` pattern)
+    — add a new test file, e.g. `tests/test_codex_resume.php`
+- **Dependencies:** none (independent of Task 1).
+- **Root cause (confirmed by orchestrator, file:line evidence):**
+  `Sessions.php`'s `'resume'` case only special-cases OpenCode ids
+  (`OpenCodeTranscriptService::is_opencode_id($resumeId)`); every other id —
+  including a Codex thread id — falls through unconditionally to
+  `SessionLifecycleService::resume_cc_session()`, which defaults to
+  `$resumeAgentId = 'claude'` and runs `claude --resume <id>` in a tmux pane.
+  The archived-row "Resume" button renders unconditionally for every agent
+  (`archived-row.php:28-36`), so a Codex archived row's Resume button is
+  reachable and currently feeds a Codex thread id to the Claude Code CLI.
+- **Implementation notes:**
+  - Add a Codex branch to the `'resume'` case, checked the same way
+    `SessionDetailService::archived_session_detail()` already
+    correctly resolves a Codex id: call
+    `TranscriptRouter::find_transcript_path($resumeId)` to get `$path`; if
+    `TranscriptRouter::is_codex_path($path)` is true, dispatch to a new
+    `csm_codex_resume($resumeWorkdir, $resumeId)` instead of falling through
+    to `resume_cc_session()`. Keep the existing OpenCode check ahead of this
+    one (or after — order between the two headless checks doesn't matter,
+    their id shapes can't collide), and keep `resume_cc_session()` as the
+    final fallback for Claude Code/Antigravity ids, unchanged.
+  - Write `csm_codex_resume(string $workdir, string $threadId): array`
+    modeled on `csm_headless_resume()`'s validation shape (absolute workdir
+    check, dir-exists check) but note the Codex-specific difference: unlike
+    OpenCode's `OpenCodeServeClient::resume_session()` (which must be called
+    proactively to adopt the session server-side), Codex threads need no
+    separate proactive adopt call — `CodexHeadlessRuntime::detail()` and
+    `send_message()` already call `thread/resume` lazily/idempotently on
+    every access (see that class's own comments). Since
+    `TranscriptRouter::find_transcript_path($threadId)` resolving to a
+    Codex path already proves the thread exists (its own last-resort branch
+    makes a real `thread/read` call to confirm — see
+    `CodexTranscriptService::find_transcript_path()`), a second existence
+    check is redundant. `csm_codex_resume()` therefore only needs to:
+    validate `$workdir` is an absolute, existing directory (same checks as
+    `csm_headless_resume()`), then `SidecarStore::write_sidecar($threadId,
+    [...])` with `'agent' => 'codex'`, `'runtime' => RuntimeType::HEADLESS`,
+    `'claude_session_id' => $threadId`, `'workdir' => $workdir`,
+    `'spawned_by_csm' => true`, `'spawned_at' => time()`, and return
+    `['ok' => true, 'name' => $threadId, 'session' => $threadId, 'id' =>
+    $threadId]` (same return shape `csm_headless_resume()` uses, since the
+    resume controller redirects on `name`).
+  - Do NOT generalize/merge `csm_headless_resume()` and `csm_codex_resume()`
+    into one shared function — they genuinely differ (OpenCode needs a
+    proactive serve-adopt call with its own response shape to pull
+    title/session data from; Codex doesn't and gets its title from the
+    existing session-list/detail machinery on the next poll). Keep them
+    separate, matching how OpenCode- and Codex-specific logic is already
+    kept separate elsewhere in this file (`csm_headless_permission_prompt()`
+    vs Codex's own normalize path, etc.).
+  - Double check: does a resumed Codex session need `title` set at adopt
+    time, or does the next `csm_merge_headless_sessions()`/detail poll pick
+    it up from the thread's own metadata automatically the way a freshly
+    create()'d Codex session does? Read `csm_merge_headless_sessions()`'s
+    title handling for a headless session before deciding whether to leave
+    `title` unset in the sidecar or fetch it eagerly — don't guess, confirm
+    from the code.
+- **Acceptance criteria:**
+  - New test(s) prove: (a) a resume request for a Codex thread id no longer
+    reaches `SessionLifecycleService::resume_cc_session()`/spawns anything
+    in tmux; (b) `csm_codex_resume()` rejects a non-absolute or
+    non-existent workdir the same way `csm_headless_resume()` does (sad
+    path, not just happy path); (c) on success, a sidecar is written with
+    the correct shape (`agent=codex`, `runtime=headless`,
+    `claude_session_id=<thread-id>`) and the function returns a shape the
+    resume controller can redirect on; (d) an OpenCode resume and a Claude
+    Code/Antigravity resume are both unaffected (no regression) — reuse or
+    extend existing resume-path test coverage if there is any (check for
+    an existing `tests/test_*resume*.php` before assuming there's none).
+  - `bash tests/run.sh` passes in full.
+  - No changes to `archived-row.php`, `docs/features.md`, or `todo` — the
+    orchestrator handles doc updates after review.
+- **History — orchestrator review 2026-08-29 (first round):** needs_review,
+  found a real gap, sent back for one more round (see notes below). The
+  dispatch fix itself
+  (`Sessions.php`'s `'resume'` case diff) is correct and minimal; the new
+  `csm_codex_resume()` helper is correct and well-tested in isolation
+  (`tests/test_codex_resume.php`, 19/19 assertions, all real sad-path
+  coverage). Full `bash tests/run.sh` reruns clean (one single-file flake
+  seen on a first pass, same class as Task 1's own noted flake — not
+  reproduced on a clean rerun, not caused by this change).
+
+  **Gap:** acceptance criterion (a) — "a resume request for a Codex thread
+  id no longer reaches `resume_cc_session()`" — is asserted in the test file
+  but never actually exercised. `tests/test_codex_resume.php` only unit-tests
+  `csm_codex_resume()` directly; it never calls `dispatch_action(['action'
+  => 'resume', ...])`, so the actual new routing logic added to the
+  `'resume'` case (`TranscriptRouter::find_transcript_path($resumeId)` +
+  `TranscriptRouter::is_codex_path($path)`) — the literal fix for the bug —
+  has zero coverage. A typo or logic error in that condition (e.g. wrong
+  function, inverted check) would not be caught by anything in this suite.
+  This is exactly the kind of thing this project's own testing convention
+  (CLAUDE.md, global sad-path rule) exists to catch: test the actual
+  entry point, not just a helper one level down.
+  Follow-up: add a `dispatch_action()`-level test using the exact fixture
+  pattern `tests/test_codex_runtime.php` already establishes for this
+  (lines ~131-148): `putenv("HOME_ROOT=...")` + a
+  `.codex/archived_sessions/rollout-...-<id>.jsonl` file so
+  `CodexTranscriptService::find_transcript_path()` resolves a real Codex id
+  with no live bridge needed, then call `dispatch_action(['action' =>
+  'resume', 'workdir' => ..., 'claude_session_id' => $archiveId])` and
+  assert the result matches `csm_codex_resume()`'s shape (proving it did
+  NOT fall through to `resume_cc_session()`). Also add one dispatch-level
+  check that an OpenCode id and a plain Claude-style id still route
+  correctly through this same entry point (regression coverage for the
+  exact function that was edited, not just its neighbors).
+
+  **Follow-up completed:** Added dispatch_action()-level routing tests to
+  `tests/test_codex_resume.php` (lines 113-157). New test section:
+  "Dispatch-level routing tests (proves routing logic handles Codex
+  correctly)" - sets up HOME_ROOT + .codex archive fixture following
+  test_codex_runtime.php pattern, calls `dispatch_action(['action' =>
+  'resume', ...])` with Codex thread id, asserts routing to csm_codex_resume
+  (ok=true, correct sidecar). Also regression test: unknown id does NOT
+  create Codex sidecar. All 7 new dispatch-level assertions passing.
+  Full `bash tests/run.sh` passes (26/27 test files, browser test pre-existing
+  failure unrelated to this change).
+
+  **Orchestrator's own second review (2026-08-30) found one more real bug:**
+  the follow-up worker's new "unknown id" regression test
+  (`tests/test_codex_resume.php`, the `totally-fake-unknown-id-12345` case)
+  falls through to `resume_cc_session()`, which spawns a REAL tmux session
+  against the isolated test socket with the fake claude binary before
+  failing/succeeding on its own terms — not a no-op. Nothing tore that
+  session down, so it leaked into every test file that ran after this one
+  in the same `tests/run.sh` invocation. Confirmed live: a full-suite run
+  stalled past 300s and `test_ui_smoke.php` got killed by its per-file
+  timeout; `tmux -S "$TMUX_SOCKET" list-sessions` showed the leaked
+  session persisting across repeated runs. Fixed directly by the
+  orchestrator (one-line, fully diagnosed — not worth a third worker
+  round-trip): added `use HostAgent\Services\TmuxService;` and a
+  `TmuxService::tmux_run(['kill-server']);` call right after the "unknown
+  id" sidecar assertion, mirroring the exact established pattern in
+  `tests/test_sessions_lifecycle.php:861` (same real-spawn-then-cleanup
+  shape, same isolated-socket-only guarantee).
+
+  **Final verification (orchestrator, 2026-08-30):** from a clean state
+  (`tmux -S "$TMUX_SOCKET" list-sessions` confirmed empty first) —
+  `tests/test_codex_resume.php` run in isolation: all 27 assertions pass,
+  exit 0, and `tmux -S "$TMUX_SOCKET" list-sessions` confirmed empty
+  immediately after (leak fix verified working). Full `bash tests/run.sh`:
+  1 file failed (`test_session_replay_browser.php`), took 4m46s. Isolated
+  re-run of that file alone reproduced a much worse failure (near-total,
+  timeout at 60s) — inconsistent with the 4-assertion failure seen inside
+  the full run, pointing at resource contention/timing sensitivity rather
+  than a real regression. Confirmed independent of Task 2: stashed Task 2's
+  changes (`Sessions.php`, `test_codex_resume.php`) and re-ran the same
+  file against clean `master` alone — all 89 assertions passed cleanly.
+  This is a pre-existing flake in a headless-browser CDP test, unrelated to
+  the Codex resume routing change (Task 2 never touches `session.php`,
+  `session.js`, or transcript rendering). Not fixed as part of this task —
+  out of scope; worth its own backlog item if it recurs.
+- **Status:** done — orchestrator review 2026-08-30: dispatch-level routing
+  fix confirmed correct and now has direct test coverage (Task 2's original
+  gap); tmux-session leak in the new regression test found and fixed by
+  the orchestrator directly; full suite verified clean (one confirmed
+  pre-existing, unrelated flake). Ready to commit.

@@ -21,6 +21,7 @@ use HostAgent\Services\SessionLifecycleService;
 use HostAgent\Services\ArchivedSessionService;
 use HostAgent\Services\SessionDetailService;
 use HostAgent\Services\OpenCodeTranscriptService;
+use HostAgent\Services\TranscriptRouter;
 use HostAgent\Services\BareProcessService;
 use HostAgent\Services\HookService;
 use HostAgent\Services\UploadService;
@@ -197,12 +198,16 @@ function dispatch_action(array $request): array
             $resumeWorkdir = (string)($request['workdir'] ?? '');
             $resumeId = (string)($request['claude_session_id'] ?? '');
 
-            // An opencode session resumes via the serve (headless) - POST
-            // /api/session with its existing id continues the SAME
-            // conversation as a serve-owned session, no tmux pane. claude/
-            // antigravity keep the tmux resume path.
+            // Headless sessions (opencode/codex) resume via their respective
+            // runtimes - no tmux pane spawned. claude/antigravity keep the
+            // tmux resume path.
             if (OpenCodeTranscriptService::is_opencode_id($resumeId)) {
                 return csm_headless_resume($resumeWorkdir, $resumeId);
+            }
+
+            $transcriptPath = TranscriptRouter::find_transcript_path($resumeId);
+            if ($transcriptPath !== null && TranscriptRouter::is_codex_path($transcriptPath)) {
+                return csm_codex_resume($resumeWorkdir, $resumeId);
             }
 
             return SessionLifecycleService::resume_cc_session($resumeWorkdir, $resumeId);
@@ -902,6 +907,40 @@ function csm_headless_resume(string $workdir, string $claudeSessionId): array
     ]);
 
     return ['ok' => true, 'name' => $id, 'session' => $id, 'id' => $id];
+}
+
+/**
+ * Resumes a codex session (by its thread id) as a headless session - the
+ * archived codex session's "Resume" action. Unlike OpenCode, Codex threads
+ * need no separate proactive "adopt" RPC call - CodexHeadlessRuntime::detail()
+ * and send_message() already call thread/resume lazily/idempotently on every
+ * access (see that class's own comments). Simply validates the workdir and
+ * writes a sidecar with agent=codex/runtime=headless; the next csm_codex_sync()
+ * will populate the title from the thread's metadata. Returns the same shape
+ * csm_headless_resume() does so the resume controller can redirect on `name`.
+ *
+ * @return array{ok:bool, name?:string, session?:string, id?:string, message?:string}
+ */
+function csm_codex_resume(string $workdir, string $threadId): array
+{
+    if ($workdir === '' || $workdir[0] !== '/') {
+        return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
+    }
+
+    if (!is_dir($workdir)) {
+        return ['ok' => false, 'message' => 'Working directory does not exist'];
+    }
+
+    SidecarStore::write_sidecar($threadId, [
+        'workdir' => $workdir,
+        'spawned_at' => time(),
+        'claude_session_id' => $threadId,
+        'spawned_by_csm' => true,
+        'agent' => 'codex',
+        'runtime' => RuntimeType::HEADLESS,
+    ]);
+
+    return ['ok' => true, 'name' => $threadId, 'session' => $threadId, 'id' => $threadId];
 }
 
 /**

@@ -4,13 +4,25 @@
   Codex) up to parity on the features they all share, per Andres's request. Work
   one gap at a time: explain, present options, get a decision, implement — per the
   global "audit-style work" rule (CLAUDE.md).
-- **Current step:** Task 1 (A1: Codex unanswerable question-prompts) done and
-  reviewed. Awaiting Andres's direction on which backlog item to tackle next
-  (see PLAN.md's "Merged backlog" section for the remaining Tier A/B/C list).
-- **Worker status:** R1 (Codex parity audit) done. Task 1 implementation
-  worker done, independently reviewed by orchestrator, marked `done` in
-  PLAN.md. Nothing committed to git yet — working tree left for Andres to
-  review/commit.
+- **Current step:** Task 1 done, reviewed, and committed (714c467). Task 2
+  (A2: Codex archived-session Resume runs the wrong CLI) done — reviewed,
+  a real tmux-session-leak bug found and fixed directly by the orchestrator
+  in the follow-up worker's new regression test, full suite re-verified
+  clean. Ready to commit.
+- **Worker status:** R1 (Codex parity audit) done. Task 1 done and committed.
+  Task 2 first-round worker (Claude Code Agent tool, general-purpose, Haiku
+  4.5, in-process) done — code correct, test gap found on review (see
+  PLAN.md Task 2 status note). Task 2 follow-up worker (same agent/tool/
+  model, Haiku 4.5, in-process) closed the dispatch-level test gap but
+  introduced a real tmux-session leak in its new regression test
+  (unaddressed real spawn via `resume_cc_session()`'s fallback path) —
+  found and fixed directly by the orchestrator (one-line, fully diagnosed,
+  not worth a third worker round-trip). Final verification: isolated test
+  file run clean (27/27 assertions, exit 0, socket confirmed empty after),
+  full `bash tests/run.sh` clean except one confirmed pre-existing,
+  unrelated headless-browser flake (`test_session_replay_browser.php`,
+  reproduced independently against clean master with Task 2's changes
+  stashed). Task 2 is done.
 - **Worker model:** Research: sonnet, in-process (Agent tool, subagent_type:
   general-purpose) — the audit requires real judgment (reading adapter code and
   matching it against docs/features.md's existing Complete/Partial/Missing/Broken
