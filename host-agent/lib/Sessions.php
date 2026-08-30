@@ -428,7 +428,15 @@ function csm_merge_headless_sessions(array $sessions): array
             'prompt_is_folder_trust' => (bool)($blocked['is_folder_trust'] ?? false),
             'prompt_tool_name' => is_string($blocked['tool_name'] ?? null) ? $blocked['tool_name'] : null,
             'prompt_tool_input' => is_array($blocked['tool_input'] ?? null) ? $blocked['tool_input'] : null,
-            'prompt_questions' => null,
+            // Codex's question-type prompt (item/tool/requestUserInput) has
+            // no working pane-based single-question fallback - it's
+            // headless - so the structured multi-question form is the only
+            // correct rendering here regardless of question count, unlike
+            // Claude Code's own count>=2 threshold (a live tmux pane still
+            // covers Claude's single-question case).
+            'prompt_questions' => ($blocked['tool_name'] ?? null) === 'question'
+                ? (is_array($blocked['tool_input']['questions'] ?? null) ? $blocked['tool_input']['questions'] : null)
+                : null,
             'current_mode' => null,
             'current_model' => null,
             'current_antigravity_model' => null,
@@ -963,7 +971,12 @@ function csm_headless_detail_shape(array $serve, string $agentId = 'opencode'): 
         'prompt_is_folder_trust' => (bool)($blocked['is_folder_trust'] ?? false),
         'prompt_tool_name' => is_string($blocked['tool_name'] ?? null) ? $blocked['tool_name'] : null,
         'prompt_tool_input' => is_array($blocked['tool_input'] ?? null) ? $blocked['tool_input'] : null,
-        'prompt_questions' => null,
+        // See csm_merge_headless_sessions()'s own comment on this same
+        // field - Codex has no pane fallback, so every question count needs
+        // the structured form, not just 2+.
+        'prompt_questions' => ($blocked['tool_name'] ?? null) === 'question'
+            ? (is_array($blocked['tool_input']['questions'] ?? null) ? $blocked['tool_input']['questions'] : null)
+            : null,
         'attached' => false,
         'pid' => null,
         'current_mode' => null,

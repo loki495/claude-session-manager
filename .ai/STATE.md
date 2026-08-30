@@ -1,14 +1,33 @@
-# STATE.md — OpenCode TUI agent integration
+# STATE.md — Agent feature parity
 
-- **Current objective:** Integrate OpenCode TUI (`opencode` binary) as a third agent alongside Claude Code and Antigravity, via the existing AgentAdapter abstraction. MVP: spawn, list, see status, read transcript from the web UI.
-- **Current step:** 0.1 + 0.2 + 1.1 + 2.1 + 3.1 + 4.1 + reactive binding fix + Phase 6 done. Basic piping (spawn + list + transcript), quotas backend, and quota display are complete. Next: Phase 5 plugin (blocked prompts via Hooks permission.ask + event), Phase 7 polish.
-- **Worker status:** 0.1 done (muse-spark). 0.2 done (orchestrator-direct, isolated tmux + WAL verified). 1.1 done (orchestrator-direct). 2.1 done (orchestrator-direct; oc-* spawn). 3.1 done (orchestrator-direct; OpenCodeTranscriptService, 62 assertions). 4.1 done (orchestrator-direct; is_opencode guard + find_session_title). Reactive binding fix done (live oc-20260825-075821 → ses_fc8124, transcript 4 entries). Phase 6 backend done (opencode_quota_state WAL+readonly, per-session + dashboard, OPENCODE_DB_PATH isolation, all 22 tests PASS). Workers: Phase 5 (ses_fc80b807 big-pickle stalled, ses_fc804fbd nemotron 5b at 2 msgs) — plugin still pending.
-- **Worker model:** To be set per task (default: muse-spark-1.2-contributor-free via `opencode run --model opencode/muse-spark-1.2-contributor-free` or equivalent free model; verified available on this machine).
+- **Current objective:** Bring all four agents (Claude Code, Antigravity, OpenCode,
+  Codex) up to parity on the features they all share, per Andres's request. Work
+  one gap at a time: explain, present options, get a decision, implement — per the
+  global "audit-style work" rule (CLAUDE.md).
+- **Current step:** Task 1 (A1: Codex unanswerable question-prompts) done and
+  reviewed. Awaiting Andres's direction on which backlog item to tackle next
+  (see PLAN.md's "Merged backlog" section for the remaining Tier A/B/C list).
+- **Worker status:** R1 (Codex parity audit) done. Task 1 implementation
+  worker done, independently reviewed by orchestrator, marked `done` in
+  PLAN.md. Nothing committed to git yet — working tree left for Andres to
+  review/commit.
+- **Worker model:** Research: sonnet, in-process (Agent tool, subagent_type:
+  general-purpose) — the audit requires real judgment (reading adapter code and
+  matching it against docs/features.md's existing Complete/Partial/Missing/Broken
+  taxonomy), not pure lookup. Implementation workers: default to a cheaper tier per
+  task once the plan exists; bump up only for genuinely tricky bounded tasks.
 - **Important decisions:**
-  - Follows the same adapter pattern as Antigravity (AgentAdapter + AgentRegistry + reactive session-id binding), not a bolt-on.
-  - OpenCode stores transcripts in SQLite (`~/.local/share/opencode/opencode.db`, tables `session`/`message`/`part`), not JSONL — needs its own TranscriptService.
-  - OpenCode TUI spawn is `opencode [project_path]` (positional), not `opencode --session-id`. Session IDs are auto-generated (`ses_*`); binding must be reactive like Antigravity. Requires live verification before committing to this.
-  - **Amendment (a) — plugin-first:** OpenCode has a rich plugin system (`https://opencode.ai/docs/plugins/`, local `~/.config/opencode/plugins/` + npm `plugin` in config, load order global→project). Hooks `permission.ask` / `tool.execute.before/after` / `chat.message` + Events `permission.updated`/`permission.replied` / `session.status` (idle/busy/retry) / `session.idle` / `message.updated` are the intended replacement for tmux `capture-pane` parsing. Task 0.2 inventories these with payload shapes from `plugin/dist/index.d.ts` + `sdk/dist/gen/types.gen.d.ts` and proposes a minimal CSM global plugin that writes to `SessionStatusStore`/`PendingToolStore`. Pane parsing is fallback only.
-  - **Amendment (b) — quotas after IO:** After basic piping (spawn + transcript + listing) and basic IO with prompt + permissions (Phase 5) is working, quotas are the next priority (Phase 6), not deferred to polish. OpenCode's closest quota equivalent is `session.cost`/`tokens_*` in `opencode.db` + `opencode stats` (cost/tokens, not windowed rate-limit) — will verify live whether a rate-limit shape exists.
-- **Known limitations:** Plan is draft, pending review. No code changes yet.
-- **Outstanding blockers:** None yet — open questions captured in QUESTIONS.md.
+  - The previous `.ai/` contents (OpenCode MVP integration plan, 2026-08-24/25) are
+    stale/completed — archived to `.ai/archive/opencode-integration-2026-08-25/`,
+    not deleted. Do not resume that plan; it predates this objective.
+  - `docs/features.md`'s per-agent matrix is itself known-stale: generated
+    2026-08-26, before Codex existed as a 4th agent (added 2026-08-27/29). It has
+    no Codex column at all. That's the first gap to close before anything else,
+    per the todo file's own Tier 2 item.
+  - Known, already-documented parity gaps (Claude/Antigravity/OpenCode) live in
+    `todo` (Tier 1 bugs + Tier 3 scoped feature-parity work) and
+    `docs/features.md`'s "Known gaps & partial parity" section — treat these as
+    reliable starting points, not things to re-derive from scratch, but spot-check
+    any that a Codex-inclusive pass might change the shape of.
+- **Known limitations:** No implementation started yet.
+- **Outstanding blockers:** None yet.

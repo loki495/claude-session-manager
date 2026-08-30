@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use HostAgent\Services\CodexPromptProtocol;
 use HostAgent\Services\Config;
 use HostAgent\Stores\SessionStatusStore;
 
@@ -110,95 +111,6 @@ $pendingPrompts = [];
 $activeTurns = [];
 $nextRpcId = 100;
 $appOutBuffer = '';
-
-/**
- * @param array<string,mixed> $params
- * @return array<string,mixed>
- */
-function codex_normalize_prompt(string $method, array $params): array
-{
-    if ($method === 'item/tool/requestUserInput') {
-        $questions = is_array($params['questions'] ?? null) ? $params['questions'] : [];
-        $first = is_array($questions[0] ?? null) ? $questions[0] : [];
-        $options = [];
-        foreach (($first['options'] ?? []) as $index => $option) {
-            if (is_array($option) && is_string($option['label'] ?? null)) {
-                $options[] = ['number' => $index + 1, 'label' => $option['label']];
-            }
-        }
-        return [
-            'tool_name' => 'question',
-            'question' => (string)($first['question'] ?? 'Codex needs input'),
-            'context' => '',
-            'options' => $options,
-            'multi_question' => count($questions) > 1,
-            'is_folder_trust' => false,
-            'tool_input' => ['questions' => $questions],
-            'request_id' => (string)($params['itemId'] ?? ''),
-        ];
-    }
-
-    $command = is_string($params['command'] ?? null) ? $params['command'] : '';
-    $reason = is_string($params['reason'] ?? null) ? $params['reason'] : '';
-    $question = $method === 'item/fileChange/requestApproval'
-        ? 'Allow Codex to change files?'
-        : ($method === 'item/permissions/requestApproval' ? 'Grant additional permissions?' : 'Allow Codex to run this command?');
-
-    return [
-        'tool_name' => 'permission',
-        'question' => $question,
-        'context' => $command !== '' ? $command : $reason,
-        'options' => [
-            ['number' => 1, 'label' => 'Allow once'],
-            ['number' => 2, 'label' => 'Allow for session'],
-            ['number' => 3, 'label' => 'Deny'],
-            ['number' => 4, 'label' => 'Deny and stop'],
-        ],
-        'multi_question' => false,
-        'is_folder_trust' => false,
-        'tool_input' => $params,
-        'request_id' => (string)($params['itemId'] ?? ''),
-    ];
-}
-
-/**
- * @param array<string,mixed> $pending
- * @param array<string,mixed> $answers
- * @return array<string,mixed>|null
- */
-function codex_prompt_response(array $pending, array $answers): ?array
-{
-    $method = $pending['method'];
-    if ($method === 'item/tool/requestUserInput') {
-        $questions = is_array($pending['params']['questions'] ?? null) ? $pending['params']['questions'] : [];
-        $supplied = is_array($answers['answers'] ?? null) ? $answers['answers'] : [];
-        $mapped = [];
-        foreach ($questions as $index => $question) {
-            if (!is_array($question) || !is_string($question['id'] ?? null)) continue;
-            $value = $supplied[$index] ?? [];
-            $mapped[$question['id']] = ['answers' => is_array($value) ? array_values(array_map('strval', $value)) : [(string)$value]];
-        }
-        return ['answers' => (object)$mapped];
-    }
-
-    $decision = match ((int)($answers['option'] ?? 0)) {
-        1 => 'accept',
-        2 => 'acceptForSession',
-        3 => 'decline',
-        4 => 'cancel',
-        default => null,
-    };
-    if ($decision === null) return null;
-
-    if ($method === 'item/permissions/requestApproval') {
-        if ($decision !== 'accept' && $decision !== 'acceptForSession') return null;
-        return [
-            'permissions' => $pending['params']['permissions'] ?? (object)[],
-            'scope' => $decision === 'acceptForSession' ? 'session' : 'turn',
-        ];
-    }
-    return ['decision' => $decision];
-}
 
 /**
  * @param resource $client
@@ -311,7 +223,7 @@ try {
                         'item/permissions/requestApproval',
                         'item/tool/requestUserInput',
                     ], true)) {
-                        $prompt = codex_normalize_prompt($method, $params);
+                        $prompt = CodexPromptProtocol::normalize_prompt($method, $params);
                         $pendingPrompts[$threadId] = ['request_id' => $message['id'], 'method' => $method, 'params' => $params, 'prompt' => $prompt];
                         SessionStatusStore::update_status($threadId, ['status' => 'blocked', 'blocked' => $prompt]);
                         continue;
@@ -368,7 +280,7 @@ try {
 
             if ($method === 'csm/answerPrompt') {
                 $pending = $pendingPrompts[$threadId] ?? null;
-                $response = is_array($pending) ? codex_prompt_response($pending, is_array($params['answers'] ?? null) ? $params['answers'] : []) : null;
+                $response = is_array($pending) ? CodexPromptProtocol::prompt_response($pending, is_array($params['answers'] ?? null) ? $params['answers'] : []) : null;
                 unset($clients[$clientId]);
                 if ($pending === null || $response === null) {
                     codex_bridge_reply($stream, ['ok' => false, 'message' => 'Rejected: no matching Codex prompt or invalid answer']);
