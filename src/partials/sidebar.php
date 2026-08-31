@@ -35,8 +35,8 @@
       <div id="session-search-results" class="mt-2 flex flex-col gap-1.5 text-sm"></div>
     </div>
   <?php endif; ?>
-  <div id="sidebar-list" class="divide-y divide-slate-800 text-sm">
-    <div class="px-4 py-3 text-slate-500">Loading&hellip;</div>
+  <div id="sidebar-list" class="flex flex-col gap-2 px-3 py-3 text-sm">
+    <div class="px-1 text-slate-500">Loading&hellip;</div>
   </div>
   <div class="px-4 py-3 border-t border-slate-800 flex flex-col gap-2">
     <span class="block text-xs font-medium text-slate-500 mb-1">Settings</span>

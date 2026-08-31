@@ -14,7 +14,12 @@ declare(strict_types=1);
  * Deliberately does NOT try to use Stop firing as a transcript-freshness
  * signal (ruled out 2026-08-02, see the todo file - Claude Code writes the
  * transcript file ~1.7-2s BEFORE Stop fires) - this hook only ever updates
- * the status file, nothing transcript-related.
+ * the status file, nothing transcript-related. That same "transcript
+ * already written by the time Stop fires" timing IS relied on for one
+ * thing here: clearing SessionStatusStore's `model` optimistic override
+ * (see its own docblock) - the turn that just finished already used
+ * whatever model was picked, so the transcript's own current_model is
+ * trustworthy again and the override would only risk going stale from here.
  *
  * Writes nothing to stdout and always exits 0 - same "no opinion"
  * convention as every other hook this app installs.
@@ -41,7 +46,7 @@ if (!is_array($payload)) {
     exit(0);
 }
 
-$fields = ['status' => 'idle', 'blocked' => null];
+$fields = ['status' => 'idle', 'blocked' => null, 'model' => null];
 
 $lastMessage = is_string($payload['last_assistant_message'] ?? null) ? $payload['last_assistant_message'] : null;
 

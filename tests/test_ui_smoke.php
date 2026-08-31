@@ -193,17 +193,19 @@ try {
     $quotaBody = json_decode($result['body'], true);
     assert_true(is_array($quotaBody) && ($quotaBody['ok'] ?? false), 'GET /quota.php: response decodes as ok=true JSON');
     assert_equal(73, $quotaBody['quota']['session']['pct'] ?? null, 'GET /quota.php: canned session percentage passed through');
-    assert_true(!isset($quotaBody['quota']['context']), 'GET /quota.php: no context bucket without a ?session= param');
+    assert_true(!isset($quotaBody['context']), 'GET /quota.php: no context key at top level without a ?session= param (NEW)');
+    assert_true(isset($quotaBody['agents']), 'GET /quota.php: agents map now always present (NEW)');
 
     // --- quota.php?session=...: the ?session= query param reaches the agent
     // call (QuotaController::show() -> agent_call(['session' => ...]) ->
-    // Sessions.php's dispatch -> QuotaService::get_quota($session)) and a
-    // per-session context bucket comes back alongside the account-wide ones ---
+    // Sessions.php's dispatch -> QuotaService::get_quota($session)) and the
+    // full agents map plus per-session context come back ---
     $result = curl_request('GET', "{$baseUrl}/quota.php?session=cc-20260101-1200");
     assert_equal(200, $result['status'], 'GET /quota.php?session=...: 200');
     $quotaWithContext = json_decode($result['body'], true);
-    assert_equal(12, $quotaWithContext['quota']['context']['pct'] ?? null, 'GET /quota.php?session=...: canned context percentage for the named session passed through');
+    assert_equal(12, $quotaWithContext['context']['pct'] ?? null, 'GET /quota.php?session=...: canned context percentage at top level (NEW)');
     assert_equal(73, $quotaWithContext['quota']['session']['pct'] ?? null, 'GET /quota.php?session=...: account-wide session percentage still passed through alongside context');
+    assert_true(isset($quotaWithContext['agents']), 'GET /quota.php?session=...: agents map now present on session requests too (NEW)');
 
     // --- browse.php: passes the canned agent's browse_dir action through as JSON ---
     $result = curl_request('GET', "{$baseUrl}/browse.php?path=" . urlencode('/home/user/www'));
@@ -343,7 +345,7 @@ try {
     // added 2026-08-08 - so they're identified by that literal prefix
     // rather than the "rounded-lg border" anchor used for boxed kinds.
     assert_true(
-        preg_match('/<div class="rounded-2xl border ([^"]*)">(?:(?!<div class="rounded-(?:lg|2xl) border).)*?Fix the login redirect bug/s', $result['body'], $userEntryMatch) === 1
+        preg_match('/<div class="rounded-2xl border ([^"]*)"[^>]*>(?:(?!<div class="rounded-(?:lg|2xl) border).)*?Fix the login redirect bug/s', $result['body'], $userEntryMatch) === 1
             && str_contains($userEntryMatch[1], 'lg:self-end') && str_contains($userEntryMatch[1], 'lg:max-w-[75%]'),
         'GET /session.php: a real user-typed entry is a filled bubble aligned right on desktop (lg:self-end), capped to 75% width so alignment reads as a real chat bubble, not a full-width block'
     );
@@ -418,13 +420,22 @@ try {
     assert_contains('id="go-to-bottom-btn"', $result['body'], 'GET /session.php: floating go-to-bottom button present');
     assert_contains('id="jump-to-new-btn"', $result['body'], 'GET /session.php: floating jump-to-new-content button present (Andres\'s own ask, 2026-08-22)');
     assert_contains('id="go-to-top-btn"', $result['body'], 'GET /session.php: floating go-to-top button present (Andres\'s own ask, 2026-08-23)');
+    assert_contains('id="prev-user-btn"', $result['body'], 'GET /session.php: floating prev-user-message button present (Andres\'s own ask, 2026-08-30)');
+    assert_true(
+        strpos($result['body'], 'id="go-to-top-btn"') < strpos($result['body'], 'id="prev-user-btn"'),
+        'GET /session.php: #go-to-top-btn is stacked ABOVE #prev-user-btn in the markup/visual stack'
+    );
+    assert_true(
+        strpos($result['body'], 'id="prev-user-btn"') < strpos($result['body'], 'id="jump-to-new-btn"'),
+        'GET /session.php: #prev-user-btn is stacked ABOVE #jump-to-new-btn in the markup/visual stack'
+    );
     assert_true(
         strpos($result['body'], 'id="jump-to-new-btn"') < strpos($result['body'], 'id="go-to-bottom-btn"'),
         'GET /session.php: #jump-to-new-btn is stacked ABOVE #go-to-bottom-btn in the markup/visual stack, not the other way round'
     );
     assert_true(
         strpos($result['body'], 'id="go-to-top-btn"') < strpos($result['body'], 'id="jump-to-new-btn"'),
-        'GET /session.php: #go-to-top-btn is stacked ABOVE #jump-to-new-btn in the markup/visual stack - the topmost of the three'
+        'GET /session.php: #go-to-top-btn is stacked ABOVE #jump-to-new-btn in the markup/visual stack - the topmost of the four'
     );
     assert_true(
         preg_match('#id="jump-to-new-btn"\s+class="select-none hidden fixed#', $result['body']) === 1,
@@ -434,6 +445,11 @@ try {
         preg_match('#id="go-to-top-btn"\s+class="select-none hidden fixed#', $result['body']) === 1,
         'GET /session.php: #go-to-top-btn starts hidden too - shown only once scrolled away from the top'
     );
+    assert_true(
+        preg_match('#id="prev-user-btn"\s+class="select-none hidden fixed#', $result['body']) === 1,
+        'GET /session.php: #prev-user-btn starts hidden when there is no user-typed message yet in the transcript (checked: when the canned session has none)'
+    );
+    assert_contains('data-role="user"', $result['body'], 'GET /session.php: at least one rendered entry carries data-role="user" marker for user-typed messages');
     assert_contains('id="navigation-blanket"', $result['body'], 'GET /session.php: the navigation-away loading blanket is present');
     assert_contains('id="sidebar-toggle-btn"', $result['body'], 'GET /session.php: sidebar toggle button present');
     assert_contains('id="sidebar-notify-dot"', $result['body'], 'GET /session.php: sidebar notification dot present');
@@ -1504,6 +1520,7 @@ function run_headless_browser_checks(string $browser, int $port): void
     assert_contains('id="load-more-btn"', $detail['dom'], 'headless browser: session.php renders the load-more control');
     assert_contains('id="go-to-bottom-btn"', $detail['dom'], 'headless browser: session.php renders the floating go-to-bottom button');
     assert_contains('id="jump-to-new-btn"', $detail['dom'], 'headless browser: session.php renders the floating jump-to-new-content button');
+    assert_contains('id="prev-user-btn"', $detail['dom'], 'headless browser: session.php renders the floating prev-user-message button');
     assert_contains('id="go-to-top-btn"', $detail['dom'], 'headless browser: session.php renders the floating go-to-top button');
     assert_true(!str_contains($detail['stderr'], 'Uncaught'), 'headless browser: no uncaught JS errors on session.php');
 

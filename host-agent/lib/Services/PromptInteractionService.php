@@ -384,6 +384,21 @@ class PromptInteractionService
      * validates against a specific expected state): Escape
      * is a safe no-op if nothing is actually running, so there's nothing to
      * reject up front beyond "is this a real managed session at all".
+     *
+     * Found live 2026-08-30 (Andres: "a session interrupted mid-turn still
+     * shows working/thinking in CSM even though the real Claude Code app
+     * confirms it's no longer thinking"): Escape is a true interrupt (not a
+     * natural turn completion), so the Stop hook - which fires ONLY on
+     * natural completion (https://code.claude.com/docs/en/hooks, confirmed
+     * live) - never fires. SessionStatusStore's cached `status`/`working`
+     * fields are ONLY refreshed by the Stop/UserPromptSubmit/PermissionRequest
+     * hooks - without the update_status() call at the end here (matching
+     * every sibling action method in this file - set_mode()/set_model()/
+     * answer_prompt()/send_message() all call it after their own tmux
+     * mutation), a session interrupted mid-turn has no mechanism to ever
+     * clear its stale `working: true` status. This is the same bug class
+     * already fixed for set_mode() (see that method's own docblock,
+     * 2026-08-23).
      */
     public static function send_escape(string $name): array
     {
@@ -396,6 +411,8 @@ class PromptInteractionService
         if ($result['exit'] !== 0) {
             return ['ok' => false, 'message' => 'Failed to send Escape: ' . trim($result['stderr'])];
         }
+
+        SessionStatusStore::update_status($name, ['status' => 'idle', 'blocked' => null]);
 
         return ['ok' => true, 'message' => "Sent Escape to {$name}"];
     }

@@ -1522,6 +1522,28 @@ try {
     assert_true($modelSet['ok'] ?? false, 'set_model: ok=true for a live, unblocked session');
     assert_true(str_contains($modelSet['message'] ?? '', 'haiku'), 'set_model: success message names the model that was set');
 
+    // --- PromptInteractionService::send_escape(): interrupts whatever
+    // Claude is currently doing (mid-generation or mid-tool-call), same as
+    // pressing Escape while attached. Found live 2026-08-30: Escape is a
+    // true interrupt (not a natural turn completion), so the Stop hook -
+    // which fires ONLY on natural completion - never fires. Without the
+    // update_status() call after the tmux send-keys, a session interrupted
+    // mid-turn has no mechanism to ever clear its stale `working: true`
+    // status. This is the same bug class already fixed for set_mode()
+    // (see that method's own docblock, 2026-08-23). ---
+    SessionStatusStore::update_status($promptTestSession, ['status' => 'working', 'blocked' => null]);
+    assert_equal('working', SessionStatusStore::read_status($promptTestSession)['status'] ?? null, 'send_escape test setup: seeded SessionStatusStore with working status');
+
+    $escapeResult = PromptInteractionService::send_escape($promptTestSession);
+    assert_true($escapeResult['ok'] ?? false, 'send_escape: ok=true for a live session');
+
+    assert_equal(
+        'idle',
+        SessionStatusStore::read_status($promptTestSession)['status'] ?? null,
+        'send_escape: also updates SessionStatusStore to mark the session idle, so the next poll reflects the interrupted state instead of staying stuck on working - the actual bug reported live 2026-08-30'
+    );
+    assert_true(array_key_exists('blocked', SessionStatusStore::read_status($promptTestSession)) && SessionStatusStore::read_status($promptTestSession)['blocked'] === null, 'send_escape: clears the blocked status, same as other prompt-interaction methods');
+
     TmuxService::tmux_run(['kill-session', '-t', $promptTestSession]);
     SidecarStore::delete_sidecar($promptTestSession);
     $promptTestSession = null;
@@ -1900,12 +1922,13 @@ try {
     assert_equal(null, QuotaService::live_context_pct('cc-not-a-real-session'), 'live_context_pct: null for a session that isn\'t live');
 
     $withContext = QuotaService::get_quota($quotaTestSession);
-    assert_equal(4, $withContext['quota']['context']['pct'] ?? null, 'get_quota($session): overlays that session\'s context pct alongside the account-wide buckets');
+    assert_equal(4, $withContext['context']['pct'] ?? null, 'get_quota($session): returns context at top level when readable (NEW)');
     assert_equal(70, $withContext['quota']['session']['pct'] ?? null, 'get_quota($session): session/week_all buckets are unaffected by the context overlay');
-    assert_true(!isset($withContext['quota']['context']['resets_at']), 'get_quota($session): context has no reset timer, unlike session/week_all');
+    assert_true(!isset($withContext['context']['resets_at']), 'get_quota($session): context has no reset timer, unlike session/week_all');
+    assert_true(isset($withContext['agents']), 'get_quota($session): now includes agents map (NEW)');
 
     $unknownSessionResult = QuotaService::get_quota('cc-not-a-real-session');
-    assert_true(!isset($unknownSessionResult['quota']['context']), 'get_quota($session): no context bucket when the given session isn\'t live');
+    assert_true(!isset($unknownSessionResult['context']), 'get_quota($session): no top-level context field when the given session isn\'t live');
     assert_equal(70, $unknownSessionResult['quota']['session']['pct'] ?? null, 'get_quota($session): account-wide buckets still come through for an unknown session name');
 
     GlobalStateStore::delete(Config::quota_live_state_key());

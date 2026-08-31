@@ -57,9 +57,16 @@ class SessionLifecycleService
      * silently ignored rather than passed through raw. null (the default)
      * omits the flag entirely.
      *
+     * $model is this app's own SelectableModel::PICKER_OPTIONS key
+     * (sonnet/fable/opus/haiku, or null/'default' for no --model flag at
+     * all) - passed straight through to the adapter the same way
+     * $startingMode is; an adapter that doesn't understand 'model' (e.g.
+     * AntigravityAdapter) just ignores the key, per AgentAdapter's own
+     * "each adapter reads only what it understands" contract.
+     *
      * @return array{ok:bool, message:string}
      */
-    public static function create_cc_session(string $workdir, bool $enableTaskTools = false, ?string $startingMode = null, ?string $agentId = null): array
+    public static function create_cc_session(string $workdir, bool $enableTaskTools = false, ?string $startingMode = null, ?string $agentId = null, ?string $model = null): array
     {
         if ($workdir === '' || $workdir[0] !== '/') {
             return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
@@ -74,7 +81,7 @@ class SessionLifecycleService
         $resolvedAgentId = $agentId !== null && in_array($agentId, AgentRegistry::known_agent_ids(), true) ? $agentId : AgentRegistry::default_agent_id();
         $agent = AgentRegistry::get($resolvedAgentId);
         $name = $agent->session_name_prefix() . '-' . date('Ymd-His');
-        $spawn = $agent->build_spawn_argv(['enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode]);
+        $spawn = $agent->build_spawn_argv(['enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode, 'model' => $model]);
         $agentArgv = $spawn['argv'];
         $claudeSessionId = $spawn['assigned_id'];
 

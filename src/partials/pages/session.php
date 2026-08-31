@@ -314,6 +314,20 @@ $this->layout('layout', [
   &uarr;
 </button>
 
+<!-- New button to jump to the previous user message not currently visible
+     (Andres's own ask, 2026-08-30) - positioned between #go-to-top-btn
+     (topmost) and #jump-to-new-btn, always shown whenever #history-list
+     has content. If no earlier user message is visible in the viewport,
+     triggers the #load-until-user-btn fallback to load more history.
+     Uses ▲ glyph (&#9650;) rather than ↑ to visually distinguish it from
+     #go-to-top-btn at a glance, despite both meaning "up". bottom-[152px]
+     is only the no-ResizeObserver static fallback - repositionGoToTopBtn()
+     and watchFixedFooterHeight() in scroll.js handle the real positioning. -->
+<button type="button" id="prev-user-btn"
+  class="select-none hidden fixed bottom-[152px] right-5 z-20 w-11 h-11 rounded-full border border-slate-700 bg-slate-800 text-slate-200 shadow-lg active:bg-slate-700 flex items-center justify-center text-lg">
+  &#9650;
+</button>
+
 <!-- Stacked directly above #go-to-bottom-btn (Andres's own ask, 2026-08-22)
      - shown only while there's a "New" divider (see markNewContent() in
      session.js) not yet scrolled into view, jumping straight to it rather

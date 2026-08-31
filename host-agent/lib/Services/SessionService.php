@@ -266,9 +266,22 @@ class SessionService
         // just Andres's own personal statusline customization). Never
         // resolves to "default" - see SelectableModel::family_from_raw_model()
         // for why that's inherently undetectable from a raw model ID alone.
+        //
+        // $hookStatus['model'] (SessionStatusStore's own optimistic
+        // override - see its docblock) takes priority when present: right
+        // after PromptInteractionService::set_model() switches the picker,
+        // the transcript's latest message still carries the OLD model until
+        // the NEXT real turn completes, so a transcript-only read here
+        // would show session.php's dropdown snapping straight back to the
+        // model the user just switched AWAY from - confirmed to be exactly
+        // this, the bug reported live 2026-08-30 ("changing the model on
+        // the session page doesn't work"). host-agent/hooks/stop.php clears
+        // the override once that next turn finishes, so this can never
+        // permanently shadow the real transcript-derived value.
         $transcriptPathForModel = $claudeSessionId !== null ? TranscriptService::find_transcript_path($claudeSessionId) : null;
         $rawModel = $transcriptPathForModel !== null ? TranscriptService::find_latest_model($transcriptPathForModel) : null;
-        $currentModel = $rawModel !== null ? SelectableModel::family_from_raw_model($rawModel) : null;
+        $modelOverride = is_string($hookStatus['model'] ?? null) ? $hookStatus['model'] : null;
+        $currentModel = $modelOverride ?? ($rawModel !== null ? SelectableModel::family_from_raw_model($rawModel) : null);
 
         // Antigravity has no transcript-derived model signal (see
         // AntigravitySelectableModel::parse_current_model()'s own

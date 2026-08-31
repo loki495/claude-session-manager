@@ -343,24 +343,23 @@ $response = match ($action) {
     'check_session_hook' => ['ok' => true, 'installed' => true],
     'install_session_hook' => ['ok' => true, 'installed' => true],
     // Mirrors QuotaService::get_quota($sessionName)'s real behavior: a
-    // 'context' bucket (no resets_at - it has no reset timer) only appears
-    // when the request names a known-live session, alongside the
-    // account-wide session/week_all buckets either way.
-    'quota' => [
-        'ok' => true,
-        'quota' => array_merge(
-            (string)($request['session'] ?? '') === CANNED_SESSION_NAME
-                ? ['context' => ['pct' => 12]]
-                : [],
-            [
+    // 'context' field (no resets_at - it has no reset timer) only appears
+    // at the top level when the request names a known-live session,
+    // alongside the account-wide session/week_all buckets either way.
+    'quota' => array_merge(
+        (string)($request['session'] ?? '') === CANNED_SESSION_NAME
+            ? ['context' => ['pct' => 12]]
+            : [],
+        [
+            'ok' => true,
+            'quota' => [
                 'session' => ['pct' => 73, 'resets' => '3pm (America/Los_Angeles)', 'resets_at' => time() + 3600 + 1800],
                 'week_all' => ['pct' => 29, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
                 'week_fable' => ['pct' => 92, 'resets' => 'Jul 10, 8pm (America/Los_Angeles)', 'resets_at' => time() + 2 * 86400 + 5 * 3600],
                 'captured_at' => '2026-07-08T12:00:00-0700',
-            ]
-        ),
-        'agents' => [
-            'claude' => [
+            ],
+            'agents' => [
+                'claude' => [
                 'label' => 'Claude Code',
                 'ok' => true,
                 'quota' => [
@@ -370,37 +369,38 @@ $response = match ($action) {
                 ],
                 'fetched_at' => time() - 120,
                 'message' => null,
-            ],
-            'antigravity' => [
-                'label' => 'Antigravity',
-                'ok' => true,
-                'quota' => [
-                    'gemini-weekly' => ['pct' => 25, 'resets_at' => time() + 5 * 86400, 'group_name' => 'Gemini Models'],
-                    '3p-weekly' => ['pct' => 0, 'resets_at' => time() + 5 * 86400, 'group_name' => 'Claude and GPT models'],
-                    'captured_at' => '2026-07-08T12:00:00-0700',
                 ],
-                'fetched_at' => time() - 120,
-                'message' => null,
-            ],
-            'opencode' => [
-                'label' => 'OpenCode',
-                'ok' => true,
-                'quota' => [
-                    'cost' => 12.34,
-                    'tokens_input' => 12345,
-                    'tokens_output' => 678,
-                    'session_count' => 4,
-                    'captured_at' => '2026-07-08T12:00:00-0700',
+                'antigravity' => [
+                    'label' => 'Antigravity',
+                    'ok' => true,
+                    'quota' => [
+                        'gemini-weekly' => ['pct' => 25, 'resets_at' => time() + 5 * 86400, 'group_name' => 'Gemini Models'],
+                        '3p-weekly' => ['pct' => 0, 'resets_at' => time() + 5 * 86400, 'group_name' => 'Claude and GPT models'],
+                        'captured_at' => '2026-07-08T12:00:00-0700',
+                    ],
+                    'fetched_at' => time() - 120,
+                    'message' => null,
                 ],
-                'fetched_at' => time() - 120,
-                'message' => null,
+                'opencode' => [
+                    'label' => 'OpenCode',
+                    'ok' => true,
+                    'quota' => [
+                        'cost' => 12.34,
+                        'tokens_input' => 12345,
+                        'tokens_output' => 678,
+                        'session_count' => 4,
+                        'captured_at' => '2026-07-08T12:00:00-0700',
+                    ],
+                    'fetched_at' => time() - 120,
+                    'message' => null,
+                ],
             ],
-        ],
-        'fetched_at' => time() - 120,
-        'cached' => true,
-        'stale' => false,
-        'refreshing' => false,
-    ],
+            'fetched_at' => time() - 120,
+            'cached' => true,
+            'stale' => false,
+            'refreshing' => false,
+        ]
+    ),
     // Only 'redirect' (matching CANNED_SESSION_NAME's own title/history)
     // and 'widget' (matching CANNED_ARCHIVED_CLAUDE_SESSION_ID's) produce
     // real results - a live result (session_name set) and an archived one

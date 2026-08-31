@@ -8,6 +8,7 @@ use HostAgent\Runtimes\RuntimeType;
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
 use HostAgent\Services\PermissionMode;
+use HostAgent\Services\SelectableModel;
 use HostAgent\Services\SessionLifecycleService;
 
 /**
@@ -41,6 +42,13 @@ class ClaudeCodeAdapter implements AgentAdapter
      * (?string, this app's own manual/accept edits/plan/auto vocabulary)
      * mirror create_cc_session()'s own former inline parameters exactly -
      * see that method's docblock (unchanged) for why each exists.
+     * $options['model'] (?string) is one of SelectableModel::PICKER_OPTIONS'
+     * keys minus 'default' (sonnet/fable/opus/haiku) - the real CLI's
+     * `--model` flag accepts these bare aliases directly (confirmed against
+     * https://code.claude.com/docs/en/cli-reference), so this is passed
+     * straight through rather than resolved to a full model id. 'default'/
+     * empty/missing means "no --model flag at all", same "omit rather than
+     * pass a sentinel" shape starting_mode already uses below.
      */
     public function build_spawn_argv(array $options): array
     {
@@ -50,6 +58,13 @@ class ClaudeCodeAdapter implements AgentAdapter
         if (!empty($options['enable_task_tools'])) {
             $argv[] = '--allowedTools';
             $argv[] = 'TaskCreate,TaskGet,TaskList,TaskUpdate';
+        }
+
+        $model = $options['model'] ?? null;
+
+        if (is_string($model) && $model !== '' && $model !== 'default' && array_key_exists($model, SelectableModel::PICKER_OPTIONS)) {
+            $argv[] = '--model';
+            $argv[] = $model;
         }
 
         $startingMode = $options['starting_mode'] ?? null;

@@ -325,9 +325,13 @@ class TranscriptView extends View
      * set_model()'s own docblock for why that needs the picker rather than
      * typing `/model <name>` directly). Disabled whenever the current model
      * can't be determined (no assistant message yet this session, or the
-     * transcript hasn't been found) - never shows "default" as a value,
-     * since that's not something SelectableModel::family_from_raw_model()
-     * can ever detect from a raw model ID alone.
+     * transcript hasn't been found). Purely transcript-derived, this could
+     * never show "default" as a value (SelectableModel::
+     * family_from_raw_model() can't detect it from a raw model id alone) -
+     * SessionStatusStore's `model` optimistic override (see its own
+     * docblock) now covers that gap too: picking "Default" here is
+     * reflected immediately, same as any other choice, until the next real
+     * turn's transcript-derived value takes back over.
      */
     public static function render_model_toggle_html(array $detail): string
     {
@@ -858,6 +862,7 @@ class TranscriptView extends View
             'timestamp' => $timestamp,
             'blocksHtml' => $blocksHtml,
             'wrapperClass' => self::entry_wrapper_class($colorKind, $colors, $extraClass),
+            'isUserEntry' => $colorKind === 'user',
         ]);
     }
 

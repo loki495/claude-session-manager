@@ -320,6 +320,14 @@
     table.appendChild(tbody);
     container.appendChild(table);
 
+    // Append optional per-session context line when present
+    if (data.context && typeof data.context.pct === 'number') {
+      var contextLine = document.createElement('div');
+      contextLine.className = 'mt-2 pt-2 border-t border-slate-800/60 ' + pctColorClass(data.context.pct);
+      contextLine.textContent = 'This session: ctx ' + data.context.pct + '%';
+      container.appendChild(contextLine);
+    }
+
     var capturedAt = (claude && claude.quota && claude.quota.captured_at) || (ag && ag.quota && ag.quota.captured_at) || (codex && codex.quota && codex.quota.captured_at) || (oc && oc.quota && oc.quota.captured_at);
     el.title = capturedAt ? 'Captured ' + relativeTimeAgo(capturedAt) : '';
     el.innerHTML = '';
@@ -332,119 +340,12 @@
       return;
     }
 
-    if (sessionName === '' && data.agents) {
+    if (data.agents) {
       renderDashboardTable(data);
       return;
     }
 
-    var q = data.quota;
-    if (!q) {
-      showUnavailable(data);
-      return;
-    }
-
-    // OpenCode per-session quota is cost/tokens (not pct) — render differently
-    if (data.agent === 'opencode' && !q.session && !q.week_all && !q.month_all && (typeof q.cost === 'number' || typeof q.tokens_input === 'number')) {
-      el.title = q.captured_at ? 'Captured ' + relativeTimeAgo(q.captured_at) : '';
-      el.innerHTML = '';
-      var costLine = document.createElement('div');
-      costLine.className = 'text-slate-300';
-      var tokTotal = (q.tokens_input || 0) + (q.tokens_output || 0);
-      var tokStr = tokTotal > 0 ? (' · ' + Math.round(tokTotal / 1000) + 'k tok') : '';
-      var costStr = typeof q.cost === 'number' ? ('$' + q.cost.toFixed(2)) : '$0.00';
-      costLine.textContent = costStr + tokStr + (q.session_count ? (' · ' + q.session_count + ' sessions') : '');
-      el.appendChild(costLine);
-      if (q.tokens_input || q.tokens_output) {
-        var tokDetail = document.createElement('div');
-        tokDetail.className = 'text-xs font-normal text-slate-500';
-        tokDetail.textContent = 'in ' + (q.tokens_input || 0).toLocaleString() + ' · out ' + (q.tokens_output || 0).toLocaleString()
-          + (q.tokens_cache_read ? (' · cache ' + Math.round(q.tokens_cache_read / 1000) + 'k') : '');
-        el.appendChild(tokDetail);
-      }
-      if (data.agent_label) {
-        var meta2 = document.createElement('span');
-        meta2.className = 'text-xs font-normal text-slate-400';
-        meta2.textContent = '(' + data.agent_label + ')';
-        el.appendChild(meta2);
-      }
-      return;
-    }
-
-    // 'context' (per-session, no reset timer) leads, ahead of the
-    // account-wide session/week buckets - only ever present when this
-    // footer was given a session name (see sessionName above) and that
-    // session's own pane currently has a status line to read; otherwise
-    // simply absent from q, same graceful omission as the week_* buckets.
-    var order = ['context', 'session', 'week_all', 'gemini-weekly', '3p-weekly'].concat(Object.keys(q).filter(function (k) {
-      return k !== 'context' && k !== 'session' && k !== 'week_all' && k !== 'gemini-weekly' && k !== '3p-weekly' && k !== 'captured_at';
-    }).sort());
-
-    var nowSeconds = Math.floor(Date.now() / 1000);
-    var lines = [];
-
-    order.forEach(function (key) {
-      var bar = q[key];
-      if (!bar || typeof bar.pct !== 'number') return;
-
-      var text = label(key, bar) + ' ' + bar.pct + '%';
-      var absolute = null;
-
-      if (typeof bar.resets_at === 'number') {
-        var kind = key === 'session' ? 'session' : 'week';
-        text += ' · resets ' + formatDuration(bar.resets_at - nowSeconds, kind);
-        absolute = formatAbsolute(bar.resets_at);
-      }
-
-      lines.push({ text: text, absolute: absolute, pct: bar.pct });
-    });
-
-    if (lines.length === 0) {
-      showUnavailable(data);
-      return;
-    }
-
-    var metaParts = [];
-    if (data.agent_label) metaParts.push(data.agent_label);
-    if (data.cached) metaParts.push(data.stale ? 'cached, stale' : 'cached');
-    if (data.refreshing) metaParts.push('refreshing in background…');
-
-    el.title = q.captured_at ? 'Captured ' + relativeTimeAgo(q.captured_at) : '';
-    el.innerHTML = '';
-
-    // Each bucket always gets its own full-width line (#quota-info is a
-    // column flex, not a wrapping row).
-    lines.forEach(function (line) {
-      var item = document.createElement('div');
-      item.className = pctColorClass(line.pct);
-      item.textContent = line.text;
-
-      if (line.absolute) {
-        var abs = document.createElement('span');
-        abs.className = 'text-xs font-normal text-slate-500 ml-1';
-        abs.textContent = '(' + line.absolute + ')';
-        item.appendChild(abs);
-      }
-
-      el.appendChild(item);
-    });
-
-    if (data.agent === 'codex' && typeof q.tokens_total === 'number') {
-      var codexTokens = document.createElement('div');
-      codexTokens.className = 'text-xs font-normal text-slate-500';
-      codexTokens.textContent = 'Tokens ' + tokenText(q.tokens_total)
-        + ' · in ' + tokenText(q.tokens_input)
-        + ' · out ' + tokenText(q.tokens_output)
-        + (q.tokens_reasoning ? (' · reasoning ' + tokenText(q.tokens_reasoning)) : '')
-        + (q.tokens_cached ? (' · cached ' + tokenText(q.tokens_cached)) : '');
-      el.appendChild(codexTokens);
-    }
-
-    if (metaParts.length > 0) {
-      var meta = document.createElement('span');
-      meta.className = 'text-xs font-normal text-slate-400';
-      meta.textContent = '(' + metaParts.join(' · ') + ')';
-      el.appendChild(meta);
-    }
+    showUnavailable(data);
   }
 
   var loading = false;

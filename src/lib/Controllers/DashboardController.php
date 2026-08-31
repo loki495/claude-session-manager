@@ -241,6 +241,37 @@ class DashboardController extends Controller
     }
 
     /**
+     * GET-only JSON endpoint backing the sidebar's sessions list (replacing
+     * the old client-side JSON templating with server-rendered HTML). Returns
+     * both the raw sessions array (for client-side done-state bookkeeping)
+     * and the rendered HTML (for direct .innerHTML insertion). Read-only, same
+     * as fragment() above.
+     */
+    public function sidebarFragment(): void
+    {
+        $this->start_readonly_json();
+
+        $csrfToken = AuthService::csrf_token();
+        $listResult = AgentClient::agent_call(['action' => 'list']);
+        $ok = (bool)($listResult['ok'] ?? false);
+
+        if (!$ok) {
+            echo json_encode(['ok' => false, 'message' => (string)($listResult['message'] ?? 'Unknown error')]);
+
+            return;
+        }
+
+        $sessions = $listResult['sessions'] ?? [];
+        $sessionName = $_GET['session'] ?? '';
+
+        echo json_encode([
+            'ok' => true,
+            'sessions' => $sessions,
+            'sessions_html' => SessionRowView::sidebar_sessions_list_html($sessions, $sessionName ?: null, $csrfToken),
+        ]);
+    }
+
+    /**
      * GET-only JSON endpoint backing the dashboard's archived-sessions
      * toggle (see index.js's show-archived-btn handler) - fetched once,
      * lazily, only when Andres actually opens it. Deliberately NOT part of

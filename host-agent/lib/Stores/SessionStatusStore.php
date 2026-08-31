@@ -44,16 +44,34 @@ class SessionStatusStore
         $pdo = SqliteDb::connect(Config::sessions_sqlite_path(), SqliteDb::sessions_schema());
         SqliteDb::add_column_if_missing($pdo, 'session_status', 'last_turn_error', 'TEXT');
         SqliteDb::add_column_if_missing($pdo, 'session_status', 'token_usage_json', 'TEXT');
+        SqliteDb::add_column_if_missing($pdo, 'session_status', 'model', 'TEXT');
 
         return $pdo;
     }
 
     /**
-     * @return array{mode:?string, status:?string, blocked:?array, last_message:?string, last_turn_error:?string, token_usage:?array<string,mixed>, updated_at:?int}|null
+     * `model` (added to fix the bug reported live 2026-08-30, "changing the
+     * model on the session page doesn't work") is an OPTIMISTIC OVERRIDE,
+     * unlike every other column here: PromptInteractionService::set_model()
+     * writes the just-picked SelectableModel::PICKER_OPTIONS key here right
+     * after driving the real /model picker, and SessionService::
+     * build_session_entry() prefers it over its own transcript-derived
+     * current_model whenever it's non-null - without this, the model select
+     * on session.php visibly snapped back to the OLD model on the very next
+     * poll (~300ms later), because current_model is otherwise read from the
+     * transcript's latest message.model field, which doesn't carry the new
+     * model until the NEXT real assistant turn actually completes. Cleared
+     * back to null by host-agent/hooks/stop.php once that next turn
+     * finishes (by then the transcript itself already reflects it - see
+     * stop.php's own docblock on transcript-write-before-Stop timing), so
+     * this never permanently shadows a model change made outside this
+     * app's own dropdown (e.g. typing `/model` by hand).
+     *
+     * @return array{mode:?string, status:?string, blocked:?array, last_message:?string, last_turn_error:?string, token_usage:?array<string,mixed>, model:?string, updated_at:?int}|null
      */
     public static function read_status(string $sessionName): ?array
     {
-        $stmt = self::db()->prepare('SELECT status, blocked_json, mode, last_message, last_turn_error, token_usage_json, updated_at FROM session_status WHERE session_name = ?');
+        $stmt = self::db()->prepare('SELECT status, blocked_json, mode, last_message, last_turn_error, token_usage_json, model, updated_at FROM session_status WHERE session_name = ?');
         $stmt->execute([$sessionName]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -65,6 +83,7 @@ class SessionStatusStore
                 'last_message' => $row['last_message'],
                 'last_turn_error' => $row['last_turn_error'],
                 'token_usage' => $row['token_usage_json'] !== null ? json_decode($row['token_usage_json'], true) : null,
+                'model' => $row['model'],
                 'updated_at' => $row['updated_at'] !== null ? (int)$row['updated_at'] : null,
             ];
         }
@@ -103,7 +122,7 @@ class SessionStatusStore
         $sets = [];
         $params = [':session_name' => $sessionName];
 
-        foreach (['status', 'mode', 'last_message', 'last_turn_error'] as $column) {
+        foreach (['status', 'mode', 'last_message', 'last_turn_error', 'model'] as $column) {
             if (array_key_exists($column, $fields)) {
                 $sets[] = "{$column} = :{$column}";
                 $params[":{$column}"] = $fields[$column];

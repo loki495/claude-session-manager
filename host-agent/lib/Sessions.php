@@ -191,7 +191,8 @@ function dispatch_action(array $request): array
                 $workdir,
                 (bool)($request['enable_task_tools'] ?? false),
                 is_string($startingMode) && $startingMode !== '' ? $startingMode : null,
-                $agentId
+                $agentId,
+                $modelId
             );
 
         case 'resume':

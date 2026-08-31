@@ -12,6 +12,34 @@ namespace App\Views;
 class SessionRowView extends View
 {
     /**
+     * Get the card background style for a session row based on agent ID.
+     * Extracted so both row.php and sidebar-row.php use the same mapping.
+     */
+    public static function agent_card_style(string $agentId): string
+    {
+        return match ($agentId) {
+            'opencode' => 'background-color: rgba(46, 16, 101, 0.22); border-color: rgba(109, 40, 217, 0.32)',
+            'antigravity' => 'background-color: rgba(69, 26, 3, 0.18); border-color: rgba(180, 83, 9, 0.28)',
+            'codex' => 'background-color: rgba(3, 78, 92, 0.18); border-color: rgba(8, 145, 178, 0.32)',
+            default => 'background-color: rgba(15, 23, 42, 0.5); border-color: rgb(30, 41, 59)',
+        };
+    }
+
+    /**
+     * Get the badge CSS class for a session's agent based on agent ID.
+     * Extracted so both row.php and sidebar-row.php use the same mapping.
+     */
+    public static function agent_badge_class(string $agentId): string
+    {
+        return match ($agentId) {
+            'opencode' => 'bg-violet-900/50 text-violet-300 border-violet-700/50',
+            'antigravity' => 'bg-amber-900/40 text-amber-300 border-amber-700/40',
+            'codex' => 'bg-cyan-900/40 text-cyan-300 border-cyan-700/40',
+            default => 'bg-slate-800 text-slate-400 border-slate-700',
+        };
+    }
+
+    /**
      * A compact "Thinking…" badge for a dashboard row - the dashboard's own
      * version of TranscriptView::render_thinking_indicator_html() (same
      * $s['working'] source field, see SessionStatusStore and
@@ -205,6 +233,75 @@ class SessionRowView extends View
         return self::render('session-row/archived-list', [
             'rowsHtml' => $rows,
         ]);
+    }
+
+    /**
+     * A compact sidebar variant of session_row_html() - reuses the dashboard's
+     * rich blocked-prompt rendering (option buttons, free-text reveal) and
+     * last-message preview instead of client-side JS reimplementation.
+     * Omits the "Kill" button and "show last 3 messages" widget that don't
+     * belong in the narrow sidebar.
+     *
+     * @param array<string, mixed> $s
+     */
+    public static function sidebar_row_html(array $s, string $csrfToken): string
+    {
+        if (!empty($s['blocked_reason']) && !empty($s['prompt_is_folder_trust'])) {
+            $blockedHtml = BlockedPromptView::blocked_prompt_panel_html($s);
+        } elseif (!empty($s['blocked_reason'])) {
+            $blockedHtml = BlockedPromptView::blocked_prompt_rich_html($s, $csrfToken, true);
+        } else {
+            $blockedHtml = BlockedPromptView::last_message_preview_html($s['last_message'] ?? null, 'mt-1');
+        }
+
+        $name = (string)$s['name'];
+        $title = (string)($s['title'] ?? $name);
+        $agentId = $s['agent'] ?? 'claude';
+
+        return self::render('session-row/sidebar-row', [
+            'name' => $name,
+            'title' => $title,
+            'workdir' => $s['workdir'] ?? null,
+            'blockedHtml' => $blockedHtml,
+            'csrfToken' => $csrfToken,
+            'agentId' => $agentId,
+            'agentLabel' => $s['agent_label'] ?? 'Claude Code',
+            'status' => $s['status'] ?? 'idle',
+            'runtime' => $s['runtime'] ?? 'tmux',
+            'kind' => $s['kind'] ?? 'user',
+            'attached' => !empty($s['attached']),
+            'contextUsedPercentage' => $s['context_used_percentage'] ?? null,
+            'gitWorktree' => $s['git_worktree'] ?? null,
+        ]);
+    }
+
+    /**
+     * The sidebar's session list - filters out the current session ($sessionName)
+     * and renders via sidebar_row_html() for each. Returns server-rendered HTML
+     * instead of JSON, so sidebar.js can set .innerHTML directly without JS
+     * templating.
+     *
+     * @param array<int, array<string, mixed>> $sessions
+     */
+    public static function sidebar_sessions_list_html(array $sessions, ?string $sessionName, string $csrfToken): string
+    {
+        $rows = '';
+
+        foreach ($sessions as $s) {
+            // Filter out the current session - sidebar only shows "other" sessions
+            if ((string)($s['name'] ?? '') === $sessionName) {
+                continue;
+            }
+
+            $rows .= self::sidebar_row_html($s, $csrfToken);
+        }
+
+        // No wrapping partial here on purpose - #sidebar-list (sidebar.php)
+        // already IS the flex/gap container this HTML gets inserted into
+        // (innerHTML), so a second nested flex wrapper around $rows would
+        // only add a redundant gap value between it and its own single
+        // child, never actually spacing the rows themselves.
+        return $rows;
     }
 
     public static function relative_time(int $timestamp): string

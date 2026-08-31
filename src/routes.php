@@ -23,6 +23,7 @@ $router->post('/', [DashboardController::class, 'handleAction']);
 
 $router->get('/sessions_fragment.php', [DashboardController::class, 'fragment']);
 $router->get('/sessions_list.php', [DashboardController::class, 'list']);
+$router->get('/sidebar_sessions.php', [DashboardController::class, 'sidebarFragment']);
 $router->get('/archived_sessions_fragment.php', [DashboardController::class, 'archivedFragment']);
 $router->get('/take_over_bare.php', [DashboardController::class, 'takeOverBare']);
 $router->post('/take_over_bare.php', [DashboardController::class, 'takeOverBare']);

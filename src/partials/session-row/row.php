@@ -1,10 +1,5 @@
 <?php
-  $agentCardStyle = match ($agentId ?? 'claude') {
-    'opencode' => 'background-color: rgba(46, 16, 101, 0.22); border-color: rgba(109, 40, 217, 0.32)',
-    'antigravity' => 'background-color: rgba(69, 26, 3, 0.18); border-color: rgba(180, 83, 9, 0.28)',
-    'codex' => 'background-color: rgba(3, 78, 92, 0.18); border-color: rgba(8, 145, 178, 0.32)',
-    default => 'background-color: rgba(15, 23, 42, 0.5); border-color: rgb(30, 41, 59)',
-  };
+  $agentCardStyle = App\Views\SessionRowView::agent_card_style($agentId ?? 'claude');
 ?>
 <li class="relative rounded-xl border px-4 py-3 flex items-start justify-between gap-3 active:bg-slate-800" style="<?= $agentCardStyle ?>">
   <?php // Stretched-link pattern: a plain <a> absolutely covering the whole
@@ -25,12 +20,7 @@
     <div class="select-none text-sm leading-tight truncate"><?= $this->e($title) ?></div>
     <?php if (!empty($agentLabel)): ?>
       <?php
-        $agentBadgeClass = match ($agentId ?? 'claude') {
-          'opencode' => 'bg-violet-900/50 text-violet-300 border-violet-700/50',
-          'antigravity' => 'bg-amber-900/40 text-amber-300 border-amber-700/40',
-          'codex' => 'bg-cyan-900/40 text-cyan-300 border-cyan-700/40',
-          default => 'bg-slate-800 text-slate-400 border-slate-700',
-        };
+        $agentBadgeClass = App\Views\SessionRowView::agent_badge_class($agentId ?? 'claude');
       ?>
       <div class="select-none mt-0.5 mb-1.5 flex items-center gap-1.5">
         <span class="inline-block text-[10px] leading-none font-medium px-2 py-0.5 rounded-full border <?= $agentBadgeClass ?>"><?= $this->e($agentLabel) ?></span>

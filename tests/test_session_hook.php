@@ -804,6 +804,23 @@ try {
     assert_equal('All done.', $stopStatus['last_message'] ?? null, 'stop.php: records last_assistant_message as last_message');
     assert_equal('manual', $stopStatus['mode'] ?? null, 'stop.php: records the normalized current mode too');
 
+    // --- stop.php clears SessionStatusStore's `model` optimistic override
+    // (the fix for the bug reported live 2026-08-30, "changing the model on
+    // the session page doesn't work" - see SessionStatusStore::
+    // read_status()'s own docblock for the full mechanics): once the turn
+    // that used the just-picked model finishes, the transcript itself
+    // already reflects it, so the override must be cleared here or it
+    // would permanently shadow any LATER model change made outside this
+    // app's own dropdown. ---
+
+    SessionStatusStore::update_status($stopName, ['model' => 'haiku']);
+    run_stop_hook($stopName, ['last_assistant_message' => 'All done.', 'permission_mode' => 'default']);
+    $stopStatusModelCleared = SessionStatusStore::read_status($stopName);
+    assert_true(
+        array_key_exists('model', $stopStatusModelCleared) && $stopStatusModelCleared['model'] === null,
+        'stop.php: clears the model optimistic override once the turn that used it finishes'
+    );
+
     // --- a payload with no last_assistant_message at all (e.g. a genuinely empty response) still marks idle, just without touching last_message ---
 
     SessionStatusStore::write_status($stopName, ['status' => 'working', 'last_message' => 'previous message']);

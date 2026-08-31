@@ -182,6 +182,9 @@ try {
     assert_equal('claude', $ccSessionQuota['agent'] ?? null, 'get_quota(cc-session): agent is claude');
     assert_equal('Claude Code', $ccSessionQuota['agent_label'] ?? null, 'get_quota(cc-session): agent_label is Claude Code');
     assert_equal(70, $ccSessionQuota['quota']['session']['pct'] ?? null, 'get_quota(cc-session): session pct');
+    assert_true(isset($ccSessionQuota['agents']), 'get_quota(cc-session): now includes agents map (NEW)');
+    assert_true(isset($ccSessionQuota['agents']['claude']), 'get_quota(cc-session): agents.claude present (NEW)');
+    assert_equal(70, $ccSessionQuota['agents']['claude']['quota']['session']['pct'] ?? null, 'get_quota(cc-session): agents.claude.quota mirrors session pct (NEW)');
 
     // Antigravity session with Antigravity quota present
     write_antigravity_quota_live_state([
@@ -195,6 +198,9 @@ try {
     assert_equal('Antigravity', $agSessionQuota['agent_label'] ?? null, 'get_quota(agy-session): agent_label is Antigravity');
     assert_equal(25, $agSessionQuota['quota']['gemini-weekly']['pct'] ?? null, 'get_quota(agy-session): gemini-weekly pct');
     assert_equal(0, $agSessionQuota['quota']['3p-weekly']['pct'] ?? null, 'get_quota(agy-session): 3p-weekly pct');
+    assert_true(isset($agSessionQuota['agents']), 'get_quota(agy-session): now includes agents map (NEW)');
+    assert_true(isset($agSessionQuota['agents']['antigravity']), 'get_quota(agy-session): agents.antigravity present (NEW)');
+    assert_true(!isset($agSessionQuota['context']), 'get_quota(agy-session): no context key (only for Claude) (NEW)');
 
     // Dashboard (no session given): returns both agents in `agents` map
     $dashQuota = QuotaService::get_quota();

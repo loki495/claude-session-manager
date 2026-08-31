@@ -94,6 +94,35 @@ try {
     $withNullMode = $adapter->build_spawn_argv(['starting_mode' => null]);
     assert_true(!in_array('--permission-mode', $withNullMode['argv'], true), 'build_spawn_argv(starting_mode: null): omits the flag entirely, same as never passing the option at all');
 
+    // --- build_spawn_argv(model): the bug found live 2026-08-30 (Andres:
+    // "requesting a model at session launch... doesn't work for Claude
+    // sessions") - Sessions.php's 'create' case extracted $modelId off the
+    // request but never actually passed it to create_cc_session()/this
+    // adapter, so a model chosen on the New Session form was silently
+    // dropped for Claude Code (unlike Antigravity/OpenCode above, which
+    // both already wire 'model' through their own adapters - this was the
+    // one adapter that never implemented the option at all). Confirmed
+    // against https://code.claude.com/docs/en/cli-reference that --model
+    // accepts these exact bare aliases (sonnet/fable/opus/haiku), same
+    // vocabulary SelectableModel::PICKER_OPTIONS/set_model() already use
+    // for the session-page picker. ---
+    $withModel = $adapter->build_spawn_argv(['model' => 'sonnet']);
+    $modelFlagIdx = array_search('--model', $withModel['argv'], true);
+    assert_true($modelFlagIdx !== false, 'build_spawn_argv(model): includes --model for a recognized SelectableModel key');
+    assert_equal('sonnet', $withModel['argv'][$modelFlagIdx + 1] ?? null, 'build_spawn_argv(model): passes the bare alias straight through - the real CLI accepts it directly, no resolution to a full model id needed');
+
+    $withDefaultModel = $adapter->build_spawn_argv(['model' => 'default']);
+    assert_true(!in_array('--model', $withDefaultModel['argv'], true), 'build_spawn_argv(model: "default"): omits --model entirely - "default" has no real model id of its own, same as PICKER_OPTIONS documents');
+
+    $withEmptyModel = $adapter->build_spawn_argv(['model' => '']);
+    assert_true(!in_array('--model', $withEmptyModel['argv'], true), 'build_spawn_argv(model: empty string): omits --model entirely');
+
+    $withNullModel = $adapter->build_spawn_argv(['model' => null]);
+    assert_true(!in_array('--model', $withNullModel['argv'], true), 'build_spawn_argv(model: null): omits --model entirely, same as never passing the option at all');
+
+    $withUnknownModel = $adapter->build_spawn_argv(['model' => 'not-a-real-model']);
+    assert_true(!in_array('--model', $withUnknownModel['argv'], true), 'build_spawn_argv(model: unrecognized): whitelisted against SelectableModel::PICKER_OPTIONS, same discipline as starting_mode above - never passed to the real CLI raw');
+
     // --- check_hooks()/install_hooks(): pure delegation to HookService ---
 
     assert_equal(HookService::check_session_hook(), $adapter->check_hooks(), 'check_hooks(): identical result to calling HookService::check_session_hook() directly');

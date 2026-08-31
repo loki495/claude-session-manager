@@ -265,7 +265,7 @@ function refreshSidebarNotification() {
     return Promise.resolve();
   }
 
-  return fetch('/sessions_list.php', { credentials: 'same-origin', signal: pollAbortController.signal })
+  return fetch('/sidebar_sessions.php?session=' + encodeURIComponent(sessionName), { credentials: 'same-origin', signal: pollAbortController.signal })
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (!data.ok) {
@@ -279,46 +279,14 @@ function refreshSidebarNotification() {
     .catch(function () {});
 }
 
-function sidebarStatusBadge(s, isDone) {
-  if (s.blocked_reason) {
-    return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-amber-900/60 text-amber-300">waiting</span>';
-  }
-  if (s.working) {
-    return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-indigo-900/60 text-indigo-300">working</span>';
-  }
-  if (isDone) {
-    return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-emerald-900/60 text-emerald-300">done</span>';
-  }
-  return '<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-slate-800 text-slate-400">' + (s.attached ? 'attached' : 'idle') + '</span>';
-}
-
-function sidebarRowHtml(s, doneState) {
-  var label = s.title || s.name;
-  var isDone = !!(doneState && doneState[s.name] && doneState[s.name].done);
-  var sub = s.blocked_reason
-    ? s.blocked_reason
-    : (s.last_message && s.last_message.blocks && s.last_message.blocks[0] ? s.last_message.blocks[0].text : '');
-  var subHtml = sub ? '<div class="text-xs text-slate-500 mt-0.5 line-clamp-2">' + escapeHtml(sub) + '</div>' : '';
-  var cwdHtml = s.workdir ? '<div class="text-xs text-slate-600 truncate mt-0.5">' + escapeHtml(s.workdir) + '</div>' : '';
-  return (
-    '<a href="/session.php?session=' + encodeURIComponent(s.name) + '" class="block px-4 py-3 active:bg-slate-800">' +
-    '<div class="flex items-center justify-between gap-2">' +
-    '<span class="text-slate-200 truncate">' + escapeHtml(label) + '</span>' +
-    sidebarStatusBadge(s, isDone) +
-    '</div>' +
-    cwdHtml +
-    subHtml +
-    '</a>'
-  );
-}
 
 function loadSidebarList() {
-  sidebarList.innerHTML = '<div class="px-4 py-3 text-slate-500">Loading&hellip;</div>';
-  fetch('/sessions_list.php')
+  sidebarList.innerHTML = '<div class="px-1 text-slate-500">Loading&hellip;</div>';
+  fetch('/sidebar_sessions.php?session=' + encodeURIComponent(sessionName))
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (!data.ok) {
-        sidebarList.innerHTML = '<div class="px-4 py-3 text-slate-500">Could not load sessions.</div>';
+        sidebarList.innerHTML = '<div class="px-1 text-slate-500">Could not load sessions.</div>';
         return;
       }
       var others = (data.sessions || []).filter(function (s) { return s.name !== sessionName; });
@@ -330,16 +298,40 @@ function loadSidebarList() {
       processOtherSessions(others, true);
       var doneState = updateSessionDoneState(others);
       if (others.length === 0) {
-        sidebarList.innerHTML = '<div class="px-4 py-3 text-slate-500">No other sessions.</div>';
+        sidebarList.innerHTML = '<div class="px-1 text-slate-500">No other sessions.</div>';
         return;
       }
-      // Not others.map(sidebarRowHtml) directly - Array.prototype.map
-      // passes (element, index, array), and sidebarRowHtml's second
-      // parameter is doneState, not an index.
-      sidebarList.innerHTML = others.map(function (s) { return sidebarRowHtml(s, doneState); }).join('');
+      // Render server-generated HTML directly - no longer JS templating.
+      // The data.sessions_html already has the rows filtered (current session
+      // excluded), so just insert it.
+      sidebarList.innerHTML = data.sessions_html || '<div class="px-1 text-slate-500">No other sessions.</div>';
+
+      // Apply the per-row "done" badge overlay after rendering:
+      // For each session marked done in doneState, find its row wrapper
+      // (data-session="<name>") and swap the status dot/text classes to
+      // the emerald "done" treatment.
+      for (var name in doneState) {
+        if (Object.prototype.hasOwnProperty.call(doneState, name) && doneState[name].done) {
+          var rowLink = sidebarList.querySelector('[data-session="' + name.replace(/"/g, '&quot;') + '"] [data-session-status]');
+          if (rowLink) {
+            // Remove all status color classes
+            rowLink.classList.remove('text-amber-400', 'text-emerald-400', 'text-slate-400');
+            // Apply "done" style (emerald, same as working)
+            rowLink.classList.add('text-emerald-400');
+            // Change label from idle/working/blocked to "done"
+            rowLink.textContent = 'done';
+            // Also update the status dot
+            var statusDot = rowLink.previousElementSibling;
+            if (statusDot && statusDot.classList.contains('rounded-full')) {
+              statusDot.classList.remove('bg-amber-400', 'bg-emerald-400', 'bg-slate-600');
+              statusDot.classList.add('bg-emerald-400');
+            }
+          }
+        }
+      }
     })
     .catch(function () {
-      sidebarList.innerHTML = '<div class="px-4 py-3 text-slate-500">Could not load sessions.</div>';
+      sidebarList.innerHTML = '<div class="px-1 text-slate-500">Could not load sessions.</div>';
     });
 }
 

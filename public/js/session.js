@@ -2927,6 +2927,21 @@
   } else {
     // Land at the bottom on open - the current/latest activity (and any
     // pending prompt) is what matters first, same as any chat app.
+    // lastFixedFooterHeight/footerHeightKnown (scroll.js) seeded
+    // explicitly/synchronously here, from #compose-bar's real height
+    // right now, rather than left for its own ResizeObserver to record on
+    // its own first delivery - that first delivery can already reflect a
+    // LATER, grown height (quota data loading in shortly after this) with
+    // no earlier delivery to diff against, since ResizeObserver only
+    // guarantees the latest size, not every intermediate one. See that
+    // callback's own comment for the full bug this closes.
+    var composeBarEl = document.getElementById('compose-bar');
+
+    if (composeBarEl) {
+      lastFixedFooterHeight = composeBarEl.offsetHeight;
+      footerHeightKnown = true;
+    }
+
     scrollToBottom(false);
   }
 
