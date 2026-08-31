@@ -1,7 +1,13 @@
 <?php
   $agentCardStyle = App\Views\SessionRowView::agent_card_style($agentId ?? 'claude');
 ?>
-<li class="relative rounded-xl border px-4 py-3 flex items-start justify-between gap-3 active:bg-slate-800" style="<?= $agentCardStyle ?>">
+<?php // Worker sessions (see the orchestrator-worker skill's session-tagging
+      // convention) render `hidden` by DEFAULT, server-side - not toggled on
+      // by CSS/JS after the fact - so there's no flash of a worker row
+      // before the show-worker-sessions preference (default: hidden) has a
+      // chance to run. Only JS-removing this class (see
+      // show-worker-sessions-toggle in sidebar.js) ever reveals one. ?>
+<li class="relative rounded-xl border px-4 py-3 flex items-start justify-between gap-3 active:bg-slate-800<?= $kind === 'worker' ? ' hidden' : '' ?>" data-kind="<?= $this->e($kind) ?>" style="<?= $agentCardStyle ?>">
   <?php // Stretched-link pattern: a plain <a> absolutely covering the whole
         // card, painted below (position:static, no stacking context of its
         // own) plain text content, so a click there falls through to it -
@@ -25,6 +31,12 @@
       <div class="select-none mt-0.5 mb-1.5 flex items-center gap-1.5">
         <span class="inline-block text-[10px] leading-none font-medium px-2 py-0.5 rounded-full border <?= $agentBadgeClass ?>"><?= $this->e($agentLabel) ?></span>
         <?php if ($runtime === 'headless'): ?><span class="inline-block text-[10px] leading-none font-medium px-2 py-0.5 rounded-full border bg-violet-900/30 text-violet-400 border-violet-700/40">Headless</span><?php endif ?>
+        <?php if ($kind === 'worker'): ?><span class="inline-block text-[10px] leading-none font-medium px-2 py-0.5 rounded-full border bg-sky-900/30 text-sky-400 border-sky-700/40">Worker</span><?php endif ?>
+      </div>
+    <?php endif ?>
+    <?php if ($kind === 'worker' && $parentSessionId !== null): ?>
+      <div class="relative select-none text-xs text-slate-500 mt-0.5">
+        spawned by <a href="/session.php?session=<?= urlencode($parentSessionId) ?>" class="underline decoration-dotted text-slate-400"><?= $this->e($parentSessionId) ?></a>
       </div>
     <?php endif ?>
     <?php if ($hasExplicitTitle): ?><div class="select-none font-mono text-xs text-slate-500 truncate mt-0.5"><?= $this->e($name) ?></div><?php endif ?>

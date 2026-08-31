@@ -20,6 +20,10 @@ $this->layout('layout', [
     <div class="min-w-0">
       <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
       <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= \App\Views\SessionRowView::session_count_label_html(count($sessions)) ?></p>
+      <label class="select-none mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+        <input type="checkbox" id="show-worker-sessions-toggle" class="rounded border-slate-600 bg-slate-800">
+        Show worker sessions
+      </label>
     </div>
     <select id="poll-interval-select" aria-label="Polling interval"
       class="shrink-0 text-xs font-medium pl-1.5 pr-5 py-1 rounded-full border border-slate-700 bg-slate-800 text-slate-400">

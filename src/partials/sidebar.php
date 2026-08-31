@@ -48,6 +48,10 @@
       <input type="checkbox" id="show-subagent-toggle" class="rounded border-slate-600 bg-slate-800" checked>
       Show subagent calls and outputs
     </label>
+    <label class="flex items-center gap-2 text-sm text-slate-300">
+      <input type="checkbox" id="show-worker-sessions-toggle" class="rounded border-slate-600 bg-slate-800">
+      Show worker sessions
+    </label>
   </div>
   <?php if ($found): ?>
     <!-- Bare, no border/padding of its own (unlike the sections below it) -

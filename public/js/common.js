@@ -144,6 +144,26 @@ function shouldConfirmBeforeAnswer() {
   }
 }
 
+// Setting: whether sessions tagged as orchestrator-worker "workers" (see
+// row.php's data-kind="worker" and the [WORKER ...] session-tagging
+// convention in ~/dotfiles/ai/skills/orchestrator-worker/SKILL.md) show in
+// the dashboard's session list and the sidebar's "other sessions" list.
+// Global (not per-session) - unlike SHOW_SUBAGENT_KEY, there's no "this
+// session's own output" framing here, it's one cross-app preference for
+// whether short-lived bounded-task sessions clutter the list at all.
+// Default HIDDEN (opposite of every other toggle in this file) - the whole
+// point is that a worker session looks identical to a human-driven one
+// unless deliberately surfaced, so the safe default is out of the way.
+var SHOW_WORKER_SESSIONS_KEY = 'csm-show-worker-sessions';
+
+function shouldShowWorkerSessions() {
+  try {
+    return window.localStorage.getItem(SHOW_WORKER_SESSIONS_KEY) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
 // --- physical Shift-key tracking: every Shift+Enter-submits handler in
 // this app (session.php's compose box and freetext prompt reply,
 // index.php's dashboard freetext prompt reply) needs to know Shift is

@@ -402,6 +402,12 @@ function csm_merge_headless_sessions(array $sessions): array
     foreach ($sessions as &$s) {
         $s['runtime'] = RuntimeType::TMUX;
         $s['status'] = !empty($s['blocked_reason']) ? 'blocked' : (!empty($s['working']) ? 'working' : 'idle');
+        // build_session_entry() already sets these ('user'/null, fixed - see
+        // its own comment on why a tmux session can never carry the worker
+        // tag today), so this is just making the key's presence explicit
+        // here too rather than relying on it having come from upstream.
+        $s['kind'] = $s['kind'] ?? 'user';
+        $s['parent_session_id'] = $s['parent_session_id'] ?? null;
     }
     unset($s);
 
@@ -417,6 +423,8 @@ function csm_merge_headless_sessions(array $sessions): array
             'pid' => null,
             'workdir' => $h['workdir'],
             'spawned_by_csm' => true,
+            'kind' => $h['kind'] ?? 'user',
+            'parent_session_id' => $h['parent_session_id'] ?? null,
             'agent' => $agentId,
             'agent_label' => $agentLabel,
             'title' => $h['title'],
@@ -485,15 +493,23 @@ function csm_headless_sessions(): array
         // to a workdir basename so a not-yet-synced session still has
         // something readable - rather than ever showing the bare basename as
         // if it were the real title.
-        $title = is_string($sidecar['title'] ?? null) && $sidecar['title'] !== ''
+        $rawTitle = is_string($sidecar['title'] ?? null) && $sidecar['title'] !== ''
             ? $sidecar['title']
             : ($workdir !== null && $workdir !== '' ? basename($workdir) : $id);
+        // Every headless (opencode/codex) session's title is checked for the
+        // orchestrator-worker skill's [WORKER ...] tag - see
+        // SessionService::parse_worker_tag() - since a bare cross-tool CLI
+        // worker launch is the one path that bypasses this app's own spawn
+        // API entirely and only ever surfaces here via this sync.
+        $tag = SessionService::parse_worker_tag($rawTitle);
 
         $rows[] = [
             'id' => $id,
             'session' => $id,
             'name' => $id,
-            'title' => $title,
+            'title' => $tag['clean_title'],
+            'kind' => $tag['is_worker'] ? 'worker' : 'user',
+            'parent_session_id' => $tag['parent_session_id'],
             'directory' => $workdir,
             'workdir' => $workdir,
             'agent' => is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : 'opencode',

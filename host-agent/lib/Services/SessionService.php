@@ -85,6 +85,48 @@ class SessionService
     }
 
     /**
+     * Parses the orchestrator-worker skill's session-tagging convention
+     * (~/dotfiles/ai/skills/orchestrator-worker/SKILL.md, "Worker Session
+     * Tagging") from a session's raw title. A cross-tool worker's prompt is
+     * required to start with a literal
+     * "[WORKER session=<orchestration-id>/<task-id> parent=<parent-session-id>]"
+     * line, which (for tools with no explicit title-setting flag - codex,
+     * agy) is the only mechanism available for it to end up in whatever
+     * name/preview text that tool records. Best-effort text parsing, not a
+     * guaranteed signal - matched leniently (tolerant of the closing `]`
+     * being missing, e.g. a truncated preview) rather than requiring an
+     * exact match, since a worker is still worth flagging even if only part
+     * of the tag survived.
+     *
+     * @return array{is_worker:bool, clean_title:string, parent_session_id:?string}
+     */
+    public static function parse_worker_tag(?string $title): array
+    {
+        $title ??= '';
+
+        if (!preg_match('/^\[WORKER\b/u', $title)) {
+            return ['is_worker' => false, 'clean_title' => $title, 'parent_session_id' => null];
+        }
+
+        $parentId = null;
+
+        if (preg_match('/\bparent=([^\s\]]+)/u', $title, $m) && $m[1] !== 'unknown') {
+            $parentId = $m[1];
+        }
+
+        // If the closing "]" never arrived (a truncated preview - codex/agy
+        // have no explicit title-setting flag, see the skill's own honesty
+        // note on this), there's no real task text left to show either way -
+        // preg_match (not preg_replace) means a no-match here correctly
+        // yields an empty $rest, falling to the placeholder below, rather
+        // than leaking the raw, cut-off tag syntax into the UI.
+        $rest = preg_match('/^\[WORKER\b[^\]]*\]\s*(.*)$/su', $title, $m2) ? trim($m2[1]) : '';
+        $cleanTitle = $rest !== '' ? $rest : '(worker session)';
+
+        return ['is_worker' => true, 'clean_title' => $cleanTitle, 'parent_session_id' => $parentId];
+    }
+
+    /**
      * Builds one tracked session's (cc-* or adopted) list-row/detail data
      * from already-fetched process state - shared by list_all_sessions()
      * (called once per tmux session found) and SessionDetailService::
@@ -93,7 +135,7 @@ class SessionService
      * @param array{name:string, activity:int, attached:bool} $tmuxSession
      * @param array<int, array{pid:int, cwd:?string, started_at:?int}> $claudeProcs
      * @param array<int, int> $ppidMap
-     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, title:string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, prompt_questions:?array, current_mode:?string, current_model:?string, current_antigravity_model:?string, last_turn_error:?string, claude_session_id:?string, last_message:?array}
+     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, kind:string, parent_session_id:?string, title:string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, prompt_questions:?array, current_mode:?string, current_model:?string, current_antigravity_model:?string, last_turn_error:?string, claude_session_id:?string, last_message:?array}
      */
     public static function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppidMap): array
     {
@@ -310,6 +352,14 @@ class SessionService
             'pid' => $matchedPid,
             'workdir' => $workdir,
             'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
+            // Fixed 'user'/null here, not run through parse_worker_tag() -
+            // a tmux (cc-*/oc-*) session is always either something a human
+            // started, or something CSM's own UI spawned; no code path today
+            // can put the [WORKER ...] tag on one (only the headless
+            // opencode/codex auto-adopt sync, see csm_headless_sessions() in
+            // Sessions.php, since only bare cross-tool CLI launches carry it).
+            'kind' => 'user',
+            'parent_session_id' => null,
             'agent' => $agentId,
             'agent_label' => $agentLabel,
             'title' => self::session_title($claudeSessionId, $panes['title'], $workdir, $tmuxSession['name']),

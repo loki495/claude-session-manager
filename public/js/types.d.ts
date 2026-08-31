@@ -49,7 +49,7 @@ interface Document {
     | 'archived-search' | 'compose-file-input' | 'confirm-before-answer-toggle'
     | 'dashboard-search-input' | 'new-session-model-provider'
     | 'session-search-input' | 'session-search-scope-global'
-    | 'show-subagent-toggle' | 'workdir_value'): HTMLInputElement | null;
+    | 'show-subagent-toggle' | 'show-worker-sessions-toggle' | 'workdir_value'): HTMLInputElement | null;
   getElementById(elementId:
     | 'compose-textarea' | 'fullscreen-edit-modal-textarea'): HTMLTextAreaElement | null;
   getElementById(elementId:

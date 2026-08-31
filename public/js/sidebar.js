@@ -95,6 +95,25 @@ if (showSubagentToggle) {
   });
 }
 
+// Setting: show/hide orchestrator-worker "worker" sessions in this drawer's
+// own "other sessions" list - SHOW_WORKER_SESSIONS_KEY/
+// shouldShowWorkerSessions() shared with index.js, see common.js. Unlike
+// show-subagent (a CSS class flip), this list comes from a fresh
+// /sessions_list.php fetch each time it's (re)loaded, so re-running
+// loadSidebarList() IS the "apply" step - no separate DOM-filtering needed.
+var showWorkerSessionsToggle = document.getElementById('show-worker-sessions-toggle');
+
+if (showWorkerSessionsToggle) {
+  showWorkerSessionsToggle.checked = shouldShowWorkerSessions();
+
+  showWorkerSessionsToggle.addEventListener('change', function () {
+    try {
+      window.localStorage.setItem(SHOW_WORKER_SESSIONS_KEY, showWorkerSessionsToggle.checked ? '1' : '0');
+    } catch (e) {}
+    loadSidebarList();
+  });
+}
+
 // Lets the toggle button itself signal severity without opening the
 // drawer: amber if another session is blocked (waiting on a prompt) -
 // always live, never "seen" since it's still actionable right now; else
@@ -272,7 +291,10 @@ function refreshSidebarNotification() {
         return;
       }
 
-      var others = (data.sessions || []).filter(function (s) { return s.name !== sessionName; });
+      var showWorkerSessions = shouldShowWorkerSessions();
+      var others = (data.sessions || []).filter(function (s) {
+        return s.name !== sessionName && (showWorkerSessions || s.kind !== 'worker');
+      });
       processOtherSessions(others, false);
       updateSessionDoneState(others);
     })
@@ -289,7 +311,10 @@ function loadSidebarList() {
         sidebarList.innerHTML = '<div class="px-1 text-slate-500">Could not load sessions.</div>';
         return;
       }
-      var others = (data.sessions || []).filter(function (s) { return s.name !== sessionName; });
+      var showWorkerSessions = shouldShowWorkerSessions();
+      var others = (data.sessions || []).filter(function (s) {
+        return s.name !== sessionName && (showWorkerSessions || s.kind !== 'worker');
+      });
       // Opening the sidebar IS "looking" - clears the green (finished,
       // unseen) dot for anything it's about to display. Deliberately
       // NOT the same "seen" trigger as the per-row "done" badge below -

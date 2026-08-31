@@ -724,6 +724,41 @@ document.addEventListener('keydown', function (e) {
     return; // nothing to keep live - the "cannot reach host agent" banner is SSR-only
   }
 
+  // Setting: show/hide orchestrator-worker "worker" sessions - see
+  // SHOW_WORKER_SESSIONS_KEY/shouldShowWorkerSessions() in common.js. Rows
+  // render `hidden` by default server-side (row.php), so this only ever
+  // REMOVES that class when the toggle is on - never adds it back, since a
+  // fresh poll's HTML already comes back correctly hidden-by-default and
+  // there's nothing here to un-hide on the "off" path.
+  function applyShowWorkerSessions() {
+    if (!shouldShowWorkerSessions()) {
+      return;
+    }
+    var workerRows = sessionsContainer.querySelectorAll('[data-kind="worker"]');
+    for (var i = 0; i < workerRows.length; i++) {
+      workerRows[i].classList.remove('hidden');
+    }
+  }
+
+  var showWorkerSessionsToggle = document.getElementById('show-worker-sessions-toggle');
+
+  if (showWorkerSessionsToggle) {
+    showWorkerSessionsToggle.checked = shouldShowWorkerSessions();
+    applyShowWorkerSessions();
+
+    showWorkerSessionsToggle.addEventListener('change', function () {
+      try {
+        window.localStorage.setItem(SHOW_WORKER_SESSIONS_KEY, showWorkerSessionsToggle.checked ? '1' : '0');
+      } catch (e) {}
+      // Toggling OFF needs the already-rendered rows re-hidden too, not just
+      // future polls - a fresh re-render is the simplest correct way to get
+      // back to the server-rendered default-hidden state without hand-
+      // tracking which rows this function itself un-hid.
+      sessionsContainer.innerHTML = lastSessionsHtml;
+      applyShowWorkerSessions();
+    });
+  }
+
   // POLL_INTERVAL_STORAGE_KEY/POLL_INTERVAL_ALLOWED_MS are shared with
   // session.js - see common.js.
   var pollIntervalMs = (function () {

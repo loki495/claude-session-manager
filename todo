@@ -325,6 +325,19 @@ sub-clause was trimmed for the same reason (its own UI-split ask stands).
     (see Config.php's own docblock, dated 2026-08-09), but re-check with
     fresh eyes before actually opening the repo up.
   - Then open the repo to outside users/contributors.
+- (Andres 2026-08-30) Build a real API for launching/tracking agents and
+  subagents - the same way sessions are launched and tracked from the UI
+  today, but as a proper programmatic surface instead of something only
+  the UI itself can drive. Eventually the UI's own calls should pipe
+  through this same API rather than having a separate path. End goal: any
+  process on the machine (not just this app) could spawn an agent through
+  it, query it for session info, and IO with any known session. Related to
+  the worker-session self-identification/tagging work landing around this
+  same date (see the orchestrator-worker skill and the dashboard/sidebar
+  worker-visibility toggle) - that work is a narrower, immediate slice of
+  the same underlying need (a session/agent knowing about and addressing
+  other sessions/agents programmatically); this item is the fuller,
+  longer-term version of that same surface.
 
 === Parked (blocked on external info, not a priority call) ===
 

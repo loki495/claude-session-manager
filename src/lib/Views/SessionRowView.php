@@ -100,6 +100,8 @@ class SessionRowView extends View
             'agentLabel' => $s['agent_label'] ?? 'Claude Code',
             'status' => $s['status'] ?? 'idle',
             'runtime' => $s['runtime'] ?? 'tmux',
+            'kind' => $s['kind'] ?? 'user',
+            'parentSessionId' => $s['parent_session_id'] ?? null,
         ]);
     }
 
