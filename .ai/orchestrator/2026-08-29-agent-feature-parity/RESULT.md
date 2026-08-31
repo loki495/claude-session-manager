@@ -299,3 +299,40 @@ Fixed OpenCode forward polling so `read_transcript_page_since()` now returns ren
 ## Model
 
 - Ran as `openai/gpt-5.4-mini`.
+
+# Task 5 Implementation Results
+
+## Summary
+
+Added a real Codex bridge health check to `PushHealthService` and wired Codex adapter hook checks to the same reachability signal.
+
+## Changes Made
+
+### 1. host-agent/lib/Services/PushHealthService.php
+
+- Added `codex_bridge_reachable(?CodexBridgeClient $client = null)` for direct, testable bridge reachability checks.
+- Added a separate Codex health-box check that keeps the systemd gate and appends a `Codex` section to `health_check()`.
+
+### 2. host-agent/lib/Agents/CodexAdapter.php
+
+- Updated `check_hooks()` to reflect the real Codex bridge reachability result instead of returning a hardcoded success.
+
+### 3. tests/test_push.php
+
+- Added fake Codex bridge clients and direct coverage for both reachable and failing bridge responses.
+- Added a structural assertion that `health_check()` includes a `Codex` bridge entry.
+
+### 4. tests/test_agent_adapter.php
+
+- Extended the Codex adapter assertion to compare `ok` and `message` against `PushHealthService::codex_bridge_reachable()`.
+
+## Verification
+
+- `php tests/test_push.php`
+- `php tests/test_agent_adapter.php`
+
+Both passed.
+
+## Model
+
+- Ran as `openai/gpt-5.4-mini`.

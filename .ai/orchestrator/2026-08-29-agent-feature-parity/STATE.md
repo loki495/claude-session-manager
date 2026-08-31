@@ -5,8 +5,16 @@
   one gap at a time: explain, present options, get a decision, implement — per the
   global "audit-style work" rule (CLAUDE.md).
 - **Current step:** Task 1 done, committed (714c467). Task 2 done, committed
-  (1f2e903). Task 3 done, committed (29adf02). Task 4 done, reviewed, clean
-  full-suite verified. Ready to commit.
+  (1f2e903). Task 3 done, committed (29adf02). Task 4 done, committed
+  (b0d8337). Task 5 (revised A6: Codex zero coverage in the real health
+  check) done, reviewed, clean full-suite verified. Ready to commit.
+  This project now lives at `.ai/orchestrator/2026-08-29-agent-feature-parity/`
+  (moved 2026-08-30 when the orchestrator-worker skill adopted
+  per-orchestration folders — see `.ai/orchestrator/INDEX.md`). A second,
+  unrelated orchestration (`.ai/orchestrator/2026-08-30-ui-parity-stop-bug/`)
+  is concurrently active in this same project from a different session —
+  its files/code changes are not this orchestration's concern and were
+  never touched here.
 - **Worker status:** R1 (Codex parity audit) done. Task 1 done and committed.
   Task 2 done and committed — first-round worker (Claude Code Agent tool,
   general-purpose, Haiku 4.5, in-process) done, code correct, test gap found
@@ -46,7 +54,25 @@
   a from-scratch full-suite verification. This confirms the double
   detachment (`nohup &` + harness backgrounding) was the real cause of
   Task 3's leak, not something Codex-specific — future cross-tool worker
-  launches should use this same plain-foreground pattern.
+  launches should use this same plain-foreground pattern. Task 5: first
+  attempt via `agy` (Antigravity CLI, `gemini-3.5-flash-medium`) failed
+  immediately — account quota exhausted, resets in ~18h, nothing touched.
+  Fell back to opencode (`openai/gpt-5.4-mini`), same plain-foreground
+  launch pattern. Orchestrator's own pre-delegation investigation found
+  the original A6 backlog description was wrong (`check_hooks()` isn't
+  wired to the real health box at all — dead code; the actual gap is
+  `PushHealthService::health_check()` having zero Codex/Antigravity
+  sections) and caught two testability issues in its own draft spec
+  (mirroring `opencode_serve_check()` verbatim would make the new check
+  as untestable as that one already is; `CodexBridgeClient` needs the
+  established DI convention, not a real-socket fixture) before
+  delegating — all confirmed correct once the worker's diff came back.
+  One complication: `tests/test_agent_adapter.php` was already modified
+  by the OTHER concurrent session's own in-progress work before this
+  worker touched it. Cleanly separable (distinct hunks) — extracted just
+  this task's hunks into a patch and staged them via `git apply --cached`
+  without ever writing to the working-tree file, so the other session's
+  edits were never touched or included.
 - **Worker model:** Research: sonnet, in-process (Agent tool, subagent_type:
   general-purpose) — the audit requires real judgment (reading adapter code and
   matching it against docs/features.md's existing Complete/Partial/Missing/Broken
@@ -65,5 +91,7 @@
     `docs/features.md`'s "Known gaps & partial parity" section — treat these as
     reliable starting points, not things to re-derive from scratch, but spot-check
     any that a Codex-inclusive pass might change the shape of.
-- **Known limitations:** No implementation started yet.
-- **Outstanding blockers:** None yet.
+- **Known limitations:** Tasks 1-5 done and committed. Remaining backlog
+  (Tier B, Tier C, H1) all still `Decision: pending` in the merged
+  backlog section above.
+- **Outstanding blockers:** None.

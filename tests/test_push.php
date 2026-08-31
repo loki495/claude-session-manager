@@ -18,6 +18,7 @@ use HostAgent\Services\NotificationContentBuilder;
 use HostAgent\Services\PushDeliveryService;
 use HostAgent\Services\PushHealthService;
 use HostAgent\Services\PushTimerService;
+use HostAgent\Runtimes\CodexBridgeClient;
 use HostAgent\Stores\GlobalStateStore;
 use HostAgent\Stores\PushQuotaStateStore;
 use HostAgent\Stores\PushSessionStateStore;
@@ -41,6 +42,32 @@ putenv('PUSH_SQLITE_FILE=' . $fixtureDir . '/push.sqlite');
 // never heard of is what keeps `restart` from ever firing for real
 // during a test run (is-active reliably reports "inactive" for it).
 putenv('PUSH_TIMER_UNIT_NAME=csm-test-fake-push-timer-' . bin2hex(random_bytes(4)) . '.timer');
+
+class FakeCodexBridgeClient extends CodexBridgeClient
+{
+    /** @var array<int,array{method:string,params:array<string,mixed>}> */
+    public array $calls = [];
+
+    public function request(string $method, array $params = []): array
+    {
+        $this->calls[] = ['method' => $method, 'params' => $params];
+
+        return ['ok' => true, 'result' => ['rateLimitsByLimitId' => ['codex' => []]]];
+    }
+}
+
+class FakeFailingCodexBridgeClient extends CodexBridgeClient
+{
+    /** @var array<int,array{method:string,params:array<string,mixed>}> */
+    public array $calls = [];
+
+    public function request(string $method, array $params = []): array
+    {
+        $this->calls[] = ['method' => $method, 'params' => $params];
+
+        return ['ok' => false, 'message' => 'Codex bridge unavailable in test fixture'];
+    }
+}
 
 if (
     PushTimerService::push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
@@ -446,6 +473,23 @@ try {
     assert_equal(true, PushHealthService::push_delivery_check()['ok'], 'push_delivery_check: ok=true (nothing to check yet) when VAPID isn\'t configured, not a false alarm on top of the separate "VAPID push keys" health check');
     putenv('VAPID_PUBLIC_KEY=' . $realVapidKeys['publicKey']);
     putenv('VAPID_PRIVATE_KEY=' . $realVapidKeys['privateKey']);
+
+    // --- PushHealthService::codex_bridge_reachable()/health_check(): Codex bridge reachability plus
+    // health-box structural presence for the new Codex section. ---
+
+    $codexOkClient = new FakeCodexBridgeClient();
+    $codexReachable = PushHealthService::codex_bridge_reachable($codexOkClient);
+    assert_equal(true, $codexReachable['ok'] ?? null, 'codex_bridge_reachable: ok=true with a reachable fake bridge client');
+    assert_equal('account/rateLimits/read', $codexOkClient->calls[0]['method'] ?? null, 'codex_bridge_reachable: probes the existing Codex account rate-limit RPC');
+
+    $codexFailClient = new FakeFailingCodexBridgeClient();
+    $codexUnreachable = PushHealthService::codex_bridge_reachable($codexFailClient);
+    assert_equal(false, $codexUnreachable['ok'] ?? null, 'codex_bridge_reachable: ok=false with a failing fake bridge client');
+    assert_contains('unavailable', $codexUnreachable['detail'] ?? '', 'codex_bridge_reachable: returns the real failure detail, not a generic stub');
+
+    $healthChecks = PushHealthService::health_check()['checks'] ?? [];
+    $codexChecks = array_values(array_filter($healthChecks, fn(array $check) => ($check['section'] ?? null) === 'Codex' && ($check['key'] ?? null) === 'codex_bridge'));
+    assert_true($codexChecks !== [], 'health_check: includes a Codex bridge entry in the checks array');
 
     // --- NotificationContentBuilder::push_quota_bucket_label()/push_quota_*_title()/*_body():
     // quota notification content - mirrors quota-footer.js's own label()

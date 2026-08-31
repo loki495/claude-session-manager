@@ -27,6 +27,7 @@ use HostAgent\Agents\CodexAdapter;
 use HostAgent\Services\AntigravityHookService;
 use HostAgent\Services\Config;
 use HostAgent\Services\HookService;
+use HostAgent\Services\PushHealthService;
 use HostAgent\Services\PermissionMode;
 
 const REAL_HOME_ROOT_AA = '/home/user';
@@ -193,7 +194,11 @@ try {
     assert_true($codex instanceof CodexAdapter, "AgentRegistry::get('codex'): returns a CodexAdapter instance");
     assert_equal('Codex', $codex->label(), 'CodexAdapter::label(): Codex');
     assert_equal([], $codex->build_spawn_argv([])['argv'], 'CodexAdapter never builds a tmux/TUI spawn argv');
-    assert_equal(true, $codex->check_hooks()['installed'], 'Codex needs no hooks because app-server is authoritative');
+    $codexBridgeHealth = PushHealthService::codex_bridge_reachable();
+    $codexHooks = $codex->check_hooks();
+    assert_equal(true, $codexHooks['installed'], 'Codex needs no hooks because app-server is authoritative');
+    assert_equal($codexBridgeHealth['ok'] ?? null, $codexHooks['ok'] ?? null, 'CodexAdapter::check_hooks(): ok now reflects the real Codex bridge reachability check');
+    assert_equal($codexBridgeHealth['detail'] ?? null, $codexHooks['message'] ?? null, 'CodexAdapter::check_hooks(): message mirrors the bridge reachability detail');
 
     $agInstall = $antigravity->install_hooks();
     assert_equal(true, $agInstall['ok'], 'AntigravityAdapter::install_hooks(): succeeds against a fresh fixture hooks.json');

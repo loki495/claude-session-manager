@@ -682,3 +682,209 @@ tasks appended once each item is decided.
   and a full `bash tests/run.sh` from a verified clean state
   (`RESULT: all tests passed`, exit 0, ~3m, no leaked tmux sessions).
   Ready to commit.
+
+### Task 5 — Fix (revised A6): Codex has zero coverage in the real health check
+
+- **ID:** 5
+- **Objective:** `PushHealthService::health_check()` (the actual aggregator
+  behind the dashboard's health box) must include a real "Codex" section
+  checking whether the Codex bridge is actually reachable — today Codex
+  isn't checked AT ALL, not even a stub.
+- **Background — this revises A6 as documented in PLAN.md's merged backlog
+  (dated 2026-08-29):** that item claimed `CodexAdapter::check_hooks()`
+  "unconditionally reports healthy, masking a down bridge service."
+  Orchestrator re-investigation (2026-08-30) found this description was
+  based on a wrong assumption: `check_hooks()` is real, but it is DEAD
+  CODE — grepped every caller in the repo and found none outside the
+  adapter classes themselves and their own unit test
+  (`tests/test_agent_adapter.php`). The actual health box
+  (`src/partials/pages/index.php:89` →
+  `HealthBoxView::health_box_html()`) is fed by a completely different
+  path: `DashboardController.php:40` calls `AgentClient::agent_call(['action'
+  => 'health_check'])`, which dispatches (`host-agent/lib/Push.php:55`) to
+  `PushHealthService::health_check()` — a hand-built `$checks` array with
+  sections for `Claude Code`, `Global`, and `OpenCode` (via
+  `opencode_serve_check()`/`opencode_plugin_check()`). There is no
+  `Antigravity` or `Codex` section at all — confirmed by reading the whole
+  function (`host-agent/lib/Services/PushHealthService.php:174-246`). So
+  the real gap isn't "lying about health," it's "never asked the
+  question" — worse than A6's original description in one sense (there's
+  no visible check to even be suspicious of), narrower in another (no
+  live bug currently misleads anyone, since nothing surfaces yet).
+  Antigravity's own missing coverage is a separate, pre-existing gap not
+  part of this task (Codex is what the backlog item named; flag
+  Antigravity's absence too in RESULT.md as a follow-up, don't fix it
+  here — scope control).
+- **Relevant files:**
+  - `host-agent/lib/Services/PushHealthService.php`:
+    - `health_check()` (~lines 174-246) — add a new check to the
+      `$checks` array, `'section' => 'Codex'`, following the exact same
+      pattern as the existing `opencode_serve_check()`/`opencode_plugin_check()`
+      block (~lines 226-231): call a new private method, tag its result
+      with the section, append to `$checks`.
+    - `opencode_serve_check()` (~lines 98-130ish) — the reference pattern
+      to mirror for structure (systemd unit active/enabled check PLUS a
+      real functional reachability check), adapted for Codex's actual
+      transport (JSON-over-unix-socket via `CodexBridgeClient`, not HTTP
+      — do not use `curl` for the functional check, use the real PHP
+      client this app already has).
+  - `host-agent/systemd/csm-codex-bridge.service` — confirms the real
+    systemd unit name to check (`csm-codex-bridge.service`), mirroring
+    `opencode-serve.service`'s naming convention exactly.
+  - `host-agent/lib/Runtimes/CodexBridgeClient.php` — `request()` is the
+    one public method; already returns `['ok' => false, 'message' =>
+    '...']` cleanly on every real failure mode (socket unreachable after
+    retries, write failure, timeout, closed connection, invalid JSON) —
+    confirmed by reading the whole class. No new client code needed, just
+    call it.
+  - `host-agent/lib/Agents/CodexAdapter.php` — `check_hooks()` (~lines
+    21-24), currently `return ['ok' => true, 'installed' => true,
+    'message' => 'Codex status and prompts come from app-server'];`
+    unconditionally. Confirmed dead code (see Background), but it's a
+    one-line fix using the exact same real check this task is already
+    building — see Implementation notes below for why it's still worth
+    doing in this same task rather than leaving a second lying
+    implementation sitting right next to the fixed one.
+  - `tests/test_agent_adapter.php` — has existing `check_hooks()` coverage
+    for the other adapters to follow the pattern of; grep `check_hooks`
+    to find Codex's own existing (currently trivially-true) assertion and
+    update it.
+  - Check for an existing `tests/test_push_health.php` or similar before
+    assuming where `PushHealthService::health_check()` itself is tested
+    (grep `PushHealthService` across `tests/*.php`) — extend it if found,
+    create one only if genuinely nothing covers this class yet.
+- **Dependencies:** none.
+- **Implementation notes:**
+  - **Testability constraint found by the orchestrator, important:**
+    `opencode_serve_check()` (the pattern being mirrored) has NO test
+    coverage anywhere in this suite (`grep -rn opencode_serve_check
+    tests/` confirms zero hits) — because its systemd-unit gate runs
+    first and can't be faked in an isolated test environment, so nothing
+    after it is reachable from a test either. Mirroring that exact
+    single-method shape for Codex would make the new bridge-reachability
+    logic equally untestable, which defeats this task's own acceptance
+    criteria below. Avoid that by splitting the logic into two methods
+    instead of one:
+    1. `codex_bridge_reachable(?CodexBridgeClient $client = null): array`
+       (or similar name) — JUST the functional check, independently
+       testable via dependency injection: **match the established
+       convention already used for this exact class**
+       (`CodexTranscriptService::list_threads(bool $archived = false,
+       ?CodexBridgeClient $client = null, ...)` — an optional, nullable,
+       trailing parameter, defaulting to `new CodexBridgeClient()`
+       internally when null). Do NOT use the heavier "real unix socket +
+       fake PHP bridge process" fixture pattern from
+       `tests/test_codex_resume.php`/`tests/test_transcript.php` for this
+       — that's for end-to-end protocol tests, not a simple reachability
+       check; the lighter, already-established pattern for exactly this
+       kind of test is `tests/test_codex_runtime.php`'s
+       `FakeCodexBridgeClient`/`FakeFailingCodexBridgeClient` (subclasses
+       of `CodexBridgeClient` overriding `request()` to return a canned
+       result, injected directly — grep `class Fake.*CodexBridgeClient`
+       in that file for the exact shape to follow). Calls
+       `$client->request('account/rateLimits/read', [])` (the same RPC
+       method `QuotaService::codex_quota_state()` already uses elsewhere
+       — reuse it rather than inventing a new bridge-local ping method,
+       since that would mean also touching the always-on
+       `codex_bridge.php` daemon script, out of scope for this task) and
+       returns `ok`/`detail` from the result's own `ok` field — `ok:
+       false` with the real `message` from that response on failure (the
+       client already produces a good diagnostic — "Cannot reach Codex
+       bridge: ...", "Codex bridge timed out", etc. — just pass it
+       through as `detail`), `ok: true` with a short confirming detail on
+       success.
+    2. `codex_bridge_check(): array` — the one wired into `health_check()`,
+       doing the systemd unit active/enabled gate first (same
+       `ProcessRunner::run_process()` pattern as `opencode_serve_check()`,
+       early-return `ok: false` naming the unit if not active/enabled —
+       this part stays untested, matching the established, accepted
+       precedent for `opencode_serve_check()`), then calling
+       `codex_bridge_reachable()` for the real functional result when the
+       unit is up.
+  - Wire it into `health_check()`'s `$checks` array with
+    `'key' => 'codex_bridge', 'section' => 'Codex', 'label' => 'Codex
+    bridge'` (matching the existing key/section/label shape every other
+    entry uses).
+  - Also fix `CodexAdapter::check_hooks()` to call the SAME
+    `codex_bridge_reachable()` check (make it a small `public static`
+    method on `PushHealthService` so the adapter can call it directly —
+    `check_hooks()` should NOT go through `codex_bridge_check()`/the
+    systemd gate, since it's answering "is Codex integration working,"
+    not "is this specific systemd unit up") instead of hardcoding `ok:
+    true`. Keep `installed: true` as-is (Codex's "hook" is that it's
+    wired in by design, not an installable file — `installed` answers a
+    different question than `ok` here, matching OpenCode's own adapter
+    which keeps `installed` and `ok` as genuinely separate signals).
+  - Do NOT add an Antigravity section — out of scope, a separate
+    pre-existing gap, just note it in RESULT.md.
+  - Do NOT touch `opencode_serve_check()`/`opencode_plugin_check()` or
+    any other existing check — reference-only.
+- **Acceptance criteria:**
+  - New test(s) prove, calling `PushHealthService::codex_bridge_reachable()`
+    DIRECTLY with an injected fake client (bypassing the untestable
+    systemd gate, per the Implementation notes above — use
+    `tests/test_codex_runtime.php`'s `FakeCodexBridgeClient`/
+    `FakeFailingCodexBridgeClient` subclass pattern, injected via the
+    method's own `?CodexBridgeClient $client` parameter, NOT a real
+    socket/fake-process fixture): (a) with a fake client whose
+    `request()` returns `['ok' => false, 'message' => '...']` (mirroring
+    `FakeFailingCodexBridgeClient`'s shape), `codex_bridge_reachable()`
+    reports `ok: false` with a real, non-generic detail message derived
+    from it; (b) with a fake client whose `request()` returns `['ok' =>
+    true, ...]`, it reports `ok: true`.
+  - A test also proves `PushHealthService::health_check()`'s returned
+    `checks` array includes an entry with `section: 'Codex'` at all
+    (structural presence — this part CAN run in the real test
+    environment regardless of the systemd unit's actual state there,
+    since it just confirms the entry exists, not that it's `ok: true`).
+  - `CodexAdapter::check_hooks()` itself CANNOT take an injected fake
+    client (`AgentAdapter::check_hooks(): array` is a shared, no-argument
+    interface method implemented identically across all 4 adapters — do
+    NOT change that interface for this task). So its own existing test
+    assertion in `tests/test_agent_adapter.php` (currently only checks
+    `installed`, never `ok` — confirmed by reading it) can only be
+    extended to confirm `ok` now genuinely reflects a real
+    `codex_bridge_reachable()` call (accept whatever the real, uninjected
+    test-environment result is — don't try to force both a reachable and
+    unreachable case through `check_hooks()` itself, since there's no way
+    to inject a fake there). The full reachable/unreachable coverage
+    lives entirely in the direct `codex_bridge_reachable()` tests above —
+    that's where the actual logic is, `check_hooks()` is just a one-line
+    delegator to it.
+  - `bash tests/run.sh` passes in full (the file itself, not the whole
+    suite, is fine to run standalone during development — orchestrator
+    will run the full suite once at the end).
+  - No changes to `opencode_serve_check()`, `opencode_plugin_check()`, or
+    any other existing `PushHealthService` check.
+  - No changes to `docs/features.md` or `todo` — orchestrator handles doc
+    updates after review (flag that A6's original write-up was based on
+    a wrong assumption, per the Background note above, as a finding for
+    RESULT.md, not a docs edit the worker should make).
+ - **Status:** done — orchestrator review 2026-08-30 (opencode worker,
+   `openai/gpt-5.4-mini`; a first attempt via `agy`/Antigravity failed
+   immediately on account quota exhaustion before touching anything,
+   fell back to opencode). Diff matches the spec exactly: the two-method
+   split (`codex_bridge_reachable(?CodexBridgeClient $client = null)` for
+   DI-based testability, `codex_bridge_check()` doing the untested
+   systemd gate then delegating), wired into `health_check()` with
+   `section: 'Codex'`; `CodexAdapter::check_hooks()` correctly calls
+   `codex_bridge_reachable()` directly (no systemd gate, matching the
+   "answers a different question" reasoning in the spec) since it can't
+   take an injected client through the shared interface. Test coverage
+   follows `test_codex_runtime.php`'s `FakeCodexBridgeClient` naming/DI
+   convention exactly, covers both reachable and unreachable cases plus
+   the structural `health_check()` presence check.
+   **`tests/test_agent_adapter.php` complication:** this file was already
+   modified by the other concurrent session's own in-progress work (an
+   unrelated `build_spawn_argv(model)` test block) before this worker
+   touched it. The worker's diff and that pre-existing content were
+   cleanly separable (distinct hunks, no line overlap) — extracted just
+   the worker's two hunks into a patch and applied it to the git INDEX
+   only via `git apply --cached` (never touched the working-tree file
+   itself), so the other session's in-progress edits remain exactly as
+   they were on disk, untouched and unstaged, while only this task's own
+   contribution is staged for commit. Independently re-ran both
+   `php tests/test_push.php` and `php tests/test_agent_adapter.php`
+   against the real (both-sessions'-changes-present) working tree — all
+   pass, confirming no functional conflict between the two sessions'
+   concurrent edits to that shared file.

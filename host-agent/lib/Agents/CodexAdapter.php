@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HostAgent\Agents;
 
 use HostAgent\Runtimes\RuntimeType;
+use HostAgent\Services\PushHealthService;
 
 /** Codex is server-owned in CSM; it is never spawned into tmux. */
 class CodexAdapter implements AgentAdapter
@@ -20,7 +21,9 @@ class CodexAdapter implements AgentAdapter
 
     public function check_hooks(): array
     {
-        return ['ok' => true, 'installed' => true, 'message' => 'Codex status and prompts come from app-server'];
+        $reachable = PushHealthService::codex_bridge_reachable();
+
+        return ['ok' => $reachable['ok'] ?? false, 'installed' => true, 'message' => $reachable['detail'] ?? 'Codex bridge unavailable'];
     }
 
     public function install_hooks(): array

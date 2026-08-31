@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace HostAgent\Services;
 
+use HostAgent\Runtimes\CodexBridgeClient;
 use HostAgent\Stores\GlobalStateStore;
 
 /**
@@ -15,6 +16,27 @@ use HostAgent\Stores\GlobalStateStore;
  */
 class PushHealthService
 {
+    /**
+     * @return array{ok:bool, detail:?string}
+     */
+    public static function codex_bridge_reachable(?CodexBridgeClient $client = null): array
+    {
+        $client ??= new CodexBridgeClient();
+        $reply = $client->request('account/rateLimits/read', []);
+
+        if (($reply['ok'] ?? false) !== true) {
+            return [
+                'ok' => false,
+                'detail' => $reply['message'] ?? 'Codex bridge unavailable',
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'detail' => 'Codex bridge reachable',
+        ];
+    }
+
     /**
      * Shared by push_delivery_check() and push_quota_delivery_check() below
      * - both read a GlobalStateStore key PushDeliveryService::
@@ -161,6 +183,40 @@ class PushHealthService
     }
 
     /**
+     * @return array{key:string, label:string, ok:bool, detail:?string}
+     */
+    private static function codex_bridge_check(): array
+    {
+        $unitName = 'csm-codex-bridge.service';
+
+        $activeResult = ProcessRunner::run_process(['systemctl', '--user', 'is-active', $unitName]);
+        $unitActive = trim($activeResult['stdout']) === 'active';
+        $unitDetail = trim($activeResult['stdout']) ?: trim($activeResult['stderr']);
+
+        $isEnabled = trim(ProcessRunner::run_process(['systemctl', '--user', 'is-enabled', $unitName])['stdout']) !== '';
+
+        if (!$unitActive || !$isEnabled) {
+            return [
+                'key' => 'codex_bridge',
+                'label' => 'Codex bridge',
+                'ok' => false,
+                'detail' => "{$unitName}: " . ($unitDetail !== '' ? $unitDetail : 'not enabled'),
+            ];
+        }
+
+        $reachable = self::codex_bridge_reachable();
+
+        return [
+            'key' => 'codex_bridge',
+            'label' => 'Codex bridge',
+            'ok' => $reachable['ok'] ?? false,
+            'detail' => ($reachable['ok'] ?? false)
+                ? "{$unitName} active, bridge reachable"
+                : "{$unitName} active but " . ($reachable['detail'] ?? 'bridge unavailable'),
+        ];
+    }
+
+    /**
      * "Is everything this app needs actually installed/configured" - one
      * combined check for the dashboard's health box, instead of leaving
      * Andres to discover each missing piece separately (a stale/never-set
@@ -233,6 +289,10 @@ class PushHealthService
         $opencodePlugin = self::opencode_plugin_check();
         $opencodePlugin['section'] = 'OpenCode';
         $checks[] = $opencodePlugin;
+
+        $codexBridge = self::codex_bridge_check();
+        $codexBridge['section'] = 'Codex';
+        $checks[] = $codexBridge;
 
         $vendorAutoload = Config::csm_repo_root() . '/vendor/autoload.php';
         $checks[] = [
