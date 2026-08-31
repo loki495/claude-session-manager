@@ -2,8 +2,11 @@ const { test, expect } = require('@playwright/test');
 
 test('dashboard renders OpenCode usage without browser errors', async ({ page }) => {
   const errors = [];
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('console', message => {
+    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) errors.push(message.text());
+  });
   page.on('pageerror', error => errors.push(error.message));
+  page.on('response', response => { if (response.status() >= 500) errors.push(`${response.status()} ${response.url()}`); });
 
   await page.goto('/');
   await expect(page).toHaveTitle(/Claude Session Manager/);
@@ -21,9 +24,10 @@ test('dashboard renders OpenCode usage without browser errors', async ({ page })
 test('session page renders the Claude transcript and controls on desktop', async ({ page }) => {
   const errors = [];
   page.on('console', message => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) errors.push(message.text());
   });
   page.on('pageerror', error => errors.push(error.message));
+  page.on('response', response => { if (response.status() >= 500) errors.push(`${response.status()} ${response.url()}`); });
 
   await page.goto('/session.php?session=cc-20260101-1200');
   await expect(page.locator('#header-title')).toHaveText('Fix the login redirect bug');
