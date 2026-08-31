@@ -568,3 +568,117 @@ tasks appended once each item is decided.
     null-coalescing check specifically (`null ?? 'not-null'` evaluates to
     `'not-null'`, not `null`) — inverted the very thing it was checking.
     Fixed to a plain `?? null`.
+
+### Task 4 — Fix A4: OpenCode's live-poll forward cursor silently stalls
+
+- **ID:** 4
+- **Objective:** `OpenCodeTranscriptService::read_transcript_page_since()`
+  must correctly return every renderable entry whose raw line number is
+  greater than `$afterLine`, regardless of how many non-renderable rows
+  sit between them — not silently return an empty/wrong result once a
+  non-renderable row precedes the newest renderable message.
+- **Relevant files:**
+  - `host-agent/lib/Services/OpenCodeTranscriptService.php` — the bug:
+    `read_transcript_page_since()` (~lines 374-439). Each entry in the
+    `$renderable` array carries `'line' => $idx + 1`, where `$idx` is the
+    entry's position in the RAW `$allMessages` array (set at ~line 424).
+    But the forward-cursor logic at ~lines 429-433 does:
+    ```php
+    $entries = [];
+    $start = max(0, $afterLine);
+    for ($i = $start; $i < count($renderable) && count($entries) < $limit; $i++) {
+        $entries[] = $renderable[$i];
+    }
+    ```
+    This treats `$afterLine` (a raw-line-number threshold) as a direct
+    ARRAY INDEX into `$renderable` (the FILTERED, compacted subset of
+    raw messages that produced a non-null `message_to_entry()` result —
+    see that private method ~line 199). `$renderable`'s own array indices
+    do NOT correspond to raw line numbers once any raw message is
+    filtered out (non-renderable) BEFORE the newest renderable one — the
+    two index spaces diverge, and `$i` ends up either out of bounds
+    (returns nothing — the silent stall) or, if coincidentally still
+    in-bounds, picks the WRONG entries entirely.
+  - Reference/correct pattern: `TranscriptService::read_transcript_page_since()`
+    (`host-agent/lib/Services/TranscriptService.php:1760-1784`) — the
+    Claude-side implementation this method's own docblock claims to share
+    a contract with. It works correctly because ITS raw-lines array and
+    cursor share the same index space (every raw JSONL line advances the
+    index whether or not it renders); OpenCode's `$renderable` array does
+    not have that property, since it's already been compacted.
+  - `tests/test_opencode_transcript.php` (lines ~165-182 for the existing
+    `read_transcript_page_since` tests, fixture setup ~lines 63-89 via the
+    file's own `insert_session()`/`insert_message()`/`insert_part()`
+    helpers) — existing coverage does NOT catch this bug: its two
+    non-renderable messages (`msg_005`/`msg_006`, ~lines 83-89) are both
+    AFTER all 4 renderable messages, so `$renderable`'s indices and line
+    numbers happen to coincide up through the point every existing
+    assertion checks. Extend this file, don't create a new one.
+- **Dependencies:** none.
+- **Root cause (confirmed by orchestrator, file:line evidence):** see
+  above — index-space mismatch between `$renderable` (compacted) and the
+  `line` values it carries (raw/uncompacted), only reachable once a
+  non-renderable row exists BEFORE the newest renderable one, which the
+  existing test fixture never constructs.
+- **Implementation notes:**
+  - Fix: iterate `$renderable` directly and filter by each entry's own
+    `line` value, not by treating `$afterLine` as an index:
+    ```php
+    $entries = [];
+    foreach ($renderable as $entry) {
+        if (($entry['line'] ?? 0) <= $afterLine) {
+            continue;
+        }
+        $entries[] = $entry;
+        if (count($entries) >= $limit) {
+            break;
+        }
+    }
+    ```
+    Replace the existing `$start`/`for` loop with this. Do not change how
+    `$renderable` itself is built, and do not change `read_transcript_page()`
+    (the "Load older" backward-pagination method) — this bug is isolated
+    to the forward-poll method.
+  - New test fixture: add a message BETWEEN two renderable ones that is
+    itself non-renderable (mirror `msg_005`'s own shape — a `step-start`
+    part plus nothing else, or reuse the exact `msg_005` construction —
+    but insert it so its raw position sits before the newest renderable
+    message, e.g. insert it as message 2 of 4, between `msg_001` and what
+    was `msg_002`, shifting the later ones' `time_created` values up by
+    one so ordering stays correct). Then call
+    `read_transcript_page_since($sessionId, 1, 10)` (after the first
+    renderable line) and assert the result correctly includes the LATER
+    renderable entries (proving the cursor skipped the interleaved
+    non-renderable row correctly, not silently returning fewer/zero
+    entries or the wrong ones). Also add a regression assertion using the
+    OLD bug's exact failure shape (a case where, under the old code, the
+    loop would have gone straight out of bounds and returned 0 entries
+    despite real new entries existing).
+  - Keep all existing `read_transcript_page_since`/`TranscriptRouter`
+    assertions in this file passing unchanged — this is a fix to the
+    filtering logic only, existing gap-free-fixture assertions should
+    still hold.
+- **Acceptance criteria:**
+  - New test(s) prove: (a) a non-renderable row interleaved BEFORE the
+    newest renderable message no longer breaks `read_transcript_page_since()`
+    — the correct later renderable entries still come back; (b) the exact
+    old-bug scenario (would have returned 0 entries despite new ones
+    existing) is explicitly asserted against, so a regression back to the
+    old index-based logic would be caught; (c) all pre-existing assertions
+    in `tests/test_opencode_transcript.php` still pass unchanged.
+  - `bash tests/run.sh` passes in full.
+  - No changes to `read_transcript_page()`, `message_to_entry()`, or any
+    other method in this file — isolated to `read_transcript_page_since()`.
+  - No changes to `docs/features.md` or `todo` — orchestrator handles doc
+    updates after review.
+- **Status:** done — opencode worker (`openai/gpt-5.4-mini`, cross-tool)
+  applied exactly the specified fix and added precise regression coverage
+  (the `afterLine=4` case explicitly documents "old code returned 0").
+  Orchestrator review 2026-08-30: diff matches the diagnosis exactly, no
+  unrelated changes; confirmed no stray worker process remained after the
+  "completed" notification this time (`pgrep` clean — avoiding the
+  `nohup ... &` double-detachment used for Task 3 worked); independently
+  re-ran `tests/test_opencode_transcript.php` (all assertions pass, exit 0)
+  and a full `bash tests/run.sh` from a verified clean state
+  (`RESULT: all tests passed`, exit 0, ~3m, no leaked tmux sessions).
+  Ready to commit.

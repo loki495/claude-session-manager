@@ -427,9 +427,15 @@ class OpenCodeTranscriptService
             }
 
             $entries = [];
-            $start = max(0, $afterLine);
-            for ($i = $start; $i < count($renderable) && count($entries) < $limit; $i++) {
-                $entries[] = $renderable[$i];
+            foreach ($renderable as $entry) {
+                if (($entry['line'] ?? 0) <= $afterLine) {
+                    continue;
+                }
+
+                $entries[] = $entry;
+                if (count($entries) >= $limit) {
+                    break;
+                }
             }
 
             return ['ok' => true, 'entries' => $entries];

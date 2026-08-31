@@ -61,11 +61,11 @@ function insert_part(PDO $pdo, string $partId, string $msgId, string $sessionId,
 }
 
 try {
-    // --- Setup: one session with 4 messages ---
+    // --- Setup: one session with 5 messages ---
     // msg1: user text, 1 text part
     // msg2: assistant text, 1 text part
     // msg3: assistant with tool call (one tool part: input + output)
-    // msg4: user text (newer)
+    // msg5: user text (newer)
     insert_session($pdo, $sessionId, 'Opencode test session');
     // msg1
     insert_message($pdo, 'msg_001', $sessionId, 1001, ['role' => 'user', 'time' => ['created' => 1001000]]);
@@ -76,17 +76,20 @@ try {
     // msg3: assistant with tool
     insert_message($pdo, 'msg_003', $sessionId, 1003, ['role' => 'assistant', 'time' => ['created' => 1003000]]);
     insert_part($pdo, 'prt_003', 'msg_003', $sessionId, 1003, ['type' => 'tool', 'tool' => 'write', 'callID' => 'call_1', 'state' => ['status' => 'completed', 'input' => ['filePath' => '/tmp/foo.txt'], 'output' => 'Wrote file successfully']]);
-    // msg4
-    insert_message($pdo, 'msg_004', $sessionId, 1004, ['role' => 'user', 'time' => ['created' => 1004000]]);
-    insert_part($pdo, 'prt_004', 'msg_004', $sessionId, 1004, ['type' => 'text', 'text' => 'Thanks!']);
+    // msg4: filtered out (step-start only), inserted before the newest renderable message
+    insert_message($pdo, 'msg_004', $sessionId, 1004, ['role' => 'assistant', 'time' => ['created' => 1004000]]);
+    insert_part($pdo, 'prt_004a', 'msg_004', $sessionId, 1004, ['type' => 'step-start']);
+    // msg5
+    insert_message($pdo, 'msg_005', $sessionId, 1005, ['role' => 'user', 'time' => ['created' => 1005000]]);
+    insert_part($pdo, 'prt_005', 'msg_005', $sessionId, 1005, ['type' => 'text', 'text' => 'Thanks!']);
 
     // Also add a message with synthetic text (should be skipped) and step-start (skipped)
-    insert_message($pdo, 'msg_005', $sessionId, 1005, ['role' => 'assistant', 'time' => ['created' => 1005000]]);
-    insert_part($pdo, 'prt_005a', 'msg_005', $sessionId, 1005, ['type' => 'step-start']);
-    insert_part($pdo, 'prt_005b', 'msg_005', $sessionId, 1005, ['type' => 'text', 'synthetic' => true, 'text' => 'Called the Read tool with {"filePath":"x"}']);
-    // This message should be filtered out (no renderable blocks), so it should not appear in transcript
     insert_message($pdo, 'msg_006', $sessionId, 1006, ['role' => 'assistant', 'time' => ['created' => 1006000]]);
-    insert_part($pdo, 'prt_006a', 'msg_006', $sessionId, 1006, ['type' => 'reasoning', 'text' => 'internal reasoning']);
+    insert_part($pdo, 'prt_006a', 'msg_006', $sessionId, 1006, ['type' => 'step-start']);
+    insert_part($pdo, 'prt_006b', 'msg_006', $sessionId, 1006, ['type' => 'text', 'synthetic' => true, 'text' => 'Called the Read tool with {"filePath":"x"}']);
+    // This message should be filtered out (no renderable blocks), so it should not appear in transcript
+    insert_message($pdo, 'msg_007', $sessionId, 1007, ['role' => 'assistant', 'time' => ['created' => 1007000]]);
+    insert_part($pdo, 'prt_007a', 'msg_007', $sessionId, 1007, ['type' => 'reasoning', 'text' => 'internal reasoning']);
 
     // --- find_transcript_path ---
     assert_equal($sessionId, OpenCodeTranscriptService::find_transcript_path($sessionId), 'find_transcript_path: valid ses_* with fixture session row → id itself');
@@ -109,8 +112,8 @@ try {
     // --- read_transcript_page: full (before=null) ---
     $page = OpenCodeTranscriptService::read_transcript_page($sessionId, null, 10);
     assert_true($page['ok'] ?? false, 'read_transcript_page: ok=true for valid session');
-    // msg_005 and msg_006 are filtered (no renderable blocks), so only msg_001..004 render → 4 entries
-    assert_equal(4, count($page['entries'] ?? []), 'read_transcript_page: 4 renderable entries (2 filtered messages skipped)');
+    // msg_004, msg_006 and msg_007 are filtered (no renderable blocks), so only msg_001..003 and msg_005 render → 4 entries
+    assert_equal(4, count($page['entries'] ?? []), 'read_transcript_page: 4 renderable entries (3 filtered messages skipped)');
     assert_equal(false, $page['has_more'] ?? true, 'read_transcript_page: has_more=false when all entries fit');
     assert_equal(null, $page['next_before'], 'read_transcript_page: next_before=null when all entries fit');
 
@@ -155,8 +158,8 @@ try {
 
     // --- read_transcript_page: untilRealUserMessage ---
     $untilPage = OpenCodeTranscriptService::read_transcript_page($sessionId, null, 10, true);
-    // From tail, walks until first user message (msg_004 is user, so should stop after including it)
-    // msg_004 is user at line 4, so from tail backward: would find msg_004 as first user → stops
+    // From tail, walks until first user message (msg_005 is user, so should stop after including it)
+    // msg_005 is user at line 5, so from tail backward: would find msg_005 as first user → stops
     assert_true(($untilPage['ok'] ?? false), 'read_transcript_page untilRealUserMessage: ok=true');
     assert_true(count($untilPage['entries'] ?? []) >= 1, 'untilRealUserMessage: at least 1 entry (the tail user message)');
     $lastUntil = end($untilPage['entries']);
@@ -171,12 +174,13 @@ try {
     assert_equal(2, $since0['entries'][1]['line'] ?? null, 'after=0: second entry line is 2');
 
     $since2 = OpenCodeTranscriptService::read_transcript_page_since($sessionId, 2, 2);
-    assert_equal(2, count($since2['entries'] ?? []), 'after=2 limit=2: returns next 2 entries (lines 3,4)');
+    assert_equal(2, count($since2['entries'] ?? []), 'after=2 limit=2: returns next 2 entries (lines 3,5)');
     assert_equal(3, $since2['entries'][0]['line'] ?? null, 'after=2: first entry line is 3');
-    assert_equal(4, $since2['entries'][1]['line'] ?? null, 'after=2: second entry line is 4');
+    assert_equal(5, $since2['entries'][1]['line'] ?? null, 'after=2: second entry line is 5');
 
     $since4 = OpenCodeTranscriptService::read_transcript_page_since($sessionId, 4, 2);
-    assert_equal(0, count($since4['entries'] ?? []), 'after=4 (past end): returns 0 entries (no new messages)');
+    assert_equal(1, count($since4['entries'] ?? []), 'after=4: returns the later renderable entry after the filtered row (old code returned 0)');
+    assert_equal(5, $since4['entries'][0]['line'] ?? null, 'after=4: new entry line is 5');
 
     $sinceLarge = OpenCodeTranscriptService::read_transcript_page_since($sessionId, 999, 2);
     assert_equal(0, count($sinceLarge['entries'] ?? []), 'after=999 (far past end): returns 0 entries');

@@ -269,3 +269,33 @@ further file writes are coming.
 ## Model
 
 - Ran as `gpt-5.4-mini` via `codex exec -m gpt-5.4-mini`, both rounds.
+
+# Task 4 Implementation Results
+
+## Summary
+
+Fixed OpenCode forward polling so `read_transcript_page_since()` now returns renderable entries by raw line number, not by compacted renderable-array index.
+
+## Changes Made
+
+### 1. host-agent/lib/Services/OpenCodeTranscriptService.php
+
+- Replaced the `$start`/`for` loop in `read_transcript_page_since()` with a `foreach` over `$renderable`.
+- Each entry is now included only when its own `line` is greater than `$afterLine`.
+- This preserves correct behavior when non-renderable messages appear before the newest renderable entry.
+
+### 2. tests/test_opencode_transcript.php
+
+- Added an interleaved non-renderable message before the newest renderable message.
+- Updated the forward-poll assertions to prove:
+  - entries after raw line 2 still return lines 3 and 5;
+  - the exact old-bug case at `afterLine=4` now returns the later renderable entry instead of 0 entries.
+- Kept the existing OpenCode transcript coverage intact.
+
+## Verification
+
+- `bash tests/run.sh` passed in full.
+
+## Model
+
+- Ran as `openai/gpt-5.4-mini`.
