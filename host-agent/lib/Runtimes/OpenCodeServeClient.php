@@ -43,7 +43,7 @@ class OpenCodeServeClient
 
         [$status, $data, $error] = $this->request('POST', '/api/session', $body);
 
-        if ($data === null) {
+        if ($status < 200 || $status >= 300 || $data === null) {
             return ['ok' => false, 'message' => "Create session failed (HTTP $status): $error", 'http' => $status];
         }
 
@@ -105,7 +105,7 @@ class OpenCodeServeClient
     {
         [$status, $data, $error] = $this->request('GET', '/api/session');
 
-        if ($data === null) {
+        if ($status < 200 || $status >= 300 || $data === null) {
             return ['ok' => false, 'message' => "List sessions failed (HTTP $status): $error"];
         }
 
@@ -121,7 +121,7 @@ class OpenCodeServeClient
     {
         [$status, $data, $error] = $this->request('GET', '/session/' . rawurlencode($sessionId));
 
-        if ($data === null) {
+        if ($status < 200 || $status >= 300 || $data === null) {
             return ['ok' => false, 'message' => "Get session failed (HTTP $status): $error"];
         }
 
