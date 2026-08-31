@@ -740,4 +740,4 @@ mechanism and already re-fetches+re-renders everything correctly.
   answering THIS page's own session.
 - `bash tests/run.sh` passes in full afterward.
 
-**Status:** pending
+**Status:** done

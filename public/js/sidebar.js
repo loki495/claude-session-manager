@@ -665,6 +665,218 @@ if (sidebarToggleBtn) {
 // into view), swipe right closes it if it's open, else goes back to
 // the dashboard. Ignored for anything that isn't a clearly horizontal
 // gesture, so it doesn't fight with normal vertical scrolling. ---
+// --- Sidebar blocked-prompt answer handlers: port of index.js's pattern,
+// delegated from the whole document to handle forms rendered inside
+// sidebar session cards. Same shapes as index.js, but replace
+// requestSessionsPollNow() with loadSidebarList() to refresh the sidebar.
+// Mirrored handlers for plain-option buttons, free-text replies, and
+// multi-question answers (see BlockedPromptView::blocked_prompt_rich_html()
+// for the form structure).
+
+// Answer-prompt buttons (option selections) - same confirm/disable/show-
+// confirmation pattern as index.js, but the confirmation reads "this
+// session" from the wrapper's data attributes.
+document.addEventListener('submit', function (e) {
+  var form = closestEventTarget(e, 'form[data-confirm-label]');
+
+  if (!form) {
+    return;
+  }
+
+  // Only intercept forms actually inside the sidebar drawer (#sidebar) -
+  // NOT `.closest('[data-session]')` as originally written here: found on
+  // review that data-session is also present on .prompt-options-wrapper/
+  // .multi-question-wrapper in session.php's own #blocked-prompt-section
+  // (blocked-prompt/options.php and multi-question.php are the SAME
+  // partials, shared by the dashboard, the sidebar, AND the current
+  // session's own inline blocked-prompt display) - a [data-session] guard
+  // would have ALSO matched the current session's own blocked-prompt
+  // section, double-firing this handler alongside session.js's own
+  // blockedSection-scoped one on every answer submitted from THAT session's
+  // own page, not just from the sidebar.
+  if (!form.closest('#sidebar')) {
+    return;
+  }
+
+  e.preventDefault();
+
+  if (shouldConfirmBeforeAnswer() && !confirm('Send "' + form.dataset.confirmLabel + '" to this session?')) {
+    return;
+  }
+
+  var container = form.closest('.prompt-options-wrapper') || form.parentElement;
+  var buttons = container ? container.querySelectorAll('button') : [];
+  buttons.forEach(function (b) { b.disabled = true; });
+
+  postAnswerPrompt(new FormData(form), 'sidebar-answer-prompt')
+    .then(function (data) {
+      if (data && data.ok) {
+        if (container) {
+          container.innerHTML = '<span class="select-none text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
+        }
+        loadSidebarList();
+      } else {
+        alert((data && data.message) || 'Failed to send answer.');
+        buttons.forEach(function (b) { b.disabled = false; });
+      }
+    })
+    .catch(function () {
+      alert('Network error - answer not sent.');
+      buttons.forEach(function (b) { b.disabled = false; });
+    });
+});
+
+// Free-text reply submission for sidebar blocked prompts - reveals the
+// textarea via click, then submits via Shift+Enter or the send button.
+function submitFreetextReply(replyDiv) {
+  var wrapper = replyDiv.closest('.prompt-options-wrapper');
+  var textarea = replyDiv.querySelector('.freetext-reply-textarea');
+  var sendBtn = replyDiv.querySelector('.freetext-reply-send-btn');
+  var text = textarea.value;
+
+  if (text.trim() === '') {
+    return;
+  }
+
+  textarea.disabled = true;
+  sendBtn.disabled = true;
+
+  postAnswerPrompt({
+    session: wrapper.dataset.session,
+    csrf_token: wrapper.dataset.csrfToken,
+    option: replyDiv.dataset.option,
+    text: text
+  }, 'sidebar-answer-prompt-freetext')
+    .then(function (data) {
+      if (data && data.ok) {
+        wrapper.innerHTML = '<span class="select-none text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
+        loadSidebarList();
+      } else {
+        alert((data && data.message) || 'Failed to send reply.');
+        textarea.disabled = false;
+        sendBtn.disabled = false;
+      }
+    })
+    .catch(function () {
+      alert('Network error - reply not sent.');
+      textarea.disabled = false;
+      sendBtn.disabled = false;
+    });
+}
+
+// Multi-question AskUserQuestion answer submission for sidebar.
+function submitMultiQuestionAnswers(wrapper) {
+  var collected = collectMultiQuestionAnswers(wrapper);
+
+  if (collected === null) {
+    alert('Please answer every question before sending.');
+    return;
+  }
+
+  wrapper.querySelectorAll('button, input').forEach(function (el) { el.disabled = true; });
+
+  postAnswerMultiQuestion(wrapper.dataset.session, wrapper.dataset.csrfToken, collected.answers, 'sidebar-answer-multi-question')
+    .then(function (data) {
+      if (data && data.ok) {
+        wrapper.innerHTML = '<span class="select-none text-xs text-emerald-400">&#10003; Sent - updating&hellip;</span>';
+        loadSidebarList();
+      } else {
+        alert((data && data.message) || 'Failed to send answers.');
+        wrapper.querySelectorAll('button, input').forEach(function (el) { el.disabled = false; });
+      }
+    })
+    .catch(function () {
+      alert('Network error - answers not sent.');
+      wrapper.querySelectorAll('button, input').forEach(function (el) { el.disabled = false; });
+    });
+}
+
+// Delegated click handlers for reveal/send buttons in sidebar blocked
+// prompts. Every one of these (.multi-question-submit-btn/
+// .reveal-freetext-btn/.freetext-reply-send-btn) is a plain type="button"
+// element (see multi-question.php/options.php) with no default action of
+// its own to "absorb" the click - unlike the plain-option case (a real
+// <form method="post"> whose OWN submit is what ends up preventDefault()'d
+// above), a type="button" click's default bubbles straight past it. Found
+// on review (2026-08-31, real headless-browser click-through, not a code
+// read): sidebar-row.php wraps each row's ENTIRE card - including these
+// buttons - in one `<a data-session>` (unlike row.php's own deliberately
+// separate absolute-overlay `<a>`, see that file's own docblock for why),
+// so with nothing stopping it, the click's default action walks past this
+// no-op button all the way out to that ANCESTOR `<a>` and navigates the
+// whole page to that OTHER session's session.php - reveal-freetext and
+// multi-question-submit were both silently doing this instead of the
+// intended in-place action. e.preventDefault() here (once the #sidebar
+// scoping below confirms this click is actually being handled) stops the
+// event's default action from firing on ANY node in its path, ancestors
+// included, per the DOM spec - the same protection the real <form> submit
+// path already got 'for free'.
+document.addEventListener('click', function (e) {
+  // Multi-question submit button
+  var multiQuestionSubmitBtn = closestEventTarget(e, '.multi-question-submit-btn');
+
+  if (multiQuestionSubmitBtn) {
+    var multiWrapper = multiQuestionSubmitBtn.closest('.multi-question-wrapper');
+    if (multiWrapper && multiWrapper.closest('#sidebar')) {
+      e.preventDefault();
+      submitMultiQuestionAnswers(multiWrapper);
+    }
+    return;
+  }
+
+  // Free-text reveal button
+  var revealBtn = closestEventTarget(e, '.reveal-freetext-btn');
+
+  if (revealBtn) {
+    var revealWrapper = revealBtn.closest('.prompt-options-wrapper');
+    if (revealWrapper && revealWrapper.closest('#sidebar')) {
+      e.preventDefault();
+      var replyDiv = revealWrapper.querySelector('.freetext-reply');
+      replyDiv.dataset.option = revealBtn.dataset.option;
+      replyDiv.classList.toggle('hidden');
+
+      if (!replyDiv.classList.contains('hidden')) {
+        replyDiv.querySelector('.freetext-reply-textarea').focus();
+      }
+    }
+
+    return;
+  }
+
+  // Free-text send button
+  var sendBtn = closestEventTarget(e, '.freetext-reply-send-btn');
+
+  if (sendBtn) {
+    var replyDiv = sendBtn.closest('.freetext-reply');
+    if (replyDiv && replyDiv.closest('#sidebar')) {
+      e.preventDefault();
+      submitFreetextReply(replyDiv);
+    }
+    return;
+  }
+});
+
+// Multi-question freetext toggle (show/hide input when "Type something" is selected).
+document.addEventListener('change', function (e) {
+  var target = e.target;
+  var qDiv = target.closest('[data-question-index]');
+
+  if (qDiv && qDiv.closest('#sidebar')) {
+    handleMultiQuestionFreetextToggle(target);
+  }
+});
+
+// Shift+Enter submits a free-text reply in sidebar blocked prompts.
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.shiftKey && shiftKeyPhysicallyHeld && eventTargetHasClass(e, 'freetext-reply-textarea')) {
+    var replyDiv = closestEventTarget(e, '.freetext-reply');
+    if (replyDiv && replyDiv.closest('#sidebar')) {
+      e.preventDefault();
+      submitFreetextReply(replyDiv);
+    }
+  }
+});
+
 if (sidebarToggleBtn) {
   var SWIPE_MIN_DISTANCE_PX = 80;
   var SWIPE_MAX_VERTICAL_RATIO = 0.5;

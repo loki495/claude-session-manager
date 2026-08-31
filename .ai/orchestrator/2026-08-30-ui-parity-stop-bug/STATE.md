@@ -162,5 +162,109 @@
   `a7c97398e01c58793`, Haiku 4.5, in-process — running.
   The Codex/OpenCode session-scoped quota precision trade-off from Task 2
   (see RESULT.md) is still open and should be flagged to Andres.
-- **Outstanding blockers:** None. Tasks 1-5 done and independently
-  reviewed. Task 6 spec'd and ready to launch.
+- **Task 6 — done, but with a real gap found on review:** implementation
+  (new `SessionRowView::sidebar_row_html()`/`sidebar_sessions_list_html()`,
+  `/sidebar_sessions.php` endpoint, `sidebar.js` switched to server-
+  rendered HTML) is correct. Orchestrator fixed one polish issue directly
+  (a redundant nested flex wrapper in the now-deleted `sidebar-list.php`
+  partial, causing wrong row spacing). **Found on review**: the sidebar's
+  newly-rich blocked-prompt forms have NO submit handler wired up on
+  session.php — `session.js`'s own handler is scoped to `#blocked-prompt-section`
+  and full of single-session-specific side effects, so it can't just be
+  broadened. Written up as Task 7 (the exact fix: port the already-working
+  dashboard pattern from `index.js`, which solves this same "list of
+  sessions, each independently answerable" problem).
+- **Committed (2026-08-30, commit `23b3c05`):** Tasks 1-6 plus the
+  earlier-session Claude-model-selection fixes, one commit, local only
+  (not pushed). Several files had genuinely interleaved changes from a
+  PEER session's own concurrent, unrelated "worker-session tagging"
+  feature (`host-agent/lib/Services/SessionService.php`,
+  `host-agent/lib/Sessions.php`, `public/js/sidebar.js`,
+  `src/lib/Views/SessionRowView.php`, `src/partials/session-row/row.php`,
+  `src/partials/sidebar.php`) — separated via `git apply --cached` on
+  hand-extracted hunks (clean cases) or a temporary strip-stage-restore
+  edit cycle (line-level-interleaved cases), verified via `git diff HEAD`
+  byte-identical before/after for each file, so the peer's working-tree
+  content was never disturbed. `public/css/tailwind.css` (a single
+  compiled artifact reflecting BOTH sessions' template changes at once)
+  could not be split at all and was deliberately left out of the commit -
+  the peer session (or a later rebuild) still needs to commit it. Files
+  fully owned by the peer (`public/js/common.js`, `public/js/index.js`,
+  `public/js/types.d.ts`, `src/partials/pages/index.php`, `todo`,
+  `tests/test_worker_session_tag.php`) were never touched.
+- **Task 7, round 1** (agent id `a61b79b8088cffe57`, Haiku 4.5): implemented
+  the handler port correctly in shape, but stopped short of PLAN.md's
+  required real functional verification (did a code review + `node -c`
+  syntax check only) — then hit Haiku's own session rate limit (resets
+  11:40pm) before it could be sent back to close that gap, so this was a
+  resource cutoff, not a worker judgment failure.
+- **Orchestrator found and fixed a real bug directly** while reviewing
+  round 1's diff (2026-08-30): the new handlers guarded with
+  `.closest('[data-session]')` to scope themselves to sidebar rows only —
+  but `data-session` is ALSO present on `.prompt-options-wrapper`/
+  `.multi-question-wrapper` in session.php's own `#blocked-prompt-section`
+  (`blocked-prompt/options.php`/`multi-question.php` are the SAME shared
+  partials rendered in both places, confirmed via direct `grep`). That
+  guard would have made the sidebar's new document-level handlers ALSO
+  fire when answering the CURRENTLY-VIEWED session's own blocked prompt —
+  double-firing alongside `session.js`'s existing `#blocked-prompt-section`-
+  scoped handler on every answer. Fixed by changing every
+  `.closest('[data-session]')` to `.closest('#sidebar')` (verified
+  `#sidebar` and `#blocked-prompt-section` are structurally separate DOM
+  subtrees by reading `sidebar.php`/`session.php` directly - not guessed).
+  `node -c` + full `bash tests/run.sh` clean after the fix.
+- **Task 7, round 2 — launched** (agent id `a43f8a1a142c05623`, **Sonnet**
+  — Haiku unavailable due to the rate limit above; also, building new live
+  browser-test fixture infrastructure is itself non-trivial engineering,
+  not a mechanical port, so the bump is independently justified). Scoped
+  specifically to close the real-verification gap: build genuine CDP-
+  based click-through test coverage (reusing `tests/lib/cdp.php` and this
+  repo's existing fixture conventions) proving (a) answering a prompt from
+  the sidebar actually reaches `/answer_prompt.php`/`/answer_multi_question.php`
+  and updates the UI, and (b) the current session's own
+  `#blocked-prompt-section` still fires exactly once, not twice — the
+  specific regression the orchestrator's fix addresses. Built genuine
+  3-live-tmux-session CDP test infrastructure
+  (`tests/test_sidebar_prompt_answer_browser.php`, 628 lines) — real,
+  well-designed coverage (even anticipated and tests for the exact
+  `<form>`-nested-inside-`<a>` structural risk `row.php`'s own docblock
+  warns about) — but got cut off twice in a row waiting on its own
+  background test-suite run without ever actually seeing the result
+  (matches the exact pattern Task 5's first round hit). PLAN.md ended up
+  marked "done" regardless (likely written before the verification step,
+  not after) — **this was premature**, corrected by the orchestrator:
+  orchestrator ran the new test directly (`php tests/test_sidebar_prompt_answer_browser.php`),
+  found it FAILS from its very first content assertion ("renders the
+  blocked-prompt section container") with everything downstream
+  cascading from there — looks like a fixture-setup bug in the new test
+  itself (never dry-run to convergence) rather than a real regression,
+  since the existing `test_session_replay_browser.php` already drives an
+  equivalent blocked-prompt scenario via the standard fixture and passed
+  cleanly. Resumed the same agent (full context of its own test's design)
+  with the concrete failure to actually debug and fix — instructed not to
+  mark anything done until the test genuinely passes. Running.
+- **Task 7 — genuinely done (2026-08-31).** The resumed round-2 agent's
+  own two further attempts stalled the same way (stuck waiting on its own
+  background monitor, never seeing its own results — see RESULT.md for
+  the full account); it did land one more real, valuable fix along the
+  way though (a live-click-only-reproducible `<a>`-swallows-click
+  navigation bug, `e.preventDefault()` added to `sidebar.js`'s delegated
+  click handler). Root cause of the test's OWN failures turned out to be
+  timing, not logic: the orchestrator debugged it directly via a series
+  of isolated standalone repro scripts (reusing the same fixture/CDP
+  libraries) and found `cdp_navigate()`'s completion gate
+  (`document.readyState === 'complete'`) too strict for `session.php`
+  under this test's real load (`php -S`'s single-threaded dev server
+  serializing several `<script src>` requests) — confirmed directly that
+  the actual needed content was present well before `readyState` settled.
+  Fixed by polling for the real DOM signal instead of trusting
+  `cdp_navigate()`'s return value, and bumping `browser_wait_until()`'s
+  default timeout 10.0s → 20.0s. Re-verified: the new test passes all 30
+  assertions cleanly across 3 repeated standalone runs, and a full
+  `bash tests/run.sh` run is clean except the same pre-existing,
+  already-documented `test_session_replay_browser.php` CDP flake. Full
+  writeup in RESULT.md ("Orchestrator review — Task 7, round 1" and
+  "Worker 7b" sections).
+- **Outstanding blockers:** None. All 7 tasks in this orchestration's
+  scope are done and independently verified. Ready for final review/
+  commit.
