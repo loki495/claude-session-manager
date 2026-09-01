@@ -1,0 +1,10 @@
+# INDEX.md — Active/paused/completed plans
+
+One line per plan. Each orchestrator only ever writes its own line. Moved from
+`.ai/orchestrator/` to `.ai/plans/` on 2026-09-01 when the orchestrator-worker
+skill unified its light (solo) and full (delegated) modes under one folder
+convention — see the skill for current mechanics.
+
+- 2026-08-30-ui-parity-stop-bug | done | Sidebar/dashboard UI parity (bg tint, pills, quota table, prev-user-message scroll button), Stop-button and iOS-resume bug fixes, sidebar server-rendered prompt-answering with real click-through test coverage - all 7 tasks done, reviewed, committed (23b3c05, 12b2e46) | updated 2026-08-31
+- 2026-08-29-agent-feature-parity | active | Bring Claude Code/Antigravity/OpenCode/Codex to parity on shared features (Tasks 1-4 done: Codex question-prompts, Codex archived-resume routing, archived-session cwd/title for OpenCode/Codex/Antigravity, OpenCode forward-poll cursor bug; A5/A6 remain) | updated 2026-08-30
+- 2026-09-01-sessioneer-rename | active | Rename "Claude Session Manager"/csm -> "Sessioneer" across the repo, GitHub, and external infra (traefik, homie, host config files) - naming audit done, 3 open questions blocking task decomposition | updated 2026-09-01
