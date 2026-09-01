@@ -1,5 +1,65 @@
 # RESULT.md
 
+## 2026-09-01 — Task 5, part 2 complete: hostname cutover, plus a real production outage found and fixed
+
+**Found and fixed a live break unrelated to the rename plan's own sequencing**:
+`https://csm.example.com` was returning 404 — broken since the Task 3 container
+recreation, because `docker-compose.override.yml`'s Traefik labels (already
+renamed to `sessioneer` by Task 2's worker) had silently changed the Traefik
+docker-provider service name out from under `~/www/traefik/dynamic/ac495-sites.yml`'s
+still-`service: csm@docker` router. Fixed immediately (not deferred) by updating
+that router to `service: sessioneer@docker` and adding the new
+`sessioneer-ac495` router alongside it in the same edit - both hostnames now
+route to the same (already-correct) container. No new TLS cert needed: per the
+ac495-infrastructure skill, `*.example.com` already gets a wildcard Let's Encrypt
+cert on the `websecure` entrypoint automatically - the research cache's
+earlier assumption that a new cert was needed was wrong (it conflated this
+with the separate, legacy `csm.dev.local.test` self-signed-cert case).
+
+**Real DNS investigation, in collaboration with Andres**: getting
+`sessioneer.example.com` reachable from the LAN (matching `csm.example.com`'s
+existing fast/direct path, not the slower Access-gated public/tunnel path)
+turned into real troubleshooting, not a quick add. Timeline:
+1. Andres added an explicit Pi-hole Local DNS Record for the new hostname -
+   worked initially.
+2. Andres asked for an actual wildcard (`*.example.com`) instead, to stop needing
+   a new entry per future service. Tried Pi-hole's UI-level "Local CNAME
+   record" (`*.example.com -> example.com`) - looked configured correctly but
+   never actually caught new subdomains (confirmed via a never-before-queried
+   test name still returning Cloudflare's public IPs).
+3. Root cause found via direct Cloudflare API query (using the existing
+   `CF_DNS_API_TOKEN` in `~/www/traefik/.env`, read-only): Cloudflare's own
+   DNS zone for example.com ALREADY has its own wildcard CNAME
+   (`*.example.com -> <tunnel>.cfargotunnel.com`, proxied) - created when the
+   Tunnel was set up. Since upstream always has a valid answer for literally
+   any example.com subdomain now, Pi-hole's CNAME-wildcard mechanism (which only
+   activates when upstream has nothing) never gets a chance to fire - this
+   isn't a config mistake, it's a structural conflict between the two
+   wildcards. Confirmed empirically that Andres's `dev.local.test`/
+   `routerlogin.net` wildcards (both fake/local-only domains with zero
+   possible upstream answer) work fine via the identical CNAME mechanism -
+   same code path, just no upstream competition for those.
+4. **Real fix**: `misc.dnsmasq_lines` in Pi-hole v6's config (`pihole-FTL
+   --config misc.dnsmasq_lines '["address=/example.com/10.10.0.10"]'`) -
+   dnsmasq's `address=/domain/ip` directive, the same unconditional-intercept
+   mechanism Pi-hole's own ad-blocking is built on. This answers locally for
+   the domain and every subdomain BEFORE any upstream-forwarding decision is
+   made, so the competing Cloudflare wildcard is irrelevant to it. Verified
+   with a genuinely-new random subdomain resolving correctly, and an unrelated
+   domain (google.com) resolving normally - no collateral damage.
+5. Along the way, briefly went too far: suggested removing ALL 37 individual
+   Pi-hole entries to test the wildcard in isolation, which took down LAN-path
+   access to every example.com service at once (not just this one) until the
+   real fix above was found. Andres had taken a Teleporter backup beforehand
+   as a safety net (never actually needed once the real fix worked, but was
+   the right precaution).
+
+**Result**: `sessioneer.example.com` and `csm.example.com` both resolve to
+`10.10.0.10` and serve the app correctly (verified via direct `dig`/`curl`
+from this machine and via the container's own session list). True wildcard
+DNS now covers all of `example.com` going forward - no more per-service Pi-hole
+entries needed for anything, not just this project.
+
 ## 2026-09-01 — Task 5, part 1 complete: host-agent systemd units renamed for real
 
 Ran the repo's own `host-agent/install.sh` (already correctly templated with

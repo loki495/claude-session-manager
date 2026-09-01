@@ -146,33 +146,36 @@ getting the rename done.
 2. ✅ **Container.** Done as part of step 1's verification — container already
    points at the new real socket (no separate alternate-port dual-run needed;
    the DB migration from Task 3 was already live, not a pending copy to apply).
-3. **New TLS cert.** Generate the new self-signed cert for `sessioneer.example.com`
-   (`~/www/traefik/dynamic/csm-tls.yml` → new file) before adding the router, so
-   the router isn't live for a moment with no valid cert behind it.
-4. **Add the new Traefik router** (`sessioneer-ac495` / `Host(sessioneer.example.com)`
-   → the dual-run container from step 2) — **without removing the old
-   `csm-ac495` router yet.** Both hostnames now resolve simultaneously, one to the
-   verified new stack, one still to the untouched original.
-5. **Real cutover, minimal window:** stop the ORIGINAL container → run the Task 3
-   migration against the real live `sessions.sqlite` (already rehearsed against a
-   copy, so this run should be fast and predictable) → point the new container at
-   the now-migrated real DB and the new host-agent socket → start it for real →
-   verify session list against the real data.
-6. **Tell Andres explicitly**, at this exact point — not before — that
-   `sessioneer.example.com` is live and verified against real data, and that
-   `csm.example.com` still works during a grace period but should be switched to
-   (bookmarks, phone home-screen shortcut). Call out the **Web Push
-   re-subscription requirement**: the old subscription is scoped to the old
-   origin and won't carry over — re-do "Add to Home Screen" + "Enable
-   notifications" on the new host once switched.
-7. **homie's dashboard card** → update name + URL to `https://sessioneer.example.com`
-   at this point too (same moment Andres switches, not before — otherwise the
-   card would point somewhere not yet verified).
-8. **Grace period**, length TBD with Andres (default proposal: a few days, long
-   enough to confirm the new push subscription actually works before committing
-   further) — then remove the OLD `csm-ac495` Traefik router, the OLD `csm-tls.yml`
-   cert, and stop+disable the OLD systemd units. Don't remove any of this in the
-   same sitting as the cutover itself.
+3. ✅ **TLS cert — turned out unnecessary.** Corrected assumption from the
+   original research cache: `*.example.com` already gets a wildcard Let's
+   Encrypt cert automatically on the `websecure` entrypoint (confirmed via the
+   ac495-infrastructure skill) — the self-signed-cert case only applies to the
+   separate, legacy `csm.dev.local.test` local-dev hostname, not production.
+4. ✅ **Traefik router — done, plus a real live bug found and fixed.** Found
+   `https://csm.example.com` was ALREADY returning 404 (broken since Task 3's
+   container recreation — `docker-compose.override.yml`'s labels had already
+   renamed the Traefik docker-provider service to `sessioneer`, orphaning the
+   router's `service: csm@docker` reference). Fixed the existing router to
+   `service: sessioneer@docker` and added the new `sessioneer-ac495` router in
+   the same edit — both hostnames now route to the same container.
+5. ✅ **DNS.** Not originally scoped as its own step, but became the bulk of
+   Task 5's real work — see RESULT.md "Task 5, part 2" for the full
+   investigation (Cloudflare's own tunnel wildcard vs. Pi-hole's local
+   wildcard, and the real fix via `misc.dnsmasq_lines`). End state: genuine
+   `*.example.com` wildcard now resolves correctly for any subdomain, current or
+   future — a real improvement beyond just this rename.
+6. ✅ **Told Andres explicitly** — see chat: `sessioneer.example.com` is live and
+   verified against real data; `csm.example.com` still works during the grace
+   period. Web Push re-subscription requirement called out.
+7. ✅ **homie's dashboard card** → updated to name "Sessioneer" / URL
+   `https://sessioneer.example.com`, verified live on the dashboard.
+8. **Grace period** — pending. Length TBD with Andres. Remaining cleanup once
+   he confirms: remove the OLD `csm-ac495` Traefik router from
+   `ac495-sites.yml`, remove the (unrelated, never actually needed)
+   `csm.dev.local.test` TLS cert setup if no longer used, and confirm no
+   client/bookmark still depends on `csm.example.com` specifically before
+   dropping it. Old systemd units are already gone (done in step 1, no grace
+   period needed there since nothing external depended on unit names).
 9. ✅ **`~/.gemini/config/hooks.json`** — done. Found proactively (checked for
    this class of issue given Task 3's incident, rather than waiting to discover
    it live): code already expected `HOOK_GROUP='sessioneer'`, real file still had
