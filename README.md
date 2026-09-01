@@ -13,6 +13,13 @@ user accounts - access control is the network binding, not a login.
 > issues and PRs are welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)), but
 > treat it as "read the code, adapt it" rather than "install and forget."
 
+## Screenshot
+
+![Dashboard showing two sessions](docs/screenshots/dashboard.png)
+
+Shown with two throwaway demo sessions (generic prompts, no real project data) —
+day-to-day the list is whatever `cc-*` tmux sessions are actually running on your box.
+
 ## What it does
 
 > For the exhaustive capability list and the per-agent coverage matrix
@@ -77,6 +84,28 @@ the full story and the rest of the architecture.
 Practically, this means **setup has two independent parts**: the host
 agent (native, via systemd `--user`) and the container (Docker). The host
 agent must be installed and running *before* the container starts.
+
+## Major implementation decisions
+
+- **Container/host-agent split exists for one specific reason**: tmux auto-spawns its
+  server as a child of whichever process first talks to an unstarted socket. If the
+  container were that first process, the tmux server (and every session in it) would be
+  born inside the container's own filesystem namespace — unreachable from the host, and
+  pointing at paths that don't exist there. Keeping all tmux/`/proc` access in a process
+  that's always host-native makes that impossible by construction, not by convention.
+- **Session state (blocked/working/idle) comes exclusively from Claude Code's own hooks,
+  not from scraping the tmux pane**, for every prompt shape except two structural
+  exceptions (the initial folder-trust dialog, and a single-question `AskUserQuestion`'s
+  content). A session with no hooks installed just reports unknown/idle rather than
+  falling back to guessing from rendered pane text — more predictable than a
+  "prefer this, degrade to that" cascade, at the cost of needing the hooks installed at all.
+- **Every command runs via `proc_open()` with the command as an array, never a shell
+  string** — this isn't a hardening pass bolted on after the fact, it's the only way any
+  command in this codebase is ever invoked, which rules out shell metacharacter injection
+  by construction rather than by escaping.
+- **`public/js/*.js` is deliberately plain ES5** (no `const`/`let`/arrow functions/template
+  literals) — mobile Safari compatibility issues were the repeated reason, since this is a
+  PWA meant to be added to an iOS/Android home screen.
 
 ## Requirements
 
@@ -298,6 +327,19 @@ the isolation mechanism and what each test file covers.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how commands are actually
 built/run (the `proc_open()` array-form convention that rules out shell
 injection entirely) and the full architecture.
+
+## Current limitations
+
+- No accounts, no multi-user support — this is a single-operator tool for one person's
+  own dev box, gated by network binding, not a login (see "Network binding" above).
+- Only manages `cc-*` tmux sessions on the same host the container and host agent run
+  on — no remote/multi-host session management.
+- Feature parity across agents (Claude Code, Antigravity, OpenCode, Codex) is partial —
+  see [`docs/features.md`](docs/features.md) for the exact per-agent coverage matrix.
+- Web Push on iOS is inherently flaky (a platform limitation, not a bug here) — a
+  subscription can silently die after 1-2 weeks; see "Web Push notifications" above.
+- No test coverage for the frontend JS itself — `tests/` covers the PHP backend and
+  host agent; browser-side behavior is verified manually.
 
 ## Contributing
 
