@@ -48,7 +48,7 @@ declare(strict_types=1);
  * treats that as "no opinion", leaving its own permission decision
  * completely untouched. This hook only ever observes.
  *
- * CSM_SESSION_NAME (set via `tmux new-session -e` in create_cc_session())
+ * SESSIONEER_SESSION_NAME (set via `tmux new-session -e` in create_agent_session())
  * is how this app's own tmux-spawned sessions are told apart from any
  * other claude process on the box - inherited by this hook script as a
  * child process of that same pane's claude. Anything without it (a plain
@@ -60,7 +60,7 @@ require __DIR__ . '/../lib/Sessions.php';
 use HostAgent\Stores\PendingToolStore;
 use HostAgent\Stores\SessionStatusStore;
 
-$sessionName = getenv('CSM_SESSION_NAME');
+$sessionName = getenv('SESSIONEER_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
     exit(0);

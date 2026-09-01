@@ -69,7 +69,7 @@ class CodexHeadlessRuntime implements RuntimeProvider
 
         // Reading persisted history does not prove this app-server can
         // write the thread. Probe the stable resume operation while the
-        // full page is loading: it claims a released thread for CSM, but
+        // full page is loading: it claims a released thread for Sessioneer, but
         // reports the single-writer conflict without disturbing a thread
         // still open in another Codex client.
         $resume = $this->client->request('thread/resume', ['threadId' => $sessionRef]);
@@ -120,7 +120,7 @@ class CodexHeadlessRuntime implements RuntimeProvider
             }
             // A thread created by this persistent bridge has no rollout to
             // resume until its first user message. It is already loaded in
-            // app-server, so fall through to csm/sendInput to materialize
+            // app-server, so fall through to sessioneer/sendInput to materialize
             // that first turn. Any other resume failure remains fatal.
             if (!str_contains($message, 'no rollout found for thread id')) {
                 return $resumed;
@@ -134,7 +134,7 @@ class CodexHeadlessRuntime implements RuntimeProvider
                 ? ['type' => 'localImage', 'path' => $path]
                 : ['type' => 'mention', 'name' => basename($path), 'path' => $path];
         }
-        $result = $this->client->request('csm/sendInput', ['threadId' => $sessionRef, 'input' => $input]);
+        $result = $this->client->request('sessioneer/sendInput', ['threadId' => $sessionRef, 'input' => $input]);
         return $result['ok'] === true ? ['ok' => true, 'message' => 'Message sent'] : $result;
     }
 
@@ -144,7 +144,7 @@ class CodexHeadlessRuntime implements RuntimeProvider
      */
     public function interrupt(string $sessionRef): array
     {
-        return $this->client->request('csm/interrupt', ['threadId' => $sessionRef]);
+        return $this->client->request('sessioneer/interrupt', ['threadId' => $sessionRef]);
     }
 
     /**
@@ -163,12 +163,12 @@ class CodexHeadlessRuntime implements RuntimeProvider
 
     public function pending_prompt(string $sessionRef): ?array
     {
-        $result = $this->client->request('csm/pendingPrompt', ['threadId' => $sessionRef]);
+        $result = $this->client->request('sessioneer/pendingPrompt', ['threadId' => $sessionRef]);
         return $result['ok'] === true && is_array($result['prompt'] ?? null) ? $result['prompt'] : null;
     }
 
     public function answer_prompt(string $sessionRef, array $answers): array
     {
-        return $this->client->request('csm/answerPrompt', ['threadId' => $sessionRef, 'answers' => $answers]);
+        return $this->client->request('sessioneer/answerPrompt', ['threadId' => $sessionRef, 'answers' => $answers]);
     }
 }

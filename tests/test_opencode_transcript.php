@@ -22,7 +22,7 @@ const REAL_OPENCODE_DB_PATH = '/home/user/.local/share/opencode/opencode.db';
 // Build a canned opencode.db SQLite fixture in tmp, pointed at via
 // OPENCODE_DB_PATH — same env-override pattern as tests/.env.testing
 // for TMUX_SOCKET/CLAUDE_BIN etc.
-$fixtureDir = sys_get_temp_dir() . '/csm-test-opencode-transcript-' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/sessioneer-test-opencode-transcript-' . bin2hex(random_bytes(4));
 @mkdir($fixtureDir, 0700, true);
 $fixtureDbPath = $fixtureDir . '/opencode.db';
 putenv("OPENCODE_DB_PATH={$fixtureDbPath}");

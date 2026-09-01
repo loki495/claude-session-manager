@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Persistent bidirectional bridge between CSM's request-per-process host
+ * Persistent bidirectional bridge between Sessioneer's request-per-process host
  * agent and `codex app-server --stdio`. Codex server requests (approvals and
  * request_user_input) belong to this long-lived connection, never to tmux.
  */
@@ -51,7 +51,7 @@ function codex_bridge_write($stream, array $message): void
 codex_bridge_write($appIn, [
     'method' => 'initialize',
     'id' => 1,
-    'params' => ['clientInfo' => ['name' => 'csm', 'title' => 'Claude Session Manager', 'version' => '0.1']],
+    'params' => ['clientInfo' => ['name' => 'sessioneer', 'title' => 'Sessioneer', 'version' => '0.1']],
 ]);
 
 $initialized = false;
@@ -184,7 +184,7 @@ try {
                                 // compose message as a new turn. Learn the
                                 // current turn from the thread/read response
                                 // that session.php fetches before composing,
-                                // so csm/sendInput can steer it instead.
+                                // so sessioneer/sendInput can steer it instead.
                                 $thread = is_array($result) && is_array($result['thread'] ?? null)
                                     ? $result['thread']
                                     : null;
@@ -272,13 +272,13 @@ try {
             $params = is_array($request['params'] ?? null) ? $request['params'] : [];
             $threadId = is_string($params['threadId'] ?? null) ? $params['threadId'] : '';
 
-            if ($method === 'csm/pendingPrompt') {
+            if ($method === 'sessioneer/pendingPrompt') {
                 unset($clients[$clientId]);
                 codex_bridge_reply($stream, ['ok' => true, 'prompt' => $pendingPrompts[$threadId]['prompt'] ?? null]);
                 continue;
             }
 
-            if ($method === 'csm/answerPrompt') {
+            if ($method === 'sessioneer/answerPrompt') {
                 $pending = $pendingPrompts[$threadId] ?? null;
                 $response = is_array($pending) ? CodexPromptProtocol::prompt_response($pending, is_array($params['answers'] ?? null) ? $params['answers'] : []) : null;
                 unset($clients[$clientId]);
@@ -293,7 +293,7 @@ try {
                 continue;
             }
 
-            if ($method === 'csm/sendInput') {
+            if ($method === 'sessioneer/sendInput') {
                 $input = is_array($params['input'] ?? null) ? $params['input'] : [];
                 $rpcMethod = isset($activeTurns[$threadId]) ? 'turn/steer' : 'turn/start';
                 $rpcParams = ['threadId' => $threadId, 'input' => $input];
@@ -304,7 +304,7 @@ try {
                 continue;
             }
 
-            if ($method === 'csm/interrupt') {
+            if ($method === 'sessioneer/interrupt') {
                 unset($clients[$clientId]);
                 $turnId = $activeTurns[$threadId] ?? null;
                 if (!is_string($turnId)) {

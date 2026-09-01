@@ -6,7 +6,7 @@ namespace HostAgent\Runtimes;
 
 use HostAgent\Services\Config;
 
-/** One-request/one-response client for CSM's persistent Codex bridge. */
+/** One-request/one-response client for Sessioneer's persistent Codex bridge. */
 class CodexBridgeClient
 {
     /**

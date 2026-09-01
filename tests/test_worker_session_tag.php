@@ -7,7 +7,7 @@ declare(strict_types=1);
  * orchestrator-worker skill's [WORKER session=.../... parent=...] session-
  * tagging convention (~/dotfiles/ai/skills/orchestrator-worker/SKILL.md,
  * "Worker Session Tagging") out of a session's raw title, as used by
- * csm_headless_sessions() in host-agent/lib/Sessions.php.
+ * sessioneer_headless_sessions() in host-agent/lib/Sessions.php.
  */
 
 require __DIR__ . '/lib/assert.php';

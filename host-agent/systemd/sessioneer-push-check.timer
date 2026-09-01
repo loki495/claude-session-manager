@@ -13,7 +13,7 @@ Description=Periodically check for newly-blocked sessions and send push notifica
 # can't pile up overlapping runs.
 OnBootSec=10s
 OnUnitActiveSec=10s
-Unit=csm-push-check.service
+Unit=sessioneer-push-check.service
 
 [Install]
 WantedBy=timers.target

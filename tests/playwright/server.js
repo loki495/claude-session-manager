@@ -2,7 +2,7 @@ const { spawn } = require('node:child_process');
 const os = require('node:os');
 
 const root = `${__dirname}/../..`;
-const socket = `${os.tmpdir()}/csm-playwright-agent-${process.pid}.sock`;
+const socket = `${os.tmpdir()}/sessioneer-playwright-agent-${process.pid}.sock`;
 const children = [];
 
 function start(command, args, env) {
@@ -28,7 +28,7 @@ start('php', [
   '-t',
   'public',
   'public/index.php',
-], { CSM_AGENT_SOCKET: socket });
+], { SESSIONEER_AGENT_SOCKET: socket });
 
 function shutdown() {
   for (const child of children) {

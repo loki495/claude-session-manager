@@ -1,5 +1,5 @@
 [Unit]
-Description=Claude Session Manager host agent (per-connection instance)
+Description=Sessioneer host agent (per-connection instance)
 
 [Service]
 # Optional (leading "-" = don't fail if missing). See host-agent/.env.example.

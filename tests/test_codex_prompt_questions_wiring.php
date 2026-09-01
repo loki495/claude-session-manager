@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Tests that csm_merge_headless_sessions() and csm_headless_detail_shape()
+ * Tests that sessioneer_merge_headless_sessions() and sessioneer_headless_detail_shape()
  * (host-agent/lib/Sessions.php) surface a Codex question-type blocked
  * prompt's structured question data as `prompt_questions` - the second half
  * of PLAN.md Task 1 (fix A1: Codex question-type prompts unanswerable). See
@@ -16,7 +16,7 @@ declare(strict_types=1);
  * question's options.
  *
  * Pre-seeds both sync throttle keys with a fresh timestamp so
- * csm_headless_sync()/csm_codex_sync() skip their real serve/bridge round
+ * sessioneer_headless_sync()/sessioneer_codex_sync() skip their real serve/bridge round
  * trips entirely - the fixtures below write sidecar/status state directly
  * (the "canonical shape the sync wrote" Sessions.php's own comment refers
  * to), so there is nothing for a real sync to usefully do here, and this
@@ -35,7 +35,7 @@ use HostAgent\Stores\SidecarStore;
 use HostAgent\Stores\SqliteDb;
 
 const REAL_TMUX_SOCKET_PQW = '/tmp/tmux-1000/default';
-const REAL_SIDECAR_DIR_PQW = '/run/user/1000/csm-sessions';
+const REAL_SIDECAR_DIR_PQW = '/run/user/1000/sessioneer-sessions';
 
 if (Config::tmux_socket() === REAL_TMUX_SOCKET_PQW) {
     fwrite(STDERR, "REFUSING TO RUN: TMUX_SOCKET resolves to the real host socket. Check tests/.env.testing.\n");
@@ -48,8 +48,8 @@ if (Config::sidecar_dir() === REAL_SIDECAR_DIR_PQW) {
 }
 
 putenv('OPENCODE_SERVE_URL=http://127.0.0.1:1');
-$statusDb = sys_get_temp_dir() . '/csm-test-codex-prompt-questions-' . bin2hex(random_bytes(4)) . '.sqlite';
-$pushDb = sys_get_temp_dir() . '/csm-test-codex-prompt-questions-push-' . bin2hex(random_bytes(4)) . '.sqlite';
+$statusDb = sys_get_temp_dir() . '/sessioneer-test-codex-prompt-questions-' . bin2hex(random_bytes(4)) . '.sqlite';
+$pushDb = sys_get_temp_dir() . '/sessioneer-test-codex-prompt-questions-push-' . bin2hex(random_bytes(4)) . '.sqlite';
 putenv("SESSIONS_SQLITE_FILE={$statusDb}");
 putenv("PUSH_SQLITE_FILE={$pushDb}");
 SqliteDb::reset_connections_for_tests();
@@ -144,21 +144,21 @@ SessionStatusStore::update_status('oc-blocked', ['status' => 'blocked', 'blocked
     'options' => [['number' => 1, 'label' => 'Yes']],
 ]]);
 
-// --- csm_merge_headless_sessions() ---
+// --- sessioneer_merge_headless_sessions() ---
 
-$merged = csm_merge_headless_sessions([]);
+$merged = sessioneer_merge_headless_sessions([]);
 
 $multiRow = pqw_find_row($merged, 'codex-multi-q');
 assert_true($multiRow !== null, 'the blocked Codex multi-question session is merged into the sessions list');
-assert_equal($multiQuestions, $multiRow['prompt_questions'] ?? null, 'csm_merge_headless_sessions() surfaces the full raw questions array as prompt_questions for a 2-question Codex prompt');
+assert_equal($multiQuestions, $multiRow['prompt_questions'] ?? null, 'sessioneer_merge_headless_sessions() surfaces the full raw questions array as prompt_questions for a 2-question Codex prompt');
 
 $singleRow = pqw_find_row($merged, 'codex-single-q');
 assert_true($singleRow !== null, 'the blocked Codex single-question session is merged into the sessions list');
-assert_equal($singleQuestion, $singleRow['prompt_questions'] ?? null, 'csm_merge_headless_sessions() surfaces prompt_questions for a Codex question prompt even with only 1 question - unlike Claude Code\'s own count>=2 threshold, Codex has no working pane fallback for a single question');
+assert_equal($singleQuestion, $singleRow['prompt_questions'] ?? null, 'sessioneer_merge_headless_sessions() surfaces prompt_questions for a Codex question prompt even with only 1 question - unlike Claude Code\'s own count>=2 threshold, Codex has no working pane fallback for a single question');
 
 $permRow = pqw_find_row($merged, 'codex-permission');
 assert_true($permRow !== null, 'the blocked Codex permission-type session is merged into the sessions list');
-assert_true(array_key_exists('prompt_questions', $permRow) && $permRow['prompt_questions'] === null, 'csm_merge_headless_sessions() leaves prompt_questions null for a permission-type (approve/deny) prompt');
+assert_true(array_key_exists('prompt_questions', $permRow) && $permRow['prompt_questions'] === null, 'sessioneer_merge_headless_sessions() leaves prompt_questions null for a permission-type (approve/deny) prompt');
 assert_true(!empty($permRow['prompt_options']), 'the permission-type prompt still gets its flattened prompt_options - the existing fallback path this task must not regress');
 
 $idleRow = pqw_find_row($merged, 'codex-idle');
@@ -169,20 +169,20 @@ $ocRow = pqw_find_row($merged, 'oc-blocked');
 assert_true($ocRow !== null, 'the OpenCode session is merged into the sessions list');
 assert_true(array_key_exists('prompt_questions', $ocRow) && $ocRow['prompt_questions'] === null, 'an OpenCode permission-type prompt still gets a null prompt_questions - this fix is Codex tool_name=question specific, no other agent/prompt shape is affected');
 
-// --- csm_headless_detail_shape() ---
+// --- sessioneer_headless_detail_shape() ---
 
-$multiDetail = csm_headless_detail_shape(['id' => 'codex-multi-q', 'directory' => '/tmp/project', 'title' => 'Deploy session'], 'codex');
-assert_equal($multiQuestions, $multiDetail['prompt_questions'] ?? null, 'csm_headless_detail_shape() surfaces prompt_questions for a 2-question Codex prompt');
+$multiDetail = sessioneer_headless_detail_shape(['id' => 'codex-multi-q', 'directory' => '/tmp/project', 'title' => 'Deploy session'], 'codex');
+assert_equal($multiQuestions, $multiDetail['prompt_questions'] ?? null, 'sessioneer_headless_detail_shape() surfaces prompt_questions for a 2-question Codex prompt');
 
-$singleDetail = csm_headless_detail_shape(['id' => 'codex-single-q', 'directory' => '/tmp/project', 'title' => 'Env session'], 'codex');
-assert_equal($singleQuestion, $singleDetail['prompt_questions'] ?? null, 'csm_headless_detail_shape() surfaces prompt_questions for a Codex question prompt with only 1 question too');
+$singleDetail = sessioneer_headless_detail_shape(['id' => 'codex-single-q', 'directory' => '/tmp/project', 'title' => 'Env session'], 'codex');
+assert_equal($singleQuestion, $singleDetail['prompt_questions'] ?? null, 'sessioneer_headless_detail_shape() surfaces prompt_questions for a Codex question prompt with only 1 question too');
 
-$permDetail = csm_headless_detail_shape(['id' => 'codex-permission', 'directory' => '/tmp/project', 'title' => 'Approval session'], 'codex');
-assert_true(array_key_exists('prompt_questions', $permDetail) && $permDetail['prompt_questions'] === null, 'csm_headless_detail_shape() leaves prompt_questions null for a permission-type prompt');
-assert_true(!empty($permDetail['prompt_options']), 'csm_headless_detail_shape() still surfaces the permission-type prompt\'s flattened prompt_options');
+$permDetail = sessioneer_headless_detail_shape(['id' => 'codex-permission', 'directory' => '/tmp/project', 'title' => 'Approval session'], 'codex');
+assert_true(array_key_exists('prompt_questions', $permDetail) && $permDetail['prompt_questions'] === null, 'sessioneer_headless_detail_shape() leaves prompt_questions null for a permission-type prompt');
+assert_true(!empty($permDetail['prompt_options']), 'sessioneer_headless_detail_shape() still surfaces the permission-type prompt\'s flattened prompt_options');
 
-$idleDetail = csm_headless_detail_shape(['id' => 'codex-idle', 'directory' => '/tmp/project', 'title' => 'Idle session'], 'codex');
-assert_true(array_key_exists('prompt_questions', $idleDetail) && $idleDetail['prompt_questions'] === null, 'csm_headless_detail_shape() leaves prompt_questions null for an idle session with no blocked prompt');
+$idleDetail = sessioneer_headless_detail_shape(['id' => 'codex-idle', 'directory' => '/tmp/project', 'title' => 'Idle session'], 'codex');
+assert_true(array_key_exists('prompt_questions', $idleDetail) && $idleDetail['prompt_questions'] === null, 'sessioneer_headless_detail_shape() leaves prompt_questions null for an idle session with no blocked prompt');
 
 // cleanup so these fixtures don't leak into other test files sharing the
 // isolated sidecar dir

@@ -1,8 +1,8 @@
 [Unit]
-Description=Claude Session Manager host agent socket
+Description=Sessioneer host agent socket
 
 [Socket]
-ListenStream=%t/csm-agent.sock
+ListenStream=%t/sessioneer-agent.sock
 SocketMode=0660
 SocketGroup=@SOCKET_GROUP@
 Accept=yes

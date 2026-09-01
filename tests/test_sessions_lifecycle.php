@@ -38,9 +38,9 @@ if (Config::tmux_socket() === REAL_TMUX_SOCKET) {
     exit(1);
 }
 
-$pushSqliteFixture = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/push.sqlite';
-$opencodeDbFixtureLc = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/opencode.db';
-$opencodeAuthFixtureLc = sys_get_temp_dir() . '/csm-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/auth.json';
+$pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/push.sqlite';
+$opencodeDbFixtureLc = sys_get_temp_dir() . '/sessioneer-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/opencode.db';
+$opencodeAuthFixtureLc = sys_get_temp_dir() . '/sessioneer-test-sessions-lifecycle-' . bin2hex(random_bytes(4)) . '/auth.json';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
 putenv("OPENCODE_DB_PATH={$opencodeDbFixtureLc}");
 putenv("OPENCODE_AUTH_PATH={$opencodeAuthFixtureLc}");
@@ -98,7 +98,7 @@ $dualBareAdhocNames = [];
  */
 function create_and_track(string $workdir, array &$createdSessions, bool $enableTaskTools = false, ?string $startingMode = null, ?string $agentId = null): array
 {
-    $result = SessionLifecycleService::create_cc_session($workdir, $enableTaskTools, $startingMode, $agentId);
+    $result = SessionLifecycleService::create_agent_session($workdir, $enableTaskTools, $startingMode, $agentId);
     $name = null;
 
     if (preg_match('/Created session (cc-\S+) in/', (string)($result['message'] ?? ''), $m) === 1) {
@@ -187,7 +187,7 @@ assert_equal(null, PromptParser::parse_blocking_prompt("Just some normal output\
 
 $realTrustDialog = " Accessing workspace:\n"
     . "\n"
-    . " /tmp/csm-prompt-inspect-1122606/scratch\n"
+    . " /tmp/sessioneer-prompt-inspect-1122606/scratch\n"
     . "\n"
     . " Quick safety check: Is this a project you created or one you trust? (Like your\n"
     . " own code, a well-known open source project, or work from your team). If not,\n"
@@ -215,12 +215,12 @@ assert_equal(
     'parse_blocking_prompt: real trust dialog - both options extracted'
 );
 
-$realPermissionPrompt = "● Bash(echo hello-permission-test > /tmp/csm-permission-test.txt)\n"
+$realPermissionPrompt = "● Bash(echo hello-permission-test > /tmp/sessioneer-permission-test.txt)\n"
     . "\n"
     . str_repeat('─', 40) . "\n"
     . " Bash command\n"
     . "\n"
-    . "   echo hello-permission-test > /tmp/csm-permission-test.txt\n"
+    . "   echo hello-permission-test > /tmp/sessioneer-permission-test.txt\n"
     . "   Write test string to a temp file\n"
     . "\n"
     . " Do you want to proceed?\n"
@@ -231,7 +231,7 @@ $realPermissionPrompt = "● Bash(echo hello-permission-test > /tmp/csm-permissi
     . " Esc to cancel · Tab to amend · ctrl+e to explain\n";
 $permissionParsed = PromptParser::parse_blocking_prompt($realPermissionPrompt);
 assert_equal('Do you want to proceed?', $permissionParsed['question'] ?? null, 'parse_blocking_prompt: real permission prompt - question found directly');
-assert_true(str_contains($permissionParsed['context'] ?? '', 'echo hello-permission-test > /tmp/csm-permission-test.txt'), 'parse_blocking_prompt: real permission prompt - context includes the actual command being approved');
+assert_true(str_contains($permissionParsed['context'] ?? '', 'echo hello-permission-test > /tmp/sessioneer-permission-test.txt'), 'parse_blocking_prompt: real permission prompt - context includes the actual command being approved');
 assert_true(str_contains($permissionParsed['context'] ?? '', 'Write test string to a temp file'), 'parse_blocking_prompt: real permission prompt - context includes the tool-provided description');
 assert_true(!str_contains($permissionParsed['context'] ?? '', str_repeat('─', 40)), 'parse_blocking_prompt: real permission prompt - the purely-decorative separator line is stripped');
 assert_equal(
@@ -371,7 +371,7 @@ assert_equal(
 // separator once a multi-question tab bar has already been seen below
 // it. ---
 $realReshowTab = " On the \"built with AI, including the toolchain\" question: I'd do it — lightly. It's not cheeky if it's true and verifiable, and yours is: the resume already has a dedicated AI-tooling section\n"
-    . "citing specific things you built (subagents, hooks, claude-session-manager). A one-line link to this actual repo as another concrete example is proof, not a claim.\n"
+    . "citing specific things you built (subagents, hooks, sessioneer). A one-line link to this actual repo as another concrete example is proof, not a claim.\n"
     . "\n"
     . "One real concern before I create/push a public repo: your phone number and personal email are in the content fragments. A public GitHub repo gets scraped/cached essentially immediately and that's\n"
     . "hard to fully undo. Let me get that sorted with you before I touch GitHub.\n"
@@ -444,29 +444,29 @@ $result = SessionService::browse_dir(Config::www_root() . '/does-not-exist');
 assert_equal(false, $result['ok'] ?? null, 'SessionService::browse_dir(missing dir): rejects a nonexistent path');
 
 // --- SessionService::create_dir(): the "New folder" button on the same folder browser ---
-$newDirPath = Config::www_root() . '/csm-test-new-folder';
+$newDirPath = Config::www_root() . '/sessioneer-test-new-folder';
 @rmdir($newDirPath); // in case a previous failed run left it behind
 
-$result = SessionService::create_dir(Config::www_root(), 'csm-test-new-folder');
+$result = SessionService::create_dir(Config::www_root(), 'sessioneer-test-new-folder');
 assert_true($result['ok'] ?? false, 'SessionService::create_dir: ok=true');
 assert_true(is_dir($newDirPath), 'SessionService::create_dir: the directory really exists on disk afterward');
 assert_equal($newDirPath, $result['path'] ?? null, 'SessionService::create_dir: response is browse_dir() of the new folder itself - path is the new folder');
 assert_equal([], $result['dirs'] ?? null, 'SessionService::create_dir: the new (empty) folder has no subfolders');
 assert_equal(Config::www_root(), $result['parent'] ?? null, 'SessionService::create_dir: parent is the folder it was created in');
 
-$result = SessionService::create_dir(Config::www_root(), 'csm-test-new-folder');
+$result = SessionService::create_dir(Config::www_root(), 'sessioneer-test-new-folder');
 assert_equal(false, $result['ok'] ?? null, 'SessionService::create_dir: rejects a name that already exists');
 
-$result = SessionService::create_dir(Config::www_root(), '../csm-test-escape');
+$result = SessionService::create_dir(Config::www_root(), '../sessioneer-test-escape');
 assert_equal(false, $result['ok'] ?? null, 'SessionService::create_dir: rejects a name containing path traversal');
 
-$result = SessionService::create_dir(Config::www_root(), 'nested/csm-test-escape');
+$result = SessionService::create_dir(Config::www_root(), 'nested/sessioneer-test-escape');
 assert_equal(false, $result['ok'] ?? null, 'SessionService::create_dir: rejects a name containing a slash');
 
 $result = SessionService::create_dir(Config::www_root(), '');
 assert_equal(false, $result['ok'] ?? null, 'SessionService::create_dir: rejects an empty name');
 
-$result = SessionService::create_dir('/etc', 'csm-test-escape');
+$result = SessionService::create_dir('/etc', 'sessioneer-test-escape');
 assert_equal(false, $result['ok'] ?? null, 'SessionService::create_dir: rejects a parent path outside home_root');
 
 @rmdir($newDirPath);
@@ -585,7 +585,7 @@ try {
     // /proc/<pid>/cmdline alone would never show this).
     //
     // sleep(1) here (and between the two create_and_track() calls below) -
-    // found live writing this test: create_cc_session()'s name is
+    // found live writing this test: create_agent_session()'s name is
     // date('Ymd-His')-based (1-second resolution), so a create landing in
     // the SAME wall-clock second as the $created one already made a few
     // lines up (or as the second call just below) collides on an identical
@@ -604,7 +604,7 @@ try {
     );
 
     if (is_string($withTaskTools['name'])) {
-        SessionLifecycleService::kill_cc_session($withTaskTools['name']);
+        SessionLifecycleService::kill_agent_session($withTaskTools['name']);
         $createdSessions = array_values(array_diff($createdSessions, [$withTaskTools['name']]));
     }
 
@@ -624,7 +624,7 @@ try {
     );
 
     if (is_string($withoutTaskTools['name'])) {
-        SessionLifecycleService::kill_cc_session($withoutTaskTools['name']);
+        SessionLifecycleService::kill_agent_session($withoutTaskTools['name']);
         $createdSessions = array_values(array_diff($createdSessions, [$withoutTaskTools['name']]));
     }
 
@@ -645,7 +645,7 @@ try {
     );
 
     if (is_string($withStartingMode['name'])) {
-        SessionLifecycleService::kill_cc_session($withStartingMode['name']);
+        SessionLifecycleService::kill_agent_session($withStartingMode['name']);
         $createdSessions = array_values(array_diff($createdSessions, [$withStartingMode['name']]));
     }
 
@@ -665,7 +665,7 @@ try {
     );
 
     if (is_string($withBogusMode['name'])) {
-        SessionLifecycleService::kill_cc_session($withBogusMode['name']);
+        SessionLifecycleService::kill_agent_session($withBogusMode['name']);
         $createdSessions = array_values(array_diff($createdSessions, [$withBogusMode['name']]));
     }
 
@@ -720,7 +720,7 @@ try {
     // are needed for this (fake_claude never writes one), so HOME_ROOT is
     // pointed at an isolated fixture dir just for this block - same
     // pattern as test_transcript.php's fakeHome, restored right after. ---
-    $archivedFakeHome = sys_get_temp_dir() . '/csm-test-archived-dashboard-home-' . getmypid();
+    $archivedFakeHome = sys_get_temp_dir() . '/sessioneer-test-archived-dashboard-home-' . getmypid();
     $liveClaudeSessionId = $session['claude_session_id'] ?? null;
     $archivedUuid = '33333333-3333-4333-8333-333333333333';
     @mkdir($archivedFakeHome . '/.claude/projects/-tracked-project', 0700, true);
@@ -750,12 +750,12 @@ try {
     putenv('HOME_ROOT');
 
     // --- reject kill of a name that isn't currently active ---
-    $result = SessionLifecycleService::kill_cc_session('cc-not-a-real-session');
+    $result = SessionLifecycleService::kill_agent_session('cc-not-a-real-session');
     assert_equal(false, $result['ok'] ?? null, 'kill: rejects a name not in the live whitelist');
 
     // --- kill ---
     if ($name !== null) {
-        $result = SessionLifecycleService::kill_cc_session($name);
+        $result = SessionLifecycleService::kill_agent_session($name);
         assert_true($result['ok'] ?? false, 'kill: ok=true');
         $createdSessions = array_values(array_diff($createdSessions, [$name]));
 
@@ -763,11 +763,11 @@ try {
         assert_true(!file_exists(Config::sidecar_dir() . "/{$name}.json"), 'kill: sidecar file removed');
     }
 
-    // --- SessionLifecycleService::resume_cc_session(): input validation ---
-    $result = SessionLifecycleService::resume_cc_session('relative/path', '11111111-1111-4111-8111-111111111111');
+    // --- SessionLifecycleService::resume_agent_session(): input validation ---
+    $result = SessionLifecycleService::resume_agent_session('relative/path', '11111111-1111-4111-8111-111111111111');
     assert_equal(false, $result['ok'] ?? null, 'resume: rejects a relative workdir');
 
-    $result = SessionLifecycleService::resume_cc_session(Config::www_root() . '/project-a', '');
+    $result = SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', '');
     assert_equal(false, $result['ok'] ?? null, 'resume: rejects an empty claude_session_id');
 
     // --- resume: happy path, reusing the claude_session_id freed up by the
@@ -777,7 +777,7 @@ try {
     $resumeId = $session['claude_session_id'] ?? null;
     assert_true($resumeId !== null, 'resume setup: have a claude_session_id to resume (from the killed session above)');
 
-    $resumed = $resumeId !== null ? SessionLifecycleService::resume_cc_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => false];
+    $resumed = $resumeId !== null ? SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => false];
     assert_true($resumed['ok'] ?? false, 'resume: ok=true for a dormant claude_session_id');
     $resumedName = $resumed['name'] ?? null;
     assert_true(is_string($resumedName) && str_starts_with($resumedName, 'cc-'), 'resume: returns the new pane name');
@@ -794,11 +794,11 @@ try {
     // --- resume: refuses a claude_session_id that already has a live pane
     // (the one just resumed above) - the guard against two panes fighting
     // over the same transcript. ---
-    $dupResume = $resumeId !== null ? SessionLifecycleService::resume_cc_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => true];
+    $dupResume = $resumeId !== null ? SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => true];
     assert_equal(false, $dupResume['ok'] ?? null, 'resume: refuses a claude_session_id that already has a live pane');
 
     if (is_string($resumedName)) {
-        SessionLifecycleService::kill_cc_session($resumedName);
+        SessionLifecycleService::kill_agent_session($resumedName);
         $createdSessions = array_values(array_diff($createdSessions, [$resumedName]));
     }
 
@@ -809,7 +809,7 @@ try {
     // a 300ms settle sleep in between), where two near-simultaneous
     // requests could both pass it and spawn two panes on the same
     // transcript. Simulated here by manually holding the exact lock
-    // resume_cc_session() itself acquires internally, before calling it -
+    // resume_agent_session() itself acquires internally, before calling it -
     // mirrors what a second real in-flight request's own flock() call
     // would see. Path formula duplicated from SessionService::
     // resume_lock_path() (private) rather than exposed for testing, same
@@ -827,7 +827,7 @@ try {
     assert_true($heldLock !== false, 'resume lock test setup: lock file opened');
     assert_true(flock($heldLock, LOCK_EX | LOCK_NB), 'resume lock test setup: lock acquired (simulating an in-flight resume)');
 
-    $blockedResume = SessionLifecycleService::resume_cc_session(Config::www_root() . '/project-a', $lockContentionId);
+    $blockedResume = SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', $lockContentionId);
     assert_equal(false, $blockedResume['ok'] ?? null, 'resume: a second resume for the SAME claude_session_id is rejected while another is holding the lock, even before any sidecar exists for it yet');
     assert_equal('This session already has a live pane - refusing to open a second one on the same transcript', $blockedResume['message'] ?? null, 'resume: lock contention gives the SAME rejection message as the post-spawn sidecar check - one consistent user-facing reason regardless of which guard actually caught it');
 
@@ -836,21 +836,21 @@ try {
 
     // Lock released - the same claude_session_id now resumes normally,
     // proving the lock isn't stuck held/leaked from the contention test above.
-    $afterLockReleased = SessionLifecycleService::resume_cc_session(Config::www_root() . '/project-a', $lockContentionId);
+    $afterLockReleased = SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', $lockContentionId);
     assert_true($afterLockReleased['ok'] ?? false, 'resume: once the lock is released, the same claude_session_id resumes normally - the lock does not leak across requests');
 
     $afterLockReleasedName = $afterLockReleased['name'] ?? null;
 
     if (is_string($afterLockReleasedName)) {
         $createdSessions[] = $afterLockReleasedName;
-        SessionLifecycleService::kill_cc_session($afterLockReleasedName);
+        SessionLifecycleService::kill_agent_session($afterLockReleasedName);
         $createdSessions = array_values(array_diff($createdSessions, [$afterLockReleasedName]));
     }
 
     @unlink($lockPath);
 
     // --- input validation: relative path rejected before touching tmux ---
-    $result = SessionLifecycleService::create_cc_session('relative/path');
+    $result = SessionLifecycleService::create_agent_session('relative/path');
     assert_equal(false, $result['ok'] ?? null, 'create: rejects a relative workdir');
 
     // --- self-healing: the tmux socket's parent directory can vanish
@@ -869,39 +869,39 @@ try {
     $healed = create_and_track(Config::www_root() . '/project-a', $createdSessions);
     assert_true($healed['ok'], 'create: recreates a missing tmux socket dir and still succeeds');
     if ($healed['name'] !== null) {
-        SessionLifecycleService::kill_cc_session($healed['name']);
+        SessionLifecycleService::kill_agent_session($healed['name']);
         $createdSessions = array_values(array_diff($createdSessions, [$healed['name']]));
     }
 
     // --- claude binary fails to start: tmux registers the session, then the pane
-    // exits immediately since the command doesn't exist - SessionLifecycleService::create_cc_session()'s
+    // exits immediately since the command doesn't exist - SessionLifecycleService::create_agent_session()'s
     // post-creation check must catch that and report failure ---
     $originalClaudeBin = Config::claude_bin();
-    putenv('CLAUDE_BIN=/definitely/does/not/exist/csm-test-claude-binary');
+    putenv('CLAUDE_BIN=/definitely/does/not/exist/sessioneer-test-claude-binary');
     $bad = create_and_track(Config::www_root() . '/project-a', $createdSessions);
     putenv("CLAUDE_BIN={$originalClaudeBin}");
     assert_true(!$bad['ok'], 'create: a claude binary that fails to start is reported as failure');
 
-    // --- AgentAdapter: create_cc_session() with an $agentId
+    // --- AgentAdapter: create_agent_session() with an $agentId
     // (docs/antigravity-adapter-plan.md Phase 2) ---
 
     // Same failure shape as the CLAUDE_BIN case above, for antigravity.
     $originalAntigravityBin = Config::antigravity_bin();
-    putenv('ANTIGRAVITY_BIN=/definitely/does/not/exist/csm-test-agy-binary');
-    $badAg = SessionLifecycleService::create_cc_session(Config::www_root() . '/project-a', false, null, 'antigravity');
+    putenv('ANTIGRAVITY_BIN=/definitely/does/not/exist/sessioneer-test-agy-binary');
+    $badAg = SessionLifecycleService::create_agent_session(Config::www_root() . '/project-a', false, null, 'antigravity');
     putenv("ANTIGRAVITY_BIN={$originalAntigravityBin}");
     assert_true(!($badAg['ok'] ?? true), 'create(agent: antigravity): an agy binary that fails to start is reported as failure, same as the Claude Code path');
 
     // Unrecognized agent id falls back to Claude Code's own default,
     // whitelisted rather than trusted straight through (same discipline
-    // create_cc_session()'s own docblock already documents for
+    // create_agent_session()'s own docblock already documents for
     // $startingMode) - proves this against a REAL spawn, not just
     // AgentRegistry::get()'s own unit-level behavior in test_agent_adapter.php.
     $fallback = create_and_track(Config::www_root() . '/project-a', $createdSessions, false, null, 'not-a-real-agent');
     assert_true($fallback['ok'], 'create(agent: not-a-real-agent): falls back to the default agent rather than failing outright');
     assert_true($fallback['name'] !== null && str_starts_with($fallback['name'], 'cc-'), 'create(agent: not-a-real-agent): uses Claude Code\'s cc- prefix, proving the fallback actually happened');
     if ($fallback['name'] !== null) {
-        SessionLifecycleService::kill_cc_session($fallback['name']);
+        SessionLifecycleService::kill_agent_session($fallback['name']);
         $createdSessions = array_values(array_diff($createdSessions, [$fallback['name']]));
     }
 
@@ -910,7 +910,7 @@ try {
     // for Claude Code (see tests/.env.testing) - proves the whole
     // spawn -> tmux -> sidecar round-trip, not just build_spawn_argv()'s
     // own argv shape (already covered in test_agent_adapter.php).
-    $agSession = SessionLifecycleService::create_cc_session(Config::www_root() . '/project-a', false, null, 'antigravity');
+    $agSession = SessionLifecycleService::create_agent_session(Config::www_root() . '/project-a', false, null, 'antigravity');
     assert_true($agSession['ok'] ?? false, 'create(agent: antigravity): succeeds against the fake_agy fixture binary');
     $agName = null;
     if (preg_match('/Created session (ag-\S+) in/', (string)($agSession['message'] ?? ''), $agMatch) === 1) {
@@ -927,7 +927,7 @@ try {
         $agListed = find_session($agName);
         assert_true($agListed !== null, 'create(agent: antigravity): the new session shows up in list_all_sessions() like any other tracked session');
 
-        SessionLifecycleService::kill_cc_session($agName);
+        SessionLifecycleService::kill_agent_session($agName);
         $createdSessions = array_values(array_diff($createdSessions, [$agName]));
     }
 
@@ -1026,7 +1026,7 @@ try {
     // enriched with that session's name and pane title, and
     // BareProcessService::kill_bare_process() must kill the whole session rather than just
     // SIGTERM the pid ---
-    $adhocName = 'csm-test-adhoc-' . getmypid();
+    $adhocName = 'sessioneer-test-adhoc-' . getmypid();
     $adhocCwd = Config::www_root() . '/project-b';
     $adhocCreate = TmuxService::tmux_run(['new-session', '-d', '-s', $adhocName, '-c', $adhocCwd, Config::claude_bin()]);
     assert_equal(0, $adhocCreate['exit'], 'bare setup: created an ad-hoc (non-cc-*) tmux session');
@@ -1072,7 +1072,7 @@ try {
     assert_equal(false, BareProcessService::take_over_bare_process(999999)['ok'] ?? null, 'take_over_bare_process: rejects a pid that is not a running claude process');
 
     $takeOverCwd = Config::www_root() . '/project-a';
-    $takeOverFakeHome = sys_get_temp_dir() . '/csm-test-take-over-home-' . getmypid();
+    $takeOverFakeHome = sys_get_temp_dir() . '/sessioneer-test-take-over-home-' . getmypid();
     @mkdir($takeOverFakeHome . '/.claude/projects/-take-over-project', 0700, true);
 
     $dormantUuid = '55555555-5555-4555-8555-555555555555';
@@ -1126,7 +1126,7 @@ try {
     assert_equal($takeOverCwd, $takeOverEntry['workdir'] ?? null, 'take_over_bare_process_with_id: sidecar records the chosen workdir');
 
     if (is_string($takeOverName)) {
-        SessionLifecycleService::kill_cc_session($takeOverName);
+        SessionLifecycleService::kill_agent_session($takeOverName);
         $createdSessions = array_values(array_diff($createdSessions, [$takeOverName]));
     }
 
@@ -1145,7 +1145,7 @@ try {
     $toleranceName = $toleranceResult['name'] ?? null;
 
     if (is_string($toleranceName)) {
-        SessionLifecycleService::kill_cc_session($toleranceName);
+        SessionLifecycleService::kill_agent_session($toleranceName);
     }
 
     @unlink($takeOverFakeHome . '/.claude/projects/-take-over-project/' . $dormantUuid . '.jsonl');
@@ -1163,7 +1163,7 @@ try {
     // (not project-a, already exercised above) to keep this fixture's cwd
     // uncorrelated with the candidate-list test's own dormant transcript. ---
     $markerCwd = Config::www_root() . '/project-b';
-    $markerFakeHome = sys_get_temp_dir() . '/csm-test-take-over-marker-home-' . getmypid();
+    $markerFakeHome = sys_get_temp_dir() . '/sessioneer-test-take-over-marker-home-' . getmypid();
     @mkdir($markerFakeHome . '/.claude/projects/-marker-project', 0700, true);
     $markerUuid = '77777777-7777-4777-8777-777777777777';
     file_put_contents(
@@ -1172,12 +1172,12 @@ try {
     );
     putenv("HOME_ROOT={$markerFakeHome}");
 
-    $markerAdhocName = 'csm-test-marker-adhoc-' . getmypid();
+    $markerAdhocName = 'sessioneer-test-marker-adhoc-' . getmypid();
     $markerSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $markerAdhocName, '-c', $markerCwd, Config::claude_bin()]);
     assert_equal(0, $markerSetup['exit'], 'marker take-over setup: created a live non-cc-* tmux session hosting a fake_claude process');
     usleep(300000);
 
-    TmuxService::tmux_run(['send-keys', '-t', $markerAdhocName, 'csm-data:{"session_id":"' . $markerUuid . '"}', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $markerAdhocName, 'sessioneer-data:{"session_id":"' . $markerUuid . '"}', 'Enter']);
     usleep(300000);
 
     $markerBareEntry = null;
@@ -1204,7 +1204,7 @@ try {
     assert_equal($markerUuid, $markerEntry['claude_session_id'] ?? null, 'take_over_bare_process: sidecar records the exact claude_session_id read from the statusline marker, not a guess');
 
     if (is_string($markerTakeOverName)) {
-        SessionLifecycleService::kill_cc_session($markerTakeOverName);
+        SessionLifecycleService::kill_agent_session($markerTakeOverName);
     }
 
     @unlink($markerFakeHome . '/.claude/projects/-marker-project/' . $markerUuid . '.jsonl');
@@ -1217,13 +1217,13 @@ try {
     // --- bare_process_take_over_candidates(): excludes another OTHER
     // live (marker-matched) bare process's own session for the same
     // cwd, even though nothing tracks it via a sidecar (Andres's own
-    // concern, 2026-08-08) - resume_cc_session()'s already-live guard
+    // concern, 2026-08-08) - resume_agent_session()'s already-live guard
     // only checks sidecars, so without this a candidate transcript
     // still being actively written by a different live bare process
     // could get a second pane fighting over it. A genuinely dormant
     // transcript (no live process at all) must still be offered. ---
     $dualBareCwd = Config::www_root() . '/project-a';
-    $dualBareFakeHome = sys_get_temp_dir() . '/csm-test-dual-bare-home-' . getmypid();
+    $dualBareFakeHome = sys_get_temp_dir() . '/sessioneer-test-dual-bare-home-' . getmypid();
     @mkdir($dualBareFakeHome . '/.claude/projects/-dual-bare-project', 0700, true);
 
     $targetUuid = '88888888-8888-4888-8888-888888888888';
@@ -1238,8 +1238,8 @@ try {
     }
     putenv("HOME_ROOT={$dualBareFakeHome}");
 
-    $targetAdhocName = 'csm-test-dual-bare-target-' . getmypid();
-    $otherAdhocName = 'csm-test-dual-bare-other-' . getmypid();
+    $targetAdhocName = 'sessioneer-test-dual-bare-target-' . getmypid();
+    $otherAdhocName = 'sessioneer-test-dual-bare-other-' . getmypid();
     TmuxService::tmux_run(['new-session', '-d', '-s', $targetAdhocName, '-c', $dualBareCwd, Config::claude_bin()]);
     TmuxService::tmux_run(['new-session', '-d', '-s', $otherAdhocName, '-c', $dualBareCwd, Config::claude_bin()]);
     $dualBareAdhocNames = [$targetAdhocName, $otherAdhocName];
@@ -1247,7 +1247,7 @@ try {
 
     // Only the OTHER pane gets a marker - the target pane has none,
     // forcing take_over_bare_process() into the needs_choice path for it.
-    TmuxService::tmux_run(['send-keys', '-t', $otherAdhocName, 'csm-data:{"session_id":"' . $otherLiveUuid . '"}', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $otherAdhocName, 'sessioneer-data:{"session_id":"' . $otherLiveUuid . '"}', 'Enter']);
     usleep(300000);
 
     $dualBareEntries = [];
@@ -1290,7 +1290,7 @@ try {
     $promptTestSession = 'cc-test-answer-prompt-' . getmypid();
     $promptSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $promptTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $promptSetup['exit'], 'answer_prompt setup: created a live cc-* session to answer a prompt in');
-    // A raw ad-hoc pane (not made via create_cc_session()) has no sidecar of
+    // A raw ad-hoc pane (not made via create_agent_session()) has no sidecar of
     // its own - write one directly so it counts as "tracked" (see
     // TmuxService::list_tracked_tmux_sessions()), same as answer_prompt() et
     // al. require of any session they'll act on.
@@ -1685,7 +1685,7 @@ try {
     assert_equal('plan', $hookWorkingEntry['current_mode'] ?? null, 'build_session_entry: current_mode still comes from the status file');
 
     // No status file at all (predates these hooks, an adopted session with
-    // no CSM_SESSION_NAME, or the hooks genuinely never installed) yields
+    // no SESSIONEER_SESSION_NAME, or the hooks genuinely never installed) yields
     // NOTHING for mode/working/blocked_reason - there is no pane-scraping
     // fallback for these anymore, confirmed here against a pane that (still)
     // shows nothing at all, so a bug that silently reintroduced a fallback
@@ -1753,14 +1753,14 @@ try {
     usleep(300000);
 
     // A stages its own text into its OWN named buffer...
-    TmuxService::tmux_run(['set-buffer', '-b', 'csm-race-test-a', '--', 'MESSAGE-FOR-A']);
+    TmuxService::tmux_run(['set-buffer', '-b', 'sessioneer-race-test-a', '--', 'MESSAGE-FOR-A']);
     // ...B's ENTIRE send (stage, paste, auto-delete via -d) completes fully
     // in between, on its OWN separate named buffer...
-    TmuxService::tmux_run(['set-buffer', '-b', 'csm-race-test-b', '--', 'MESSAGE-FOR-B']);
-    TmuxService::tmux_run(['paste-buffer', '-d', '-b', 'csm-race-test-b', '-t', $raceSessionB]);
+    TmuxService::tmux_run(['set-buffer', '-b', 'sessioneer-race-test-b', '--', 'MESSAGE-FOR-B']);
+    TmuxService::tmux_run(['paste-buffer', '-d', '-b', 'sessioneer-race-test-b', '-t', $raceSessionB]);
     TmuxService::tmux_run(['send-keys', '-t', $raceSessionB, 'Enter']);
     // ...only THEN does A finally paste from its own still-untouched buffer.
-    TmuxService::tmux_run(['paste-buffer', '-d', '-b', 'csm-race-test-a', '-t', $raceSessionA]);
+    TmuxService::tmux_run(['paste-buffer', '-d', '-b', 'sessioneer-race-test-a', '-t', $raceSessionA]);
     TmuxService::tmux_run(['send-keys', '-t', $raceSessionA, 'Enter']);
     usleep(300000);
 
@@ -1831,7 +1831,7 @@ try {
     // - real tmux session, real sidecar, name never touched - must show up
     // in list_all_sessions()'s main sessions[] (not bare[]), report
     // spawned_by_csm=false, and accept the exact same actions (send_message,
-    // kill_cc_session) as an app-spawned cc-* one. Simulates the hook's own
+    // kill_agent_session) as an app-spawned cc-* one. Simulates the hook's own
     // sidecar write directly rather than re-running session_start.php here -
     // that hook's own behavior is covered separately in test_session_hook.php. ---
     $adoptedTestSession = 'user-manual-' . getmypid();
@@ -1862,11 +1862,11 @@ try {
     usleep(300000);
     assert_contains('Hello from an adopted session', TmuxService::tmux_capture_pane($adoptedTestSession), 'send_message: the text actually landed in the adopted session\'s pane');
 
-    $adoptedKill = SessionLifecycleService::kill_cc_session($adoptedTestSession);
-    assert_true($adoptedKill['ok'] ?? false, 'kill_cc_session: works against an adopted (non-cc-*) session, not just cc-* ones');
+    $adoptedKill = SessionLifecycleService::kill_agent_session($adoptedTestSession);
+    assert_true($adoptedKill['ok'] ?? false, 'kill_agent_session: works against an adopted (non-cc-*) session, not just cc-* ones');
     $hasAdoptedSession = TmuxService::tmux_run(['has-session', '-t', $adoptedTestSession]);
-    assert_true($hasAdoptedSession['exit'] !== 0, 'kill_cc_session: the adopted session\'s tmux session is actually gone');
-    assert_true(SidecarStore::read_sidecar($adoptedTestSession) === null, 'kill_cc_session: the adopted session\'s sidecar is removed too');
+    assert_true($hasAdoptedSession['exit'] !== 0, 'kill_agent_session: the adopted session\'s tmux session is actually gone');
+    assert_true(SidecarStore::read_sidecar($adoptedTestSession) === null, 'kill_agent_session: the adopted session\'s sidecar is removed too');
     $adoptedTestSession = null;
 
     // --- QuotaService::quota_from_statusline_state()/get_quota(): the ONLY
@@ -1915,7 +1915,7 @@ try {
 
     assert_equal(null, QuotaService::live_context_pct($quotaTestSession), 'live_context_pct: null while the pane has no marker yet');
 
-    TmuxService::tmux_run(['send-keys', '-t', $quotaTestSession, 'csm-data:{"ctx_pct":4}', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $quotaTestSession, 'sessioneer-data:{"ctx_pct":4}', 'Enter']);
     usleep(300000);
 
     assert_equal(4, QuotaService::live_context_pct($quotaTestSession), 'live_context_pct: reads the ctx percentage from the requested session\'s own pane');
@@ -1953,7 +1953,7 @@ try {
     @rmdir(dirname($opencodeAuthFixtureLc));
     putenv('OPENCODE_DB_PATH');
     foreach ($createdSessions as $leftover) {
-        SessionLifecycleService::kill_cc_session($leftover);
+        SessionLifecycleService::kill_agent_session($leftover);
     }
     if ($adhocName !== null) {
         TmuxService::tmux_run(['kill-session', '-t', $adhocName]);

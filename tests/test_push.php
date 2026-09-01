@@ -24,13 +24,13 @@ use HostAgent\Stores\PushQuotaStateStore;
 use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
 
-const REAL_PUSH_TIMER_UNIT_NAME = 'csm-push-check.timer';
+const REAL_PUSH_TIMER_UNIT_NAME = 'sessioneer-push-check.timer';
 const REAL_PUSH_SQLITE_FILE = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
 
-$fixtureDir = sys_get_temp_dir() . '/csm-test-push-' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/sessioneer-test-push-' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0700, true);
 
-putenv('PUSH_TIMER_UNIT_PATH=' . $fixtureDir . '/csm-push-check.timer');
+putenv('PUSH_TIMER_UNIT_PATH=' . $fixtureDir . '/sessioneer-push-check.timer');
 // PushSubscriptionStore/PushSessionStateStore/PushQuotaStateStore/
 // GlobalStateStore's real backing store since 2026-08-24 - no legacy JSON
 // file fallback exists anymore (removed once every real row had migrated,
@@ -41,7 +41,7 @@ putenv('PUSH_SQLITE_FILE=' . $fixtureDir . '/push.sqlite');
 // `restart` commands against this unit NAME - a fake one systemd has
 // never heard of is what keeps `restart` from ever firing for real
 // during a test run (is-active reliably reports "inactive" for it).
-putenv('PUSH_TIMER_UNIT_NAME=csm-test-fake-push-timer-' . bin2hex(random_bytes(4)) . '.timer');
+putenv('PUSH_TIMER_UNIT_NAME=sessioneer-test-fake-push-timer-' . bin2hex(random_bytes(4)) . '.timer');
 
 class FakeCodexBridgeClient extends CodexBridgeClient
 {
@@ -625,7 +625,7 @@ try {
     // file (isolated to a fixture path above, never the real one), and
     // PushTimerService::set_push_timer_interval()'s systemctl calls target a fake unit name
     // (also isolated above) so a test run can never touch the real
-    // production csm-push-check.timer ---
+    // production sessioneer-push-check.timer ---
 
     assert_equal(
         false,
@@ -640,7 +640,7 @@ try {
     [Timer]
     OnBootSec=10s
     OnUnitActiveSec=10s
-    Unit=csm-push-check.service
+    Unit=sessioneer-push-check.service
 
     [Install]
     WantedBy=timers.target
@@ -664,7 +664,7 @@ try {
     $rewritten = file_get_contents(PushTimerService::push_timer_unit_path());
     assert_equal(true, str_contains($rewritten, 'OnBootSec=30s'), 'set_push_timer_interval: actually rewrote OnBootSec= in the unit file');
     assert_equal(true, str_contains($rewritten, 'OnUnitActiveSec=30s'), 'set_push_timer_interval: actually rewrote OnUnitActiveSec= in the unit file');
-    assert_equal(true, str_contains($rewritten, 'Unit=csm-push-check.service'), 'set_push_timer_interval: leaves the rest of the unit file untouched');
+    assert_equal(true, str_contains($rewritten, 'Unit=sessioneer-push-check.service'), 'set_push_timer_interval: leaves the rest of the unit file untouched');
 
     assert_equal(30, PushTimerService::get_push_timer_interval()['interval_seconds'], 'get_push_timer_interval: reflects the just-written value on the next read');
 

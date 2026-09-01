@@ -22,7 +22,7 @@ use HostAgent\Services\TranscriptService;
 
 const REAL_HOME_ROOT_AT = '/home/user';
 
-$fixtureHome = sys_get_temp_dir() . '/csm-test-agy-transcript-home-' . bin2hex(random_bytes(4));
+$fixtureHome = sys_get_temp_dir() . '/sessioneer-test-agy-transcript-home-' . bin2hex(random_bytes(4));
 putenv("HOME_ROOT={$fixtureHome}");
 
 if (Config::home_root() === REAL_HOME_ROOT_AT) {

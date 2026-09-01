@@ -134,7 +134,7 @@ if (document.getElementById('app-shell')) {
 // first. Shared localStorage key between session.php's sidebar checkbox and
 // index.php's dashboard rows (which answer prompts too but have no sidebar
 // of their own to host the toggle) - both must read/write the same key.
-var CONFIRM_BEFORE_ANSWER_KEY = 'csm-confirm-before-answer';
+var CONFIRM_BEFORE_ANSWER_KEY = 'sessioneer-confirm-before-answer';
 
 function shouldConfirmBeforeAnswer() {
   try {
@@ -154,7 +154,7 @@ function shouldConfirmBeforeAnswer() {
 // Default HIDDEN (opposite of every other toggle in this file) - the whole
 // point is that a worker session looks identical to a human-driven one
 // unless deliberately surfaced, so the safe default is out of the way.
-var SHOW_WORKER_SESSIONS_KEY = 'csm-show-worker-sessions';
+var SHOW_WORKER_SESSIONS_KEY = 'sessioneer-show-worker-sessions';
 
 function shouldShowWorkerSessions() {
   try {
@@ -196,7 +196,7 @@ document.addEventListener('keyup', function (e) {
 // Polling interval: user-selectable (dropdown in both pages' headers, 1/3/5/
 // 10/15s), persisted per-browser and shared across pages via this key so a
 // chosen interval carries over from one to the other.
-var POLL_INTERVAL_STORAGE_KEY = 'csm-poll-interval-ms';
+var POLL_INTERVAL_STORAGE_KEY = 'sessioneer-poll-interval-ms';
 var POLL_INTERVAL_ALLOWED_MS = [1000, 3000, 5000, 10000, 15000];
 
 // Reads the raw response text and only then tries to parse it (instead of
@@ -565,7 +565,7 @@ function copyTextToClipboard(text) {
 }
 
 // DOM event targets are typed as EventTarget because non-element targets are
-// possible in the platform generally. CSM's delegated handlers need closest()
+// possible in the platform generally. Sessioneer's delegated handlers need closest()
 // only when the target is a real Element; centralize that runtime guard so the
 // handlers are both checkJs-clean and safe for synthetic/non-element events.
 function closestEventTarget(event, selector) {
@@ -645,7 +645,7 @@ if (fullscreenTextModal && fullscreenTextModalContent && fullscreenTextModalClos
   // sidebar-style toggle in this app (see SHOW_TOOL_DETAILS_KEY etc in
   // session.js) - defaults to off (horizontal-scroll, today's original
   // behavior) when unset.
-  var FULLSCREEN_TEXT_WRAP_KEY = 'csm-fullscreen-text-wrap';
+  var FULLSCREEN_TEXT_WRAP_KEY = 'sessioneer-fullscreen-text-wrap';
 
   function fullscreenTextWrapEnabled() {
     try {

@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace HostAgent\Services;
 
 /**
- * Reads/adjusts the interval of the INSTALLED csm-push-check.timer unit -
+ * Reads/adjusts the interval of the INSTALLED sessioneer-push-check.timer unit -
  * the systemd timer that drives host-agent/push_trigger.php (see
  * PushDeliveryService). Not the repo template at
- * host-agent/systemd/csm-push-check.timer, which install.sh only ever
+ * host-agent/systemd/sessioneer-push-check.timer, which install.sh only ever
  * copies from once - editing the template would silently do nothing until
  * a manual reinstall.
  */
@@ -16,7 +16,7 @@ class PushTimerService
 {
     public static function push_timer_unit_path(): string
     {
-        return Config::csm_config('PUSH_TIMER_UNIT_PATH', Config::home_root() . '/.config/systemd/user/csm-push-check.timer');
+        return Config::sessioneer_config('PUSH_TIMER_UNIT_PATH', Config::home_root() . '/.config/systemd/user/sessioneer-push-check.timer');
     }
 
     /**
@@ -25,14 +25,14 @@ class PushTimerService
      * this too, not just the file path, since set_push_timer_interval() runs
      * real `systemctl --user is-active`/`restart` commands: without an
      * override, a test running on this same machine would query/restart the
-     * REAL production csm-push-check.timer, not a fixture. Pointing this at a
+     * REAL production sessioneer-push-check.timer, not a fixture. Pointing this at a
      * name systemd has never heard of makes `is-active` reliably report
      * "inactive" (not "active"), which is what keeps the restart branch in
      * set_push_timer_interval() from ever firing in tests.
      */
     public static function push_timer_unit_name(): string
     {
-        return Config::csm_config('PUSH_TIMER_UNIT_NAME', 'csm-push-check.timer');
+        return Config::sessioneer_config('PUSH_TIMER_UNIT_NAME', 'sessioneer-push-check.timer');
     }
 
     /**
@@ -66,7 +66,7 @@ class PushTimerService
         $raw = @file_get_contents(self::push_timer_unit_path());
 
         if ($raw === false) {
-            return ['ok' => false, 'interval_seconds' => null, 'message' => 'csm-push-check.timer is not installed - see the README'];
+            return ['ok' => false, 'interval_seconds' => null, 'message' => 'sessioneer-push-check.timer is not installed - see the README'];
         }
 
         if (!preg_match('/^OnUnitActiveSec=(\d+)s\s*$/m', $raw, $m)) {
@@ -101,7 +101,7 @@ class PushTimerService
         $raw = @file_get_contents($path);
 
         if ($raw === false) {
-            return ['ok' => false, 'message' => 'csm-push-check.timer is not installed - see the README'];
+            return ['ok' => false, 'message' => 'sessioneer-push-check.timer is not installed - see the README'];
         }
 
         $updated = preg_replace('/^OnBootSec=\d+s\s*$/m', "OnBootSec={$seconds}s", $raw, 1, $bootCount);

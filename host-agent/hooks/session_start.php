@@ -14,9 +14,9 @@ declare(strict_types=1);
  *
  * Two ways a session gets tracked here, in priority order:
  *
- * 1. CSM_SESSION_NAME (set via `tmux new-session -e` in create_cc_session())
+ * 1. SESSIONEER_SESSION_NAME (set via `tmux new-session -e` in create_agent_session())
  *    - this app's own spawned pane. Only ever REBINDS an existing sidecar,
- *    never creates one - create_cc_session() already wrote it before this
+ *    never creates one - create_agent_session() already wrote it before this
  *    hook could ever fire, so a missing one here means the session was
  *    genuinely killed/cleaned up already (see the bail-out below), not a
  *    session worth resurrecting a sidecar for.
@@ -56,7 +56,7 @@ if (!is_string($claudeSessionId) || $claudeSessionId === '') {
     exit(0);
 }
 
-$spawnedByCsm = getenv('CSM_SESSION_NAME');
+$spawnedByCsm = getenv('SESSIONEER_SESSION_NAME');
 $createIfMissing = false;
 
 if (is_string($spawnedByCsm) && $spawnedByCsm !== '') {
@@ -86,7 +86,7 @@ if ($existingSidecar === null && !$createIfMissing) {
     exit(0); // session already killed/cleaned up since this hook fired - nothing to rebind
 }
 
-// CSM_SESSION_NAME is inherited by every child process of the tracked
+// SESSIONEER_SESSION_NAME is inherited by every child process of the tracked
 // pane, not just the one interactive conversation running in it - a
 // `claude` process run manually from inside that pane's own Bash tool
 // (e.g. to test `--resume` behavior live) fires its own genuine
@@ -118,7 +118,7 @@ if (!$transcriptConfirmed) {
 // Found live 2026-08-23: a real transcript existing for $claudeSessionId
 // isn't enough - it may be a DIFFERENT pane's own real, currently-live
 // session (e.g. a nested `claude` child process spawned from this pane's
-// Bash tool, inheriting CSM_SESSION_NAME from the parent pane's env,
+// Bash tool, inheriting SESSIONEER_SESSION_NAME from the parent pane's env,
 // itself resuming or reporting some other pane's genuine session id).
 // Rebinding onto it anyway clobbers this pane's sidecar so it now points
 // at someone else's transcript, and the dashboard shows both panes as

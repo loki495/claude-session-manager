@@ -66,7 +66,7 @@ class SessionLifecycleService
      *
      * @return array{ok:bool, message:string}
      */
-    public static function create_cc_session(string $workdir, bool $enableTaskTools = false, ?string $startingMode = null, ?string $agentId = null, ?string $model = null): array
+    public static function create_agent_session(string $workdir, bool $enableTaskTools = false, ?string $startingMode = null, ?string $agentId = null, ?string $model = null): array
     {
         if ($workdir === '' || $workdir[0] !== '/') {
             return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
@@ -74,9 +74,9 @@ class SessionLifecycleService
 
         // Found live 2026-08-23 (writing a test that creates two sessions in
         // quick succession): date('Ymd-Hi') has only MINUTE resolution, so
-        // two create_cc_session() calls within the same clock-minute
+        // two create_agent_session() calls within the same clock-minute
         // collide on an identical name and the second `tmux new-session`
-        // fails outright ("duplicate session"). resume_cc_session() already
+        // fails outright ("duplicate session"). resume_agent_session() already
         // uses second-level Ymd-His for the same reason - matched here too.
         $resolvedAgentId = $agentId !== null && in_array($agentId, AgentRegistry::known_agent_ids(), true) ? $agentId : AgentRegistry::default_agent_id();
         $agent = AgentRegistry::get($resolvedAgentId);
@@ -86,7 +86,7 @@ class SessionLifecycleService
         $claudeSessionId = $spawn['assigned_id'];
 
         $result = TmuxService::tmux_run(array_merge([
-            // CSM_SESSION_NAME is how the SessionStart hook (see
+            // SESSIONEER_SESSION_NAME is how the SessionStart hook (see
             // host-agent/hooks/session_start.php) tells this pane's claude
             // process apart from any other on the box, so it knows which
             // sidecar to rebind when Claude Code rotates to a new session-id
@@ -94,7 +94,7 @@ class SessionLifecycleService
             // this tmux pane itself ever restarting.
             'new-session', '-d', '-s', $name,
             '-c', $workdir,
-            '-e', "CSM_SESSION_NAME={$name}",
+            '-e', "SESSIONEER_SESSION_NAME={$name}",
             '-x', (string)Config::new_session_pane_width(),
             '-y', (string)Config::new_session_pane_height(),
         ], $agentArgv));
@@ -133,11 +133,11 @@ class SessionLifecycleService
     /**
      * True if $claudeSessionId is already the id bound to some currently
      * live/tracked pane OTHER than $excludeSessionName - guards
-     * resume_cc_session() against two panes fighting over the same
+     * resume_agent_session() against two panes fighting over the same
      * transcript file, and session_start.php's hook against rebinding a
      * pane's sidecar onto a DIFFERENT pane's real live session (found live
      * 2026-08-23: a nested `claude` child process inheriting the parent
-     * pane's CSM_SESSION_NAME env var reported another pane's own real,
+     * pane's SESSIONEER_SESSION_NAME env var reported another pane's own real,
      * transcript-backed session id, which passed the hook's existing
      * transcript-exists check and clobbered the parent's sidecar onto it -
      * the transcript-exists check alone only rules out phantom ids, not
@@ -165,9 +165,9 @@ class SessionLifecycleService
     }
 
     /**
-     * A per-claude_session_id lock file path for resume_cc_session()'s own
+     * A per-claude_session_id lock file path for resume_agent_session()'s own
      * flock() below - sha1() rather than the id itself so this never has
-     * to assume/validate a UUID shape (resume_cc_session() doesn't
+     * to assume/validate a UUID shape (resume_agent_session() doesn't
      * currently enforce one), and can't be abused as a path-traversal
      * vector either way. Lives in the same tmpfs sidecar dir as every
      * other session-scoped ephemeral file this app writes.
@@ -189,7 +189,7 @@ class SessionLifecycleService
     /**
      * Resumes a known, dormant `claude_session_id` (an archived-list row,
      * per the unify-claude-sessions plan's phase 5) in a fresh, app-managed
-     * tmux pane - the exact same spawn shape as create_cc_session(), just
+     * tmux pane - the exact same spawn shape as create_agent_session(), just
      * `--resume <id>` instead of `--session-id <new-uuid>`. Verified live
      * 2026-08-08: unlike the no-id form (which always drops into an
      * interactive picker, even with a single candidate - see the plan
@@ -218,7 +218,7 @@ class SessionLifecycleService
      *
      * @return array{ok:bool, message:string, name?:string}
      */
-    public static function resume_cc_session(string $workdir, string $claudeSessionId): array
+    public static function resume_agent_session(string $workdir, string $claudeSessionId): array
     {
         if ($workdir === '' || $workdir[0] !== '/') {
             return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
@@ -255,7 +255,7 @@ class SessionLifecycleService
             $result = TmuxService::tmux_run(array_merge([
                 'new-session', '-d', '-s', $name,
                 '-c', $workdir,
-                '-e', "CSM_SESSION_NAME={$name}",
+                '-e', "SESSIONEER_SESSION_NAME={$name}",
                 '-x', (string)Config::new_session_pane_width(),
                 '-y', (string)Config::new_session_pane_height(),
             ], $resumeArgv));
@@ -291,7 +291,7 @@ class SessionLifecycleService
      *
      * @return array{ok:bool, message:string}
      */
-    public static function kill_cc_session(string $requested): array
+    public static function kill_agent_session(string $requested): array
     {
         $whitelist = array_column(TmuxService::list_tracked_tmux_sessions(), 'name');
 

@@ -32,7 +32,7 @@ use HostAgent\Stores\SidecarStore;
 const REAL_HOME_ROOT_AGMS = '/home/user';
 const REAL_TMUX_SOCKET_AGMS = '/tmp/tmux-1000/default';
 
-$fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-agy-model-switch-sidecars-' . bin2hex(random_bytes(4));
+$fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-agy-model-switch-sidecars-' . bin2hex(random_bytes(4));
 
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 

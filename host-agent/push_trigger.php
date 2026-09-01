@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Standalone entry point run periodically by the csm-push-check systemd
+ * Standalone entry point run periodically by the sessioneer-push-check systemd
  * timer (see host-agent/systemd/) - two independent passes every tick:
  * every live session checked for a fresh transition into a blocked/
  * waiting-on-input state (PushDeliveryService::check_and_send_pushes()),
@@ -68,7 +68,7 @@ try {
 
     // Merge headless sessions - same transform the 'list' action does
     // (unpack 'blocked' → 'blocked_reason', add 'working' from status).
-    foreach (csm_headless_sessions()['headless'] as $h) {
+    foreach (sessioneer_headless_sessions()['headless'] as $h) {
         $blocked = is_array($h['blocked'] ?? null) ? $h['blocked'] : null;
         $sessions[] = [
             'name' => $h['id'],
@@ -105,10 +105,10 @@ try {
 
     PushDeliveryService::check_and_send_pushes($sessions);
 } catch (\Throwable $e) {
-    error_log('csm-push-check: session-transition pass crashed - ' . $e->getMessage());
+    error_log('sessioneer-push-check: session-transition pass crashed - ' . $e->getMessage());
 }
 
-if (Config::csm_config('PUSH_QUOTA_NOTIFICATIONS_ENABLED', '1') === '1') {
+if (Config::sessioneer_config('PUSH_QUOTA_NOTIFICATIONS_ENABLED', '1') === '1') {
     try {
         $agents = QuotaService::get_quota()['agents'] ?? [];
         $claudeQuota = is_array($agents['claude']['quota'] ?? null) ? $agents['claude']['quota'] : [];
@@ -117,6 +117,6 @@ if (Config::csm_config('PUSH_QUOTA_NOTIFICATIONS_ENABLED', '1') === '1') {
 
         PushDeliveryService::check_and_send_quota_pushes($mergedQuota !== [] ? $mergedQuota : null);
     } catch (\Throwable $e) {
-        error_log('csm-push-check: quota pass crashed - ' . $e->getMessage());
+        error_log('sessioneer-push-check: quota pass crashed - ' . $e->getMessage());
     }
 }

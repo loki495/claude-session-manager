@@ -1,11 +1,11 @@
 const { test, expect } = require('@playwright/test');
 
-const live = process.env.CSM_PLAYWRIGHT_LIVE === '1';
-const workdir = process.env.CSM_CODEX_E2E_WORKDIR;
+const live = process.env.SESSIONEER_PLAYWRIGHT_LIVE === '1';
+const workdir = process.env.SESSIONEER_CODEX_E2E_WORKDIR;
 
 test.describe('live Codex browser lifecycle', () => {
-  test.skip(!live, 'Run with npm run test:codex-live against a live CSM instance.');
-  test.skip(!workdir, 'CSM_CODEX_E2E_WORKDIR must be an absolute directory on the host.');
+  test.skip(!live, 'Run with npm run test:codex-live against a live Sessioneer instance.');
+  test.skip(!workdir, 'SESSIONEER_CODEX_E2E_WORKDIR must be an absolute directory on the host.');
 
   test('create, refresh, reopen, and send a Codex message without errors', async ({ page }) => {
     test.setTimeout(120_000);
@@ -35,7 +35,7 @@ test.describe('live Codex browser lifecycle', () => {
 
     try {
       await page.goto('/');
-      await expect(page).toHaveTitle(/Claude Session Manager/);
+      await expect(page).toHaveTitle(/Sessioneer/);
 
       await page.locator('#new-session-summary').click();
       await expect(page.locator('#new-session-agent')).toBeVisible();
@@ -84,7 +84,7 @@ test.describe('live Codex browser lifecycle', () => {
       await expect(page.getByText(/includeTurns is unavailable/i)).toHaveCount(0);
       await expect(page.locator('#compose-textarea')).toBeVisible();
 
-      const message = `CSM Codex browser E2E ${Date.now()}: reply with exactly CSM_CODEX_E2E_OK.`;
+      const message = `Sessioneer Codex browser E2E ${Date.now()}: reply with exactly SESSIONEER_CODEX_E2E_OK.`;
       await page.locator('#compose-textarea').fill(message);
       const sendResponse = page.waitForResponse(response => response.url().includes('/session_send.php'));
       await page.locator('#compose-send-btn').click();

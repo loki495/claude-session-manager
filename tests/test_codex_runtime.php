@@ -29,9 +29,9 @@ class FakeCodexBridgeClient extends CodexBridgeClient
             'thread/read' => ['ok' => true, 'result' => ['thread' => ['id' => 'codex-thread-1', 'status' => ['type' => 'idle']]]],
             'thread/resume' => ['ok' => true, 'result' => ['thread' => ['id' => 'codex-thread-1']]],
             'thread/archive' => ['ok' => true, 'result' => (object)[]],
-            'csm/sendInput' => ['ok' => true, 'result' => ['turn' => ['id' => 'turn-1']]],
-            'csm/interrupt', 'thread/settings/update' => ['ok' => true, 'result' => (object)[]],
-            'csm/pendingPrompt' => ['ok' => true, 'prompt' => null],
+            'sessioneer/sendInput' => ['ok' => true, 'result' => ['turn' => ['id' => 'turn-1']]],
+            'sessioneer/interrupt', 'thread/settings/update' => ['ok' => true, 'result' => (object)[]],
+            'sessioneer/pendingPrompt' => ['ok' => true, 'prompt' => null],
             default => ['ok' => false, 'message' => 'Unexpected method'],
         };
     }
@@ -54,7 +54,7 @@ class FakeUnmaterializedCodexBridgeClient extends CodexBridgeClient
         if ($method === 'thread/resume') {
             return ['ok' => false, 'message' => 'no rollout found for thread id codex-empty'];
         }
-        if ($method === 'csm/sendInput') {
+        if ($method === 'sessioneer/sendInput') {
             return ['ok' => true, 'result' => ['turn' => ['id' => 'turn-empty']]];
         }
         return ['ok' => false, 'message' => 'Unexpected method'];
@@ -122,13 +122,13 @@ $pagedFake = new FakePaginatedCodexBridgeClient();
 $paged = CodexTranscriptService::list_threads(true, $pagedFake, true);
 assert_equal(['codex-new', 'codex-old'], array_column($paged['threads'] ?? [], 'id'), 'Codex catalog follows every native pagination cursor');
 assert_equal(true, $pagedFake->calls[0]['params']['archived'] ?? null, 'Codex catalog requests the archived partition explicitly');
-assert_true(in_array('vscode', $pagedFake->calls[0]['params']['sourceKinds'] ?? [], true), 'Codex catalog includes the source kind used by CSM-created threads');
+assert_true(in_array('vscode', $pagedFake->calls[0]['params']['sourceKinds'] ?? [], true), 'Codex catalog includes the source kind used by Sessioneer-created threads');
 assert_equal('page-2', $pagedFake->calls[1]['params']['cursor'] ?? null, 'Codex catalog passes the native cursor to the next page');
 $failedCatalog = CodexTranscriptService::list_threads(false, new FakeFailingCodexBridgeClient());
 assert_equal(false, $failedCatalog['ok'] ?? null, 'Codex catalog preserves a handled app-server list failure');
 assert_contains('unavailable', $failedCatalog['message'] ?? '', 'Codex catalog list failure retains the actionable dependency error');
 
-$archiveHome = sys_get_temp_dir() . '/csm-codex-archive-' . bin2hex(random_bytes(4));
+$archiveHome = sys_get_temp_dir() . '/sessioneer-codex-archive-' . bin2hex(random_bytes(4));
 @mkdir($archiveHome . '/.codex/archived_sessions', 0700, true);
 $archiveId = '01a00000-0000-7000-8000-000000000001';
 $archivePath = $archiveHome . '/.codex/archived_sessions/rollout-2026-08-28T00-00-00-' . $archiveId . '.jsonl';
@@ -150,9 +150,9 @@ assert_true($runtime->detail('codex-thread-1')['ok'] === true, 'Codex thread det
 assert_equal('thread/resume', $fake->calls[3]['method'], 'Codex detail probes whether the thread is writable');
 assert_true($runtime->send_message('codex-thread-1', 'hello')['ok'] === true, 'Codex message send succeeds');
 assert_equal('thread/resume', $fake->calls[4]['method'], 'Codex message resumes a persisted thread before sending');
-assert_equal('csm/sendInput', $fake->calls[5]['method'], 'Codex message delegates start-versus-steer to the persistent bridge');
+assert_equal('sessioneer/sendInput', $fake->calls[5]['method'], 'Codex message delegates start-versus-steer to the persistent bridge');
 assert_true($runtime->interrupt('codex-thread-1')['ok'] === true, 'Codex active turn can be interrupted');
-assert_equal('csm/interrupt', $fake->calls[6]['method'], 'Codex interrupt is server-native');
+assert_equal('sessioneer/interrupt', $fake->calls[6]['method'], 'Codex interrupt is server-native');
 assert_true($runtime->update_settings('codex-thread-1', 'gpt-test-2', 'high')['ok'] === true, 'Codex sticky model and effort can be updated');
 assert_equal('thread/settings/update', $fake->calls[7]['method'], 'Codex settings use the native thread method');
 assert_true($runtime->kill('codex-thread-1')['ok'] === true, 'Codex close succeeds');
@@ -214,7 +214,7 @@ $mcpCall = CodexTranscriptService::parse_item([
 ], null, 9);
 assert_equal('github.search', $mcpCall['blocks'][0]['tool_name'] ?? null, 'Codex MCP item keeps both server and tool identity');
 
-$statusDb = sys_get_temp_dir() . '/csm-test-codex-status-' . bin2hex(random_bytes(4)) . '.sqlite';
+$statusDb = sys_get_temp_dir() . '/sessioneer-test-codex-status-' . bin2hex(random_bytes(4)) . '.sqlite';
 putenv("SESSIONS_SQLITE_FILE={$statusDb}");
 SqliteDb::reset_connections_for_tests();
 SidecarStore::write_sidecar('codex-stale', ['agent' => 'codex', 'runtime' => RuntimeType::HEADLESS]);

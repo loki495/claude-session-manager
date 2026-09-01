@@ -7,7 +7,7 @@ namespace HostAgent\Agents;
 use HostAgent\Runtimes\RuntimeType;
 use HostAgent\Services\PushHealthService;
 
-/** Codex is server-owned in CSM; it is never spawned into tmux. */
+/** Codex is server-owned in Sessioneer; it is never spawned into tmux. */
 class CodexAdapter implements AgentAdapter
 {
     public function id(): string { return 'codex'; }

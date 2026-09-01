@@ -1,6 +1,6 @@
 <?php
 $this->layout('layout', [
-    'title' => $found ? (string)($detail['title'] ?? $detail['name']) : 'Claude Session Manager',
+    'title' => $found ? (string)($detail['title'] ?? $detail['name']) : 'Sessioneer',
     'viewportContent' => 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, viewport-fit=cover',
     'fixedShell' => true,
 ]);
@@ -353,7 +353,7 @@ $this->layout('layout', [
 </button>
 
 <script>
-window.CSM_BOOTSTRAP = <?= json_encode([
+window.SESSIONEER_BOOTSTRAP = <?= json_encode([
     'session' => $sessionName,
     'csrfToken' => $csrfToken,
     'newestLine' => $newestLine,

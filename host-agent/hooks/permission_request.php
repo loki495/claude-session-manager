@@ -27,8 +27,8 @@ declare(strict_types=1);
  * "no opinion" convention as pre_tool_use.php - this hook only ever
  * observes, never decides.
  *
- * CSM_SESSION_NAME gate: same as pre_tool_use.php/session_start.php - a
- * plain claude session started by hand (no CSM_SESSION_NAME) is a
+ * SESSIONEER_SESSION_NAME gate: same as pre_tool_use.php/session_start.php - a
+ * plain claude session started by hand (no SESSIONEER_SESSION_NAME) is a
  * deliberate no-op, since there's no per-session status file to key by.
  */
 
@@ -37,7 +37,7 @@ require __DIR__ . '/../lib/Sessions.php';
 use HostAgent\Services\PermissionMode;
 use HostAgent\Stores\SessionStatusStore;
 
-$sessionName = getenv('CSM_SESSION_NAME');
+$sessionName = getenv('SESSIONEER_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
     exit(0);

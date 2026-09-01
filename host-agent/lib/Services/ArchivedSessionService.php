@@ -103,7 +103,7 @@ class ArchivedSessionService
 
         // Codex threads live in app-server's durable catalog rather than a
         // local transcript directory. Include both dormant non-archived
-        // threads (those outside CSM's active window) and explicitly archived
+        // threads (those outside Sessioneer's active window) and explicitly archived
         // threads; the tracked-id exclusion keeps recent rows in one section.
         foreach ([false, true] as $nativeArchived) {
             $catalog = CodexTranscriptService::list_threads($nativeArchived, null, true);

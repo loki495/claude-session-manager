@@ -10,7 +10,7 @@ declare(strict_types=1);
  * NOTE on scope: the app does NOT trust the pane for PERMISSION surfacing any
  * more (a pane footer can be a STALE resolved dialog - found live 2026-08-25,
  * the "feasibility" session showed a permission footer while actively
- * working). Permissions come authoritatively from the CSM OpenCode plugin via
+ * working). Permissions come authoritatively from the Sessioneer OpenCode plugin via
  * PermissionStore (see test_opencode_permission_store.php). This test covers
  * the parser's OWN correctness: the is_blocked() gate, and that the modal
  * decoder still works for the pane-derived QUESTION fallback.
@@ -24,7 +24,7 @@ use HostAgent\Services\OpenCodePromptParser;
 
 const REAL_TMUX_SOCKET_OCPP = '/tmp/tmux-1000/default';
 
-$fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-ocpp-sidecars-' . bin2hex(random_bytes(4));
+$fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-ocpp-sidecars-' . bin2hex(random_bytes(4));
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 
 if (Config::tmux_socket() === REAL_TMUX_SOCKET_OCPP) {

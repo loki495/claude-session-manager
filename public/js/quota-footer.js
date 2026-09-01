@@ -5,7 +5,7 @@
   var toggleIcon = document.getElementById('quota-toggle-icon');
   var el = document.getElementById('quota-info');
   var sessionName = (footer && footer.dataset.session) ? footer.dataset.session : '';
-  var STORAGE_KEY = 'csm-quota-collapsed';
+  var STORAGE_KEY = 'sessioneer-quota-collapsed';
 
   if (!footer || !toggleBtn || !toggleIcon || !el) {
     return;

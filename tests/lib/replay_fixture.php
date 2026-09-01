@@ -155,7 +155,7 @@ function replay_setup(string $scenarioName, string $workdir): array
     $sessionName = 'cc-test-replay-' . getmypid();
     $claudeSessionId = '66666666-6666-4666-8666-' . str_pad((string)getmypid(), 12, '0', STR_PAD_LEFT);
 
-    $fixtureHome = sys_get_temp_dir() . '/csm-test-replay-home-' . getmypid();
+    $fixtureHome = sys_get_temp_dir() . '/sessioneer-test-replay-home-' . getmypid();
     $projectDir = $fixtureHome . '/.claude/projects/-replay-project';
     @mkdir($projectDir, 0700, true);
 

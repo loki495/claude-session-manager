@@ -94,7 +94,7 @@ class CodexTranscriptService
                 'sortKey' => 'updated_at',
                 'sortDirection' => 'desc',
             ];
-            // Archived discovery must be exhaustive: CSM-created persisted
+            // Archived discovery must be exhaustive: Sessioneer-created persisted
             // rollouts currently report source=vscode, which the default
             // interactive subset omits after thread/archive. Active sync
             // intentionally keeps the native default because it is also the
@@ -134,9 +134,9 @@ class CodexTranscriptService
     }
 
     /**
-     * Maps one retained app-server thread item to CSM's canonical entry.
+     * Maps one retained app-server thread item to Sessioneer's canonical entry.
      * Kept public for deterministic protocol-fixture coverage: app-server
-     * adds item variants independently of CSM, and silently dropping an
+     * adds item variants independently of Sessioneer, and silently dropping an
      * unknown tool shape is otherwise easy to miss in browser smoke tests.
      *
      * @param array<string,mixed> $item

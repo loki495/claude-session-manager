@@ -354,9 +354,9 @@ class SessionService
             'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
             // Fixed 'user'/null here, not run through parse_worker_tag() -
             // a tmux (cc-*/oc-*) session is always either something a human
-            // started, or something CSM's own UI spawned; no code path today
+            // started, or something Sessioneer's own UI spawned; no code path today
             // can put the [WORKER ...] tag on one (only the headless
-            // opencode/codex auto-adopt sync, see csm_headless_sessions() in
+            // opencode/codex auto-adopt sync, see sessioneer_headless_sessions() in
             // Sessions.php, since only bare cross-tool CLI launches carry it).
             'kind' => 'user',
             'parent_session_id' => null,

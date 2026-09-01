@@ -68,7 +68,7 @@
 // makes these arbitrary utility classes work with no CSS of our own to
 // author or keep in sync. ---
 (function () {
-  var bootstrap = window.CSM_ARCHIVED_BOOTSTRAP || {};
+  var bootstrap = window.SESSIONEER_ARCHIVED_BOOTSTRAP || {};
   var list = document.getElementById('history-list');
 
   if (!list || !bootstrap.jumpLine) {
@@ -101,7 +101,7 @@
 // instead of a live tmux name, and with no sidebar to live in here - this
 // view has none. ---
 (function () {
-  var bootstrap = window.CSM_ARCHIVED_BOOTSTRAP || {};
+  var bootstrap = window.SESSIONEER_ARCHIVED_BOOTSTRAP || {};
   var input = document.getElementById('session-search-input');
   var results = document.getElementById('session-search-results');
 

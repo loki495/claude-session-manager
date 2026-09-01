@@ -25,8 +25,8 @@ use HostAgent\Stores\SidecarStore;
 
 const REAL_HOME_ROOT_AG = '/home/user';
 
-$fixtureHome = sys_get_temp_dir() . '/csm-test-agy-hook-home-' . bin2hex(random_bytes(4));
-$fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-agy-hook-sidecars-' . bin2hex(random_bytes(4));
+$fixtureHome = sys_get_temp_dir() . '/sessioneer-test-agy-hook-home-' . bin2hex(random_bytes(4));
+$fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-agy-hook-sidecars-' . bin2hex(random_bytes(4));
 
 putenv("HOME_ROOT={$fixtureHome}");
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
@@ -43,11 +43,11 @@ $hooksPath = Config::antigravity_hooks_path();
 /**
  * Same shared subprocess runner shape as test_session_hook.php's own
  * run_status_hook_script() - all 4 Antigravity hook scripts share the
- * same CSM_SESSION_NAME-gated, stdin-JSON-in/stdout-string-out contract.
+ * same SESSIONEER_SESSION_NAME-gated, stdin-JSON-in/stdout-string-out contract.
  *
  * @param array<string, mixed>|null $payload
  */
-function run_antigravity_hook_script(string $scriptPath, ?string $csmSessionName, ?array $payload): string
+function run_antigravity_hook_script(string $scriptPath, ?string $sessioneerSessionName, ?array $payload): string
 {
     $env = [
         'HOME_ROOT' => Config::home_root(),
@@ -56,8 +56,8 @@ function run_antigravity_hook_script(string $scriptPath, ?string $csmSessionName
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
     ];
 
-    if ($csmSessionName !== null) {
-        $env['CSM_SESSION_NAME'] = $csmSessionName;
+    if ($sessioneerSessionName !== null) {
+        $env['SESSIONEER_SESSION_NAME'] = $sessioneerSessionName;
     }
 
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
@@ -99,8 +99,8 @@ try {
     // hooks wrapper), PreInvocation/Stop flat (bare {type,command} list) ---
 
     $decoded = json_decode((string)file_get_contents($hooksPath), true);
-    $group = $decoded['claude-session-manager'] ?? null;
-    assert_true(is_array($group), 'install_session_hook: writes under the claude-session-manager hook-group name');
+    $group = $decoded['sessioneer'] ?? null;
+    assert_true(is_array($group), 'install_session_hook: writes under the sessioneer hook-group name');
     assert_equal('.*', $group['PreToolUse'][0]['matcher'] ?? null, 'install_session_hook: PreToolUse is grouped with a matcher');
     assert_equal(Config::antigravity_pre_tool_use_hook_command(), $group['PreToolUse'][0]['hooks'][0]['command'] ?? null, 'install_session_hook: PreToolUse command is correct');
     assert_equal(Config::antigravity_post_tool_use_hook_command(), $group['PostToolUse'][0]['hooks'][0]['command'] ?? null, 'install_session_hook: PostToolUse command is correct');
@@ -113,8 +113,8 @@ try {
     $secondInstall = AntigravityHookService::install_session_hook();
     assert_equal(true, $secondInstall['installed'], 'install_session_hook: calling twice still reports installed');
     $afterSecond = json_decode((string)file_get_contents($hooksPath), true);
-    assert_equal(1, count($afterSecond['claude-session-manager']['PreToolUse']), 'install_session_hook: calling twice does not duplicate the PreToolUse matcher group');
-    assert_equal(1, count($afterSecond['claude-session-manager']['PreInvocation']), 'install_session_hook: calling twice does not duplicate the flat PreInvocation entry');
+    assert_equal(1, count($afterSecond['sessioneer']['PreToolUse']), 'install_session_hook: calling twice does not duplicate the PreToolUse matcher group');
+    assert_equal(1, count($afterSecond['sessioneer']['PreInvocation']), 'install_session_hook: calling twice does not duplicate the flat PreInvocation entry');
 
     // --- preserves an unrelated hook-group Andres (or a plugin) already has ---
 
@@ -126,7 +126,7 @@ try {
     assert_equal(true, $withExisting['ok'], 'install_session_hook: succeeds alongside an unrelated pre-existing hook group');
     $afterExisting = json_decode((string)file_get_contents($hooksPath), true);
     assert_equal('./scripts/lint.sh', $afterExisting['my-own-lint-hook']['PostToolUse'][0]['hooks'][0]['command'] ?? null, 'install_session_hook: leaves an unrelated hook group completely untouched');
-    assert_true(isset($afterExisting['claude-session-manager']), 'install_session_hook: adds its own group alongside the existing one');
+    assert_true(isset($afterExisting['sessioneer']), 'install_session_hook: adds its own group alongside the existing one');
 
     // --- malformed hooks.json: refuses rather than overwriting ---
 
@@ -139,10 +139,10 @@ try {
     assert_equal('{not valid json', file_get_contents($hooksPath), 'install_session_hook: leaves a malformed hooks.json byte-for-byte untouched');
     unlink($hooksPath);
 
-    // --- pre_invocation.php: no-op without CSM_SESSION_NAME ---
+    // --- pre_invocation.php: no-op without SESSIONEER_SESSION_NAME ---
 
     $noEnvOut = run_antigravity_hook_script("{$hooksDir}/pre_invocation.php", null, ['conversationId' => 'conv-a']);
-    assert_equal('{}', trim($noEnvOut), 'pre_invocation.php: outputs {} even with no CSM_SESSION_NAME (globally-registered hook, must never break an untracked session)');
+    assert_equal('{}', trim($noEnvOut), 'pre_invocation.php: outputs {} even with no SESSIONEER_SESSION_NAME (globally-registered hook, must never break an untracked session)');
 
     // --- pre_invocation.php: first firing binds the sidecar, marks working ---
 
@@ -186,10 +186,10 @@ try {
     assert_equal('/from/workspace/paths', SidecarStore::read_sidecar($piFallbackName)['workdir'] ?? null, 'pre_invocation.php: falls back to workspacePaths[0] as workdir when the sidecar has none');
     SidecarStore::delete_sidecar($piFallbackName);
 
-    // --- pre_tool_use.php: no-op without CSM_SESSION_NAME, still returns a valid decision ---
+    // --- pre_tool_use.php: no-op without SESSIONEER_SESSION_NAME, still returns a valid decision ---
 
     $ptuNoEnvOut = run_antigravity_hook_script("{$hooksDir}/pre_tool_use.php", null, ['toolCall' => ['name' => 'run_command', 'args' => ['CommandLine' => 'ls']]]);
-    assert_equal('{"decision":"ask"}', trim($ptuNoEnvOut), 'pre_tool_use.php: still returns a valid decision even with no CSM_SESSION_NAME (globally-registered, must never break an untracked session)');
+    assert_equal('{"decision":"ask"}', trim($ptuNoEnvOut), 'pre_tool_use.php: still returns a valid decision even with no SESSIONEER_SESSION_NAME (globally-registered, must never break an untracked session)');
 
     // --- pre_tool_use.php: "ask", not "allow" - confirmed live 2026-08-24 that "allow" does not suppress the real approval UI ---
 
@@ -212,16 +212,16 @@ try {
     assert_equal('{}', trim($postOut), 'post_tool_use.php: outputs {}');
     assert_equal(null, PendingToolStore::read_pending_tool($ptuName), 'post_tool_use.php: clears the pending tool call once it finishes');
 
-    // --- post_tool_use.php: safe no-op with nothing pending, and without CSM_SESSION_NAME ---
+    // --- post_tool_use.php: safe no-op with nothing pending, and without SESSIONEER_SESSION_NAME ---
 
     $postAgainOut = run_antigravity_hook_script("{$hooksDir}/post_tool_use.php", $ptuName, ['stepIdx' => 3]);
     assert_equal('{}', trim($postAgainOut), 'post_tool_use.php: safe no-op when nothing is pending');
     $postNoEnvOut = run_antigravity_hook_script("{$hooksDir}/post_tool_use.php", null, ['stepIdx' => 3]);
-    assert_equal('{}', trim($postNoEnvOut), 'post_tool_use.php: still outputs {} with no CSM_SESSION_NAME');
+    assert_equal('{}', trim($postNoEnvOut), 'post_tool_use.php: still outputs {} with no SESSIONEER_SESSION_NAME');
 
     // --- stop.php: marks idle, last_message from the real transcript's last PLANNER_RESPONSE ---
 
-    $fixtureTranscriptPath = sys_get_temp_dir() . '/csm-test-agy-transcript-' . bin2hex(random_bytes(4)) . '.jsonl';
+    $fixtureTranscriptPath = sys_get_temp_dir() . '/sessioneer-test-agy-transcript-' . bin2hex(random_bytes(4)) . '.jsonl';
     file_put_contents($fixtureTranscriptPath, implode("\n", [
         json_encode(['step_index' => 0, 'source' => 'USER_EXPLICIT', 'type' => 'USER_INPUT', 'status' => 'DONE', 'content' => 'do the thing']),
         json_encode(['step_index' => 1, 'source' => 'MODEL', 'type' => 'PLANNER_RESPONSE', 'status' => 'DONE', 'tool_calls' => [['name' => 'run_command', 'args' => ['CommandLine' => 'echo hi']]], 'content' => null]),
@@ -253,7 +253,7 @@ try {
     // a real response - this pane only ever needs the CURRENT exchange.
     TmuxService::tmux_run(['send-keys', '-t', $stopErrName, '-l', "> What models still have quota available?\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 5h.\nError ID: fixture-error-id\n"]);
 
-    $stopErrTranscriptPath = sys_get_temp_dir() . '/csm-test-agy-transcript-' . bin2hex(random_bytes(4)) . '.jsonl';
+    $stopErrTranscriptPath = sys_get_temp_dir() . '/sessioneer-test-agy-transcript-' . bin2hex(random_bytes(4)) . '.jsonl';
     file_put_contents($stopErrTranscriptPath, json_encode(['step_index' => 0, 'source' => 'USER_EXPLICIT', 'type' => 'USER_INPUT', 'status' => 'DONE', 'content' => 'What models still have quota available?']) . "\n");
 
     $stopErrOut = run_antigravity_hook_script("{$hooksDir}/stop.php", $stopErrName, ['executionNum' => 0, 'terminationReason' => 'NO_TOOL_CALL', 'fullyIdle' => true, 'transcriptPath' => $stopErrTranscriptPath]);
@@ -282,10 +282,10 @@ try {
     assert_equal('{"decision":"allow_stop"}', trim($stopNoTranscriptOut), 'stop.php: still a valid decision with no transcriptPath in the payload');
     assert_equal('idle', SessionStatusStore::read_status($ptuName)['status'] ?? null, 'stop.php: still marks idle with no transcriptPath');
 
-    // --- stop.php: no-op without CSM_SESSION_NAME, still a valid decision ---
+    // --- stop.php: no-op without SESSIONEER_SESSION_NAME, still a valid decision ---
 
     $stopNoEnvOut = run_antigravity_hook_script("{$hooksDir}/stop.php", null, ['executionNum' => 0]);
-    assert_equal('{"decision":"allow_stop"}', trim($stopNoEnvOut), 'stop.php: still returns a valid decision even with no CSM_SESSION_NAME');
+    assert_equal('{"decision":"allow_stop"}', trim($stopNoEnvOut), 'stop.php: still returns a valid decision even with no SESSIONEER_SESSION_NAME');
 
     SessionStatusStore::delete_status($ptuName);
     PendingToolStore::delete_pending_tool($ptuName);

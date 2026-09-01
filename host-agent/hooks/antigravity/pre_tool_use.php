@@ -21,13 +21,13 @@ declare(strict_types=1);
  * this hook stays a true no-op today. If a future Antigravity version
  * ever makes "allow" actually bypass the prompt, "ask" is also the SAFE
  * choice - this hook is registered GLOBALLY (fires for every agy
- * invocation on the machine, not just CSM-spawned ones), so "allow" would
+ * invocation on the machine, not just Sessioneer-spawned ones), so "allow" would
  * silently auto-approve every tool call everywhere the moment that bug
  * got fixed, which nobody asked for. Detecting/answering the real prompt
  * from the web UI is a later phase (see that plan doc's Phase 6).
  *
- * CSM_SESSION_NAME gate: same convention as every Claude Code hook script
- * - this hook fires globally regardless, so untracked (non-CSM) sessions
+ * SESSIONEER_SESSION_NAME gate: same convention as every Claude Code hook script
+ * - this hook fires globally regardless, so untracked (non-Sessioneer) sessions
  * still need a valid decision returned, just skip the PendingToolStore
  * write since there's no session_name to key it by.
  */
@@ -37,7 +37,7 @@ require __DIR__ . '/../../lib/Sessions.php';
 use HostAgent\Stores\PendingToolStore;
 use HostAgent\Stores\SessionStatusStore;
 
-$sessionName = getenv('CSM_SESSION_NAME');
+$sessionName = getenv('SESSIONEER_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
     echo json_encode(['decision' => 'ask']);

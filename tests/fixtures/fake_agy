@@ -3,7 +3,7 @@
 # ANTIGRAVITY_BIN). Two distinct behaviors, matching the two distinct real
 # invocation shapes this app actually uses:
 #
-# - Interactive TUI spawn (create_cc_session(), no -p/--print flag) -
+# - Interactive TUI spawn (create_agent_session(), no -p/--print flag) -
 #   blocks on stdin forever, like an idle pane - same reasoning
 #   tests/fixtures/fake_claude already has (real flags like --model/--mode
 #   would trip up a plain coreutils binary otherwise). See that file's own

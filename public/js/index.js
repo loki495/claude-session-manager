@@ -715,7 +715,7 @@ document.addEventListener('keydown', function (e) {
   // render-specific state, not something this static file can know) - set
   // by the small inline bootstrap-data <script> tag index.php renders
   // right before this file is loaded.
-  var agentReachable = window.CSM_BOOTSTRAP.agentReachable;
+  var agentReachable = window.SESSIONEER_BOOTSTRAP.agentReachable;
   var sessionsContainer = document.getElementById('sessions-container');
   var bareContainer = document.getElementById('bare-container');
   var countText = document.getElementById('session-count-text');

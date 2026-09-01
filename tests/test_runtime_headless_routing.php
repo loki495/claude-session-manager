@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Phase 2.5 headless-runtime routing test - the pieces of new logic in
  * host-agent/lib/Sessions.php:
- *   1. csm_is_headless_session(): reads the sidecar's `runtime` column, not a
+ *   1. sessioneer_is_headless_session(): reads the sidecar's `runtime` column, not a
  *      session-id shape heuristic. A ses_* id (or any ref) with a headless
  *      sidecar IS headless; a tmux sidecar is not; no sidecar at all is not.
  *   2. The `list` action carries a `headless` key sourced from headless
@@ -24,7 +24,7 @@ use HostAgent\Services\Config;
 use HostAgent\Stores\SidecarStore;
 
 const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
-const REAL_SIDECAR_DIR = '/run/user/' . '1000' . '/csm-sessions';
+const REAL_SIDECAR_DIR = '/run/user/' . '1000' . '/sessioneer-sessions';
 
 if (Config::tmux_socket() === REAL_TMUX_SOCKET) {
     fwrite(STDERR, "REFUSING TO RUN: TMUX_SOCKET resolves to the real host socket. Check tests/.env.testing.\n");
@@ -38,7 +38,7 @@ if (Config::sidecar_dir() === REAL_SIDECAR_DIR) {
 
 putenv('OPENCODE_SERVE_URL=http://127.0.0.1:1');
 putenv('HEADLESS_SYNC_SECONDS=0'); // force the throttle to fire so the sync path runs
-putenv('PUSH_SQLITE_FILE=' . sys_get_temp_dir() . '/csm-test-headless-' . bin2hex(random_bytes(4)) . '/push.sqlite');
+putenv('PUSH_SQLITE_FILE=' . sys_get_temp_dir() . '/sessioneer-test-headless-' . bin2hex(random_bytes(4)) . '/push.sqlite');
 
 // --- routing rule (sidecar runtime, not shape) ---
 $headlessRef = 'ses_RouteAaaa';
@@ -51,7 +51,7 @@ SidecarStore::write_sidecar($headlessRef, [
     'agent' => 'opencode',
     'runtime' => RuntimeType::HEADLESS,
 ]);
-assert_true(csm_is_headless_session($headlessRef), 'a ref with a headless-runtime sidecar is headless');
+assert_true(sessioneer_is_headless_session($headlessRef), 'a ref with a headless-runtime sidecar is headless');
 assert_equal(RuntimeType::HEADLESS, SidecarStore::read_sidecar($headlessRef)['runtime'] ?? null, 'headless sidecar round-trips runtime=headless');
 
 // a tmux opencode session: sidecar keyed by tmux name, runtime tmux/null
@@ -63,9 +63,9 @@ SidecarStore::write_sidecar('oc-tmux-route', [
     'agent' => 'opencode',
     'runtime' => RuntimeType::TMUX,
 ]);
-assert_true(!csm_is_headless_session('oc-tmux-route'), 'a tmux-runtime sidecar is NOT headless');
-assert_true(!csm_is_headless_session('ses_RouteCccc'), 'a ref with no sidecar at all is NOT headless');
-assert_true(!csm_is_headless_session(''), 'an empty ref is not headless');
+assert_true(!sessioneer_is_headless_session('oc-tmux-route'), 'a tmux-runtime sidecar is NOT headless');
+assert_true(!sessioneer_is_headless_session('ses_RouteCccc'), 'a ref with no sidecar at all is NOT headless');
+assert_true(!sessioneer_is_headless_session(''), 'an empty ref is not headless');
 
 // --- list merges headless into `sessions` (one list card), fails soft ---
 $list = dispatch_action(['action' => 'list']);

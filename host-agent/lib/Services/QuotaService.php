@@ -380,7 +380,7 @@ class QuotaService
                 'ok' => $agLive !== null,
                 'quota' => $agLive['quota'] ?? null,
                 'fetched_at' => $agLive['fetched_at'] ?? null,
-                'message' => $agLive === null ? 'No quota data yet - csm-antigravity-quota-check timer has not run' : null,
+                'message' => $agLive === null ? 'No quota data yet - sessioneer-antigravity-quota-check timer has not run' : null,
             ],
             'opencode' => [
                 'label' => 'OpenCode',
@@ -443,7 +443,7 @@ class QuotaService
                 'refreshing' => false,
                 'agent' => 'antigravity',
                 'agent_label' => 'Antigravity',
-                'message' => 'No Antigravity quota data yet - csm-antigravity-quota-check timer has not run',
+                'message' => 'No Antigravity quota data yet - sessioneer-antigravity-quota-check timer has not run',
             ];
         }
 

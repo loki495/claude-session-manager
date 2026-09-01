@@ -159,7 +159,7 @@ $response = match ($action) {
             'pid' => CANNED_BARE_PID,
             'cwd' => '/home/user/www/some-other-project',
             'started_at' => time() - 600,
-            'tmux_session' => 'csm-test-adhoc',
+            'tmux_session' => 'sessioneer-test-adhoc',
             'title' => 'Bare title',
         ]],
     ],
@@ -280,7 +280,7 @@ $response = match ($action) {
         ? ['ok' => true, 'message' => 'Killed ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
     'kill_bare' => ($request['pid'] ?? null) === CANNED_BARE_PID
-        ? ['ok' => true, 'message' => 'Killed tmux session csm-test-adhoc (pid ' . CANNED_BARE_PID . ')']
+        ? ['ok' => true, 'message' => 'Killed tmux session sessioneer-test-adhoc (pid ' . CANNED_BARE_PID . ')']
         : ['ok' => false, 'message' => 'Rejected: not a currently running claude process'],
     // Always the needs_choice path (never the marker-matched instant one) -
     // that path is exercised thoroughly server-side in

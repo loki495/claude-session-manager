@@ -13,7 +13,7 @@ declare(strict_types=1);
  * SessionService::build_session_entry() reads this the same way
  * regardless of which agent governs the session.
  *
- * ALSO does the reactive session-id binding create_cc_session() can't do
+ * ALSO does the reactive session-id binding create_agent_session() can't do
  * up front for Antigravity (no --session-id/--conversation-id equivalent
  * exists for a fresh interactive session - confirmed live, see the plan
  * doc's "CLI flags" section). The FIRST hook to fire after spawn is what
@@ -23,12 +23,12 @@ declare(strict_types=1);
  * genuine mismatch) - every OTHER turn's firing is a cheap read-and-skip,
  * not a write on every single turn.
  *
- * CSM_SESSION_NAME gate: same convention as every Claude Code hook script
- * - set via `tmux new-session -e` in create_cc_session(), agent-agnostic.
- * A plain `agy` session started by hand (no CSM_SESSION_NAME) is a
+ * SESSIONEER_SESSION_NAME gate: same convention as every Claude Code hook script
+ * - set via `tmux new-session -e` in create_agent_session(), agent-agnostic.
+ * A plain `agy` session started by hand (no SESSIONEER_SESSION_NAME) is a
  * deliberate no-op, same as a plain claude session - but this hook is
  * registered GLOBALLY in ~/.gemini/config/hooks.json (fires for EVERY agy
- * invocation on the machine, not just CSM-spawned ones, unlike Claude
+ * invocation on the machine, not just Sessioneer-spawned ones, unlike Claude
  * Code's per-project settings.json scoping), so this gate matters even
  * more here.
  *
@@ -42,7 +42,7 @@ use HostAgent\Services\SessionLifecycleService;
 use HostAgent\Stores\SessionStatusStore;
 use HostAgent\Stores\SidecarStore;
 
-$sessionName = getenv('CSM_SESSION_NAME');
+$sessionName = getenv('SESSIONEER_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
     echo '{}';

@@ -20,7 +20,7 @@ use HostAgent\Stores\GlobalStateStore;
 
 const REAL_PUSH_SQLITE_FILE_AQ = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
 
-$pushSqliteFixture = sys_get_temp_dir() . '/csm-test-agy-quota-' . bin2hex(random_bytes(4)) . '/push.sqlite';
+$pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-agy-quota-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
 
 if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_AQ) {
@@ -90,7 +90,7 @@ try {
     // --- a failing/nonexistent binary: no crash, no bogus state written ---
 
     GlobalStateStore::delete(Config::antigravity_quota_live_state_key());
-    $badBin = run_antigravity_quota_poll('/definitely/does/not/exist/csm-test-agy-binary', $pushSqliteFixture);
+    $badBin = run_antigravity_quota_poll('/definitely/does/not/exist/sessioneer-test-agy-binary', $pushSqliteFixture);
     assert_equal(0, $badBin['exit'], 'antigravity_quota_poll.php: still exits 0 (never crashes) when the configured binary does not exist');
     assert_equal(null, GlobalStateStore::read(Config::antigravity_quota_live_state_key()), 'antigravity_quota_poll.php: no state written when the underlying agy call fails outright');
 } finally {

@@ -42,7 +42,7 @@ function dispatch_action(array $request): array
     switch ($request['action'] ?? '') {
         case 'list':
             $list = ['ok' => true] + SessionService::list_all_sessions();
-            $list['sessions'] = csm_merge_headless_sessions($list['sessions']);
+            $list['sessions'] = sessioneer_merge_headless_sessions($list['sessions']);
 
             return $list;
 
@@ -51,13 +51,13 @@ function dispatch_action(array $request): array
 
         case 'session_detail':
             $session = (string)($request['session'] ?? '');
-            if (csm_is_headless_session($session)) {
-                $agent = csm_headless_agent($session);
+            if (sessioneer_is_headless_session($session)) {
+                $agent = sessioneer_headless_agent($session);
                 $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
                 $serveDetail = $headless?->detail($session) ?? ['ok' => false, 'message' => 'Headless runtime unavailable'];
 
                 if (($serveDetail['ok'] === true) && is_array($serveDetail['session'] ?? null)) {
-                    return csm_headless_detail_shape($serveDetail['session'], $agent ?? 'opencode');
+                    return sessioneer_headless_detail_shape($serveDetail['session'], $agent ?? 'opencode');
                 }
 
                 return $serveDetail;
@@ -69,7 +69,7 @@ function dispatch_action(array $request): array
 
         case 'session_history':
             $historySession = (string)($request['session'] ?? '');
-            if (csm_is_headless_session($historySession)) {
+            if (sessioneer_is_headless_session($historySession)) {
                 return SessionDetailService::archived_session_history(
                     $historySession,
                     isset($request['before']) ? (int)$request['before'] : null,
@@ -178,7 +178,7 @@ function dispatch_action(array $request): array
                         (new OpenCodeServeClient())->set_model($createdId, $modelProvider, $modelId);
                     }
 
-                    // Normalize to the create_cc_session() shape callers expect
+                    // Normalize to the create_agent_session() shape callers expect
                     // (a `name` for the redirect to session.php?session=name).
                     $result['name'] = $createdId;
                     $result['session'] = $createdId;
@@ -187,7 +187,7 @@ function dispatch_action(array $request): array
                 return $result;
             }
 
-            return SessionLifecycleService::create_cc_session(
+            return SessionLifecycleService::create_agent_session(
                 $workdir,
                 (bool)($request['enable_task_tools'] ?? false),
                 is_string($startingMode) && $startingMode !== '' ? $startingMode : null,
@@ -203,20 +203,20 @@ function dispatch_action(array $request): array
             // runtimes - no tmux pane spawned. claude/antigravity keep the
             // tmux resume path.
             if (OpenCodeTranscriptService::is_opencode_id($resumeId)) {
-                return csm_headless_resume($resumeWorkdir, $resumeId);
+                return sessioneer_headless_resume($resumeWorkdir, $resumeId);
             }
 
             $transcriptPath = TranscriptRouter::find_transcript_path($resumeId);
             if ($transcriptPath !== null && TranscriptRouter::is_codex_path($transcriptPath)) {
-                return csm_codex_resume($resumeWorkdir, $resumeId);
+                return sessioneer_codex_resume($resumeWorkdir, $resumeId);
             }
 
-            return SessionLifecycleService::resume_cc_session($resumeWorkdir, $resumeId);
+            return SessionLifecycleService::resume_agent_session($resumeWorkdir, $resumeId);
 
         case 'kill':
             $killSession = (string)($request['session'] ?? '');
-            if (csm_is_headless_session($killSession)) {
-                $agent = csm_headless_agent($killSession);
+            if (sessioneer_is_headless_session($killSession)) {
+                $agent = sessioneer_headless_agent($killSession);
                 $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
                 $result = $headless?->kill($killSession) ?? ['ok' => false, 'message' => 'Headless runtime unavailable'];
 
@@ -224,7 +224,7 @@ function dispatch_action(array $request): array
                 // kill, so the session leaves the active list at once rather
                 // than lingering until the throttled sync (HEADLESS_SYNC_SECONDS)
                 // prunes it - the tmux kill path already does this (see
-                // SessionLifecycleService::kill_cc_session()).
+                // SessionLifecycleService::kill_agent_session()).
                 if ($result['ok'] === true) {
                     SidecarStore::delete_sidecar($killSession);
                     SessionStatusStore::delete_status($killSession);
@@ -232,7 +232,7 @@ function dispatch_action(array $request): array
 
                 return $result;
             }
-            return SessionLifecycleService::kill_cc_session($killSession);
+            return SessionLifecycleService::kill_agent_session($killSession);
 
         case 'kill_bare':
             return BareProcessService::kill_bare_process((int)($request['pid'] ?? 0));
@@ -249,15 +249,15 @@ function dispatch_action(array $request): array
 
         case 'answer_prompt':
             $answerSession = (string)($request['session'] ?? '');
-            if (csm_is_headless_session($answerSession)) {
-                return csm_headless_answer_prompt($answerSession, ['option' => (int)($request['option'] ?? 0)]);
+            if (sessioneer_is_headless_session($answerSession)) {
+                return sessioneer_headless_answer_prompt($answerSession, ['option' => (int)($request['option'] ?? 0)]);
             }
             return PromptInteractionService::answer_prompt($answerSession, (int)($request['option'] ?? 0));
 
         case 'answer_prompt_with_text':
             $answerTextSession = (string)($request['session'] ?? '');
-            if (csm_is_headless_session($answerTextSession)) {
-                return csm_headless_answer_prompt($answerTextSession, [
+            if (sessioneer_is_headless_session($answerTextSession)) {
+                return sessioneer_headless_answer_prompt($answerTextSession, [
                     'option' => (int)($request['option'] ?? 0),
                     'text' => (string)($request['text'] ?? ''),
                 ]);
@@ -266,8 +266,8 @@ function dispatch_action(array $request): array
 
         case 'answer_multi_question':
             $answerMultiSession = (string)($request['session'] ?? '');
-            if (csm_is_headless_session($answerMultiSession)) {
-                return csm_headless_answer_prompt($answerMultiSession, [
+            if (sessioneer_is_headless_session($answerMultiSession)) {
+                return sessioneer_headless_answer_prompt($answerMultiSession, [
                     'answers' => is_array($request['answers'] ?? null) ? $request['answers'] : [],
                 ]);
             }
@@ -276,8 +276,8 @@ function dispatch_action(array $request): array
         case 'send_escape':
             $escapeSession = (string)($request['session'] ?? '');
 
-            if (csm_is_headless_session($escapeSession)) {
-                if (csm_headless_agent($escapeSession) === 'codex') {
+            if (sessioneer_is_headless_session($escapeSession)) {
+                if (sessioneer_headless_agent($escapeSession) === 'codex') {
                     $runtime = RuntimeRegistry::runtime_for('codex', RuntimeType::HEADLESS);
                     return $runtime instanceof \HostAgent\Runtimes\CodexHeadlessRuntime
                         ? $runtime->interrupt($escapeSession)
@@ -292,8 +292,8 @@ function dispatch_action(array $request): array
             $sendText = (string)($request['text'] ?? '');
             $sendAttachments = is_array($request['attachment_paths'] ?? null) ? array_map('strval', $request['attachment_paths']) : [];
 
-            if (csm_is_headless_session($sendSession)) {
-                $agent = csm_headless_agent($sendSession);
+            if (sessioneer_is_headless_session($sendSession)) {
+                $agent = sessioneer_headless_agent($sendSession);
                 $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
                 return $headless?->send_message($sendSession, $sendText, $sendAttachments)
                     ?? ['ok' => false, 'message' => 'Headless runtime unavailable'];
@@ -303,15 +303,15 @@ function dispatch_action(array $request): array
         case 'set_mode':
             $modeSession = (string)($request['session'] ?? '');
 
-            if (csm_is_headless_session($modeSession)) {
+            if (sessioneer_is_headless_session($modeSession)) {
                 return ['ok' => false, 'message' => 'Mode switching is not supported for headless sessions'];
             }
             return PromptInteractionService::set_mode($modeSession, (string)($request['mode'] ?? ''));
 
         case 'set_model':
             $modelSession = (string)($request['session'] ?? '');
-            if (csm_is_headless_session($modelSession)) {
-                if (csm_headless_agent($modelSession) === 'codex') {
+            if (sessioneer_is_headless_session($modelSession)) {
+                if (sessioneer_headless_agent($modelSession) === 'codex') {
                     $runtime = RuntimeRegistry::runtime_for('codex', RuntimeType::HEADLESS);
                     return $runtime instanceof \HostAgent\Runtimes\CodexHeadlessRuntime
                         ? $runtime->update_settings($modelSession, (string)($request['model'] ?? ''), (string)($request['effort'] ?? ''))
@@ -326,7 +326,7 @@ function dispatch_action(array $request): array
             return PromptInteractionService::set_model($modelSession, (string)($request['model'] ?? ''));
 
         case 'list_models':
-            return csm_list_models(is_string($request['agent'] ?? null) ? $request['agent'] : 'opencode');
+            return sessioneer_list_models(is_string($request['agent'] ?? null) ? $request['agent'] : 'opencode');
 
         case 'set_antigravity_model':
             return PromptInteractionService::set_antigravity_model((string)($request['session'] ?? ''), (string)($request['model'] ?? ''));
@@ -397,7 +397,7 @@ function dispatch_action(array $request): array
  * @param array<int, array<string, mixed>> $sessions
  * @return array<int, array<string, mixed>>
  */
-function csm_merge_headless_sessions(array $sessions): array
+function sessioneer_merge_headless_sessions(array $sessions): array
 {
     foreach ($sessions as &$s) {
         $s['runtime'] = RuntimeType::TMUX;
@@ -411,7 +411,7 @@ function csm_merge_headless_sessions(array $sessions): array
     }
     unset($s);
 
-    foreach (csm_headless_sessions()['headless'] as $h) {
+    foreach (sessioneer_headless_sessions()['headless'] as $h) {
         $blocked = is_array($h['blocked'] ?? null) ? $h['blocked'] : null;
         $agentId = is_string($h['agent'] ?? null) ? $h['agent'] : 'opencode';
         $agentLabel = AgentRegistry::get($agentId)->label();
@@ -432,7 +432,7 @@ function csm_merge_headless_sessions(array $sessions): array
             'status' => $h['status'],
             'working' => $h['status'] === 'working',
             // Blocked-prompt fields come from the canonical shape the sync
-            // wrote (csm_headless_permission_prompt/question_prompt), so the
+            // wrote (sessioneer_headless_permission_prompt/question_prompt), so the
             // shared row renderer surfaces the blocked panel + the answer
             // actions just like a tmux session's blocked prompt.
             'blocked_reason' => is_string($blocked['question'] ?? null) ? $blocked['question'] : null,
@@ -470,17 +470,17 @@ function csm_merge_headless_sessions(array $sessions): array
  * The headless OpenCode sessions (those hosted by `opencode serve`, not a
  * tmux pane), as a `headless` key on the `list` action's payload - the
  * runtime-parallel counterpart to the tracked tmux `sessions` and the bare
- * claude `bare` groups. Reads CSM's own headless sidecars (metadata) plus
+ * claude `bare` groups. Reads Sessioneer's own headless sidecars (metadata) plus
  * SessionStatusStore (status), so the per-poll listing never hits `opencode
- * serve`; the serve-backed refresh is throttled inside csm_headless_sync().
+ * serve`; the serve-backed refresh is throttled inside sessioneer_headless_sync().
  * Fails soft: no headless sidecars (serve unreachable, or none adopted yet)
  * contributes an empty list, never a broken dashboard.
  *
  * @return array{headless: array<int, array<string, mixed>>}
  */
-function csm_headless_sessions(): array
+function sessioneer_headless_sessions(): array
 {
-    csm_headless_sync();
+    sessioneer_headless_sync();
 
     $rows = [];
 
@@ -524,7 +524,7 @@ function csm_headless_sessions(): array
 }
 
 /**
- * Throttled reflection of `opencode serve` into CSM's own per-session
+ * Throttled reflection of `opencode serve` into Sessioneer's own per-session
  * stores, so the dashboard's frequent `list` poll never makes an HTTP call
  * to serve.
  *
@@ -536,9 +536,9 @@ function csm_headless_sessions(): array
  * sidecars/status locally. Serve unreachable: leaves the last-known
  * sidecars/status untouched (keeps the dashboard stable, not empty).
  */
-function csm_headless_sync(): void
+function sessioneer_headless_sync(): void
 {
-    csm_codex_sync();
+    sessioneer_codex_sync();
 
     $rawInterval = getenv('HEADLESS_SYNC_SECONDS');
     $interval = $rawInterval === false || $rawInterval === '' ? 15 : max(0, (int)$rawInterval);
@@ -640,8 +640,8 @@ function csm_headless_sync(): void
     // shape (what the merged list's blocked panel + answer_prompt use).
     //
     // GET /permission returns empty on opencode 1.18.21 (the permission
-    // lives in-memory in the session's own process). The CSM plugin
-    // (csm-permissions.js) bridges permission.ask events into a JSON store
+    // lives in-memory in the session's own process). The Sessioneer plugin
+    // (sessioneer-permissions.js) bridges permission.ask events into a JSON store
     // the host-agent reads here as the authoritative fallback.
     $permBySession = [];
     foreach ($client->pending_permissions() as $perm) {
@@ -661,16 +661,16 @@ function csm_headless_sync(): void
 
     foreach ($liveIds as $id => $_) {
         if (isset($permBySession[$id])) {
-            SessionStatusStore::update_status($id, ['status' => 'blocked', 'blocked' => csm_headless_permission_prompt($permBySession[$id])]);
+            SessionStatusStore::update_status($id, ['status' => 'blocked', 'blocked' => sessioneer_headless_permission_prompt($permBySession[$id])]);
         } elseif (isset($questionBySession[$id])) {
-            SessionStatusStore::update_status($id, ['status' => 'blocked', 'blocked' => csm_headless_question_prompt($questionBySession[$id])]);
+            SessionStatusStore::update_status($id, ['status' => 'blocked', 'blocked' => sessioneer_headless_question_prompt($questionBySession[$id])]);
         } else {
-            // Plugin store fallback: the CSM plugin writes permission.ask
+            // Plugin store fallback: the Sessioneer plugin writes permission.ask
             // records to PermissionStore; GET /permission doesn't see them.
             $pluginPerm = \HostAgent\Services\PermissionStore::read_pending_permission($id);
 
             if ($pluginPerm !== null) {
-                SessionStatusStore::update_status($id, ['status' => 'blocked', 'blocked' => csm_headless_permission_prompt($pluginPerm)]);
+                SessionStatusStore::update_status($id, ['status' => 'blocked', 'blocked' => sessioneer_headless_permission_prompt($pluginPerm)]);
             }
         }
     }
@@ -692,7 +692,7 @@ function csm_headless_sync(): void
 }
 
 /** Reconciles recent native Codex app-server threads into headless sidecars. */
-function csm_codex_sync(): void
+function sessioneer_codex_sync(): void
 {
     $meta = GlobalStateStore::read('codex_headless_sessions_sync');
     $lastSync = is_array($meta) ? (int)($meta['last_sync'] ?? 0) : 0;
@@ -751,21 +751,21 @@ function csm_codex_sync(): void
  * runtime tmux (or NULL for a pre-headless row); a headless session's
  * sidecar is keyed by its ses_* id with runtime=headless.
  */
-function csm_is_headless_session(string $ref): bool
+function sessioneer_is_headless_session(string $ref): bool
 {
     $sidecar = SidecarStore::read_sidecar($ref);
 
     return $sidecar !== null && ($sidecar['runtime'] ?? 'tmux') === RuntimeType::HEADLESS;
 }
 
-function csm_headless_agent(string $ref): ?string
+function sessioneer_headless_agent(string $ref): ?string
 {
     $sidecar = SidecarStore::read_sidecar($ref);
     return is_string($sidecar['agent'] ?? null) ? $sidecar['agent'] : null;
 }
 
 /**
- * Builds CSM's canonical blocked-prompt shape for a pending opencode
+ * Builds Sessioneer's canonical blocked-prompt shape for a pending opencode
  * PERMISSION request (GET /permission item: id ^per, sessionID, permission,
  * patterns, tool). Options map to the serve reply verbs 1=once, 2=always,
  * 3=reject; request_id lets answer_prompt route to the permission reply.
@@ -773,7 +773,7 @@ function csm_headless_agent(string $ref): ?string
  * @param array<string, mixed> $perm
  * @return array<string, mixed>
  */
-function csm_headless_permission_prompt(array $perm): array
+function sessioneer_headless_permission_prompt(array $perm): array
 {
     // GET /permission shape: {permission: string, patterns: [...], id: ...}
     // Plugin store shape:    {type: string, pattern: string, metadata.patterns: [...], id: ...}
@@ -806,14 +806,14 @@ function csm_headless_permission_prompt(array $perm): array
 }
 
 /**
- * Builds CSM's canonical blocked-prompt shape for a pending opencode QUESTION
+ * Builds Sessioneer's canonical blocked-prompt shape for a pending opencode QUESTION
  * request (GET /question item) - reuses OpenCodeQuestionService::to_prompt()
  * and threads the request id through so answer_prompt can answer by label.
  *
  * @param array<string, mixed> $q
  * @return array<string, mixed>
  */
-function csm_headless_question_prompt(array $q): array
+function sessioneer_headless_question_prompt(array $q): array
 {
     $requestId = is_string($q['id'] ?? null) ? $q['id'] : null;
     $questions = is_array($q['questions'] ?? null) ? $q['questions'] : [];
@@ -826,12 +826,12 @@ function csm_headless_question_prompt(array $q): array
 /**
  * The serve's available models (flattened {providerID, id, name, family}) -
  * read from the sync's cache (GlobalStateStore), falling back to a live
- * /config/providers fetch if it isn't cached yet. Returns the CSM-shaped
+ * /config/providers fetch if it isn't cached yet. Returns the Sessioneer-shaped
  * model list so the session page's model dropdown can be populated client-side.
  *
  * @return array{ok:bool, models?:array<int, array<string, mixed>>, message?:string}
  */
-function csm_list_models(string $agent = 'opencode'): array
+function sessioneer_list_models(string $agent = 'opencode'): array
 {
     if ($agent === 'codex') {
         $reply = (new \HostAgent\Runtimes\CodexBridgeClient())->request('model/list', ['limit' => 100, 'includeHidden' => false]);
@@ -872,9 +872,9 @@ function csm_list_models(string $agent = 'opencode'): array
  * @param array<string, mixed> $answers
  * @return array{ok:bool, message?:string}
  */
-function csm_headless_answer_prompt(string $ref, array $answers): array
+function sessioneer_headless_answer_prompt(string $ref, array $answers): array
 {
-    $agent = csm_headless_agent($ref);
+    $agent = sessioneer_headless_agent($ref);
     $headless = $agent !== null ? RuntimeRegistry::runtime_for($agent, RuntimeType::HEADLESS) : null;
 
     return $headless !== null
@@ -887,12 +887,12 @@ function csm_headless_answer_prompt(string $ref, array $answers): array
  * session - the archived opencode session's "Resume" action, routed through
  * the server rather than spawning a tmux `opencode --session` pane. Adopts a
  * headless sidecar immediately so the redirect to session.php?session=<id>
- * resolves right away. Returns the create_cc_session()-shape `name` (=id)
+ * resolves right away. Returns the create_agent_session()-shape `name` (=id)
  * the resume controller redirects on.
  *
  * @return array{ok:bool, name?:string, session?:string, id?:string, message?:string}
  */
-function csm_headless_resume(string $workdir, string $claudeSessionId): array
+function sessioneer_headless_resume(string $workdir, string $claudeSessionId): array
 {
     if ($workdir === '' || $workdir[0] !== '/') {
         return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
@@ -932,13 +932,13 @@ function csm_headless_resume(string $workdir, string $claudeSessionId): array
  * need no separate proactive "adopt" RPC call - CodexHeadlessRuntime::detail()
  * and send_message() already call thread/resume lazily/idempotently on every
  * access (see that class's own comments). Simply validates the workdir and
- * writes a sidecar with agent=codex/runtime=headless; the next csm_codex_sync()
+ * writes a sidecar with agent=codex/runtime=headless; the next sessioneer_codex_sync()
  * will populate the title from the thread's metadata. Returns the same shape
- * csm_headless_resume() does so the resume controller can redirect on `name`.
+ * sessioneer_headless_resume() does so the resume controller can redirect on `name`.
  *
  * @return array{ok:bool, name?:string, session?:string, id?:string, message?:string}
  */
-function csm_codex_resume(string $workdir, string $threadId): array
+function sessioneer_codex_resume(string $workdir, string $threadId): array
 {
     if ($workdir === '' || $workdir[0] !== '/') {
         return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
@@ -973,7 +973,7 @@ function csm_codex_resume(string $workdir, string $threadId): array
  * @param array<string, mixed> $serve the GET /session/{id} object
  * @return array<string, mixed>
  */
-function csm_headless_detail_shape(array $serve, string $agentId = 'opencode'): array
+function sessioneer_headless_detail_shape(array $serve, string $agentId = 'opencode'): array
 {
     $id = is_string($serve['id'] ?? null) ? $serve['id'] : '';
     $workdir = is_string($serve['directory'] ?? null) ? $serve['directory'] : (is_string($serve['cwd'] ?? null) ? $serve['cwd'] : null);
@@ -982,7 +982,7 @@ function csm_headless_detail_shape(array $serve, string $agentId = 'opencode'): 
     $blocked = is_array($status['blocked'] ?? null) ? $status['blocked'] : null;
 
     // Fetch the todo/task list from the serve's GET /session/:id/todo
-    // endpoint. Each item is mapped to the CSM sidebar shape
+    // endpoint. Each item is mapped to the Sessioneer sidebar shape
     // {content, activeForm, status} — opencode has no activeForm, so
     // content is used for both.
     $todos = null;
@@ -1027,7 +1027,7 @@ function csm_headless_detail_shape(array $serve, string $agentId = 'opencode'): 
         'prompt_is_folder_trust' => (bool)($blocked['is_folder_trust'] ?? false),
         'prompt_tool_name' => is_string($blocked['tool_name'] ?? null) ? $blocked['tool_name'] : null,
         'prompt_tool_input' => is_array($blocked['tool_input'] ?? null) ? $blocked['tool_input'] : null,
-        // See csm_merge_headless_sessions()'s own comment on this same
+        // See sessioneer_merge_headless_sessions()'s own comment on this same
         // field - Codex has no pane fallback, so every question count needs
         // the structured form, not just 2+.
         'prompt_questions' => ($blocked['tool_name'] ?? null) === 'question'

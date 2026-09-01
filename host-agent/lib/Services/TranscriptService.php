@@ -7,7 +7,7 @@ namespace HostAgent\Services;
 /**
  * Read-only access to Claude Code's own JSONL conversation transcripts
  * under ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl - this file
- * never writes to them. Sessions created via create_cc_session() are
+ * never writes to them. Sessions created via create_agent_session() are
  * launched with an explicit --session-id (a UUID this app generates
  * itself, stored in the sidecar - see generate_uuid_v4() in Sessions.php),
  * so a transcript is found by globbing for that UUID's filename rather
@@ -1211,7 +1211,7 @@ class TranscriptService
      * Fable 5, Mythos 5, or later versions of those families unless you opt
      * in" - TodoWrite and the Task family are BOTH hidden by default on
      * those models, not one replacing the other automatically). This app's
-     * own create_cc_session($enableTaskTools) opt-in checkbox names only
+     * own create_agent_session($enableTaskTools) opt-in checkbox names only
      * the Task family in --allowedTools, never TodoWrite (see that
      * method's own docblock in SessionService) - so a session with the
      * checkbox checked produces Task-family calls, while an older-model or

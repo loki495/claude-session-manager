@@ -2,7 +2,7 @@
 
 Status: **in progress**, started 2026-08-24. Supersedes the "long-term,
 explicitly not near-term" sequencing note in `todo` — Andres asked to start
-this directly, ahead of the CSM-own-plugin-hooks item it was previously
+this directly, ahead of the Sessioneer-own-plugin-hooks item it was previously
 queued behind.
 
 ## Status at a glance (read this first before resuming - Claude or `agy`)
@@ -28,7 +28,7 @@ queued behind.
   (165h reset) mid-task before it could commit, so Claude reviewed the
   full diff, fixed 2 real issues (an over-strict return type on
   `antigravity_quota_state()` that didn't match its own intentional data
-  shape; a missing `CsmBootstrap.agent`/`agentLabel` type declaration -
+  shape; a missing `SessioneerBootstrap.agent`/`agentLabel` type declaration -
   confirmed the ONLY genuinely new tsc error via a clean-stash diff), and
   committed it. Verified live in a real browser (dashboard quota table +
   session-page agent label, real data, zero console errors) before
@@ -259,8 +259,8 @@ From `agy --help` (binary v1.1.19):
   (default 5m). Each invocation's JSON envelope includes `conversation_id`.
 - `--dangerously-skip-permissions`, `--sandbox` also exist.
 
-**Consequence for CSM**: session identity can't be bound at spawn time the
-way `SessionLifecycleService::create_cc_session()` does today (generate a
+**Consequence for Sessioneer**: session identity can't be bound at spawn time the
+way `SessionLifecycleService::create_agent_session()` does today (generate a
 UUID, pass `--session-id`, done). It has to be bound *reactively*, off the
 `conversationId` in whichever hook fires first after spawn (almost
 certainly `PreInvocation`, since that's the earliest hook after a prompt is
@@ -314,7 +314,7 @@ distinction mattered)
 `{"decision":"allow"}` does **NOT** suppress Antigravity's own interactive
 approval UI. Live test: hooks.json configured with `PreToolUse` always
 returning `allow`, a real interactive `agy` session asked to run `echo
-csm-live-test-marker` - `PreToolUse` fired (confirmed via the logged
+sessioneer-live-test-marker` - `PreToolUse` fired (confirmed via the logged
 payload) and returned `allow`, and the pane **still** showed a real
 "Do you want to proceed?" prompt with 4 numbered options (`1. Yes`, `2. Yes,
 and always allow in this conversation for commands that start with 'echo'`,
@@ -348,7 +348,7 @@ that only carries `tool_calls` (no text yet) has `content: null`.
 
 ## Adjustted plan vs. the original chat draft
 
-- Confirmed the `cc-` tmux-session-name prefix is CSM's own convention
+- Confirmed the `cc-` tmux-session-name prefix is Sessioneer's own convention
   (used in exactly 2 places, `SessionLifecycleService.php:83,258`), not
   Claude Code's, and session *tracking* is sidecar-existence-based, not a
   `cc-*` glob (`SessionService.php`'s own comment: "must include every real
@@ -394,7 +394,7 @@ earlier commit this plan doc already described)**
   the resolved open question above). `check_hooks()`/`install_hooks()` are
   deliberate honest stubs (`installed: false`, refuses) rather than fake
   success - Phase 3's job, not this one's.
-- `SessionLifecycleService::create_cc_session()` gained a 4th `?string
+- `SessionLifecycleService::create_agent_session()` gained a 4th `?string
   $agentId = null` parameter, whitelisted against `AgentRegistry::
   known_agent_ids()` (unrecognized/omitted falls back to Claude Code,
   byte-identical to every pre-Phase-2 caller). Wired through `Sessions.php`'s
@@ -425,7 +425,7 @@ earlier commit this plan doc already described)**
   (records `PendingToolStore`, **always returns `{"decision":"ask"}`, not
   `"allow"`** - deliberate: confirmed live `"allow"` does NOT suppress the
   real approval UI in this version, and this hook is registered GLOBALLY
-  (fires for every `agy` invocation on the machine, not just CSM-spawned
+  (fires for every `agy` invocation on the machine, not just Sessioneer-spawned
   ones) - `"ask"` matches today's real no-hook-installed behavior exactly,
   so it's a genuine no-op rather than a dormant global auto-approve
   waiting to activate itself the moment a future Antigravity version fixes
@@ -440,7 +440,7 @@ earlier commit this plan doc already described)**
   `{"decision":"allow_stop"}`, a fixed non-"continue" sentinel).
 - **Confirmed live, end-to-end, against Andres's real account**: installed
   the real hooks, spawned a real `ag-*` session through
-  `SessionLifecycleService::create_cc_session()` (the actual code path the
+  `SessionLifecycleService::create_agent_session()` (the actual code path the
   dashboard uses), sent it a real prompt via `PromptInteractionService::
   send_message()`, watched `SessionStatusStore` flip to `idle` with
   `last_message` correctly showing the real reply, confirmed the sidecar's
@@ -514,7 +514,7 @@ earlier commit this plan doc already described)**
 
 **Phase 5 — permission mode + display**
 - Small map: confirmed `--mode` values are `accept-edits`/`plan` (plus the
-  interactive default with no explicit flag) → CSM's canonical vocabulary.
+  interactive default with no explicit flag) → Sessioneer's canonical vocabulary.
 - Dashboard/session-page mode control becomes agent-aware (don't show
   Claude-only modes for an Antigravity session or vice versa).
 
@@ -566,7 +566,7 @@ call - "transcript first, then quota")**
   (unlike the Claude Code side) - this script is the ONLY writer, so every
   successful poll is already the full current truth, a plain overwrite is
   correct.
-- New `csm-antigravity-quota-check.service`/`.timer` systemd unit pair
+- New `sessioneer-antigravity-quota-check.service`/`.timer` systemd unit pair
   (`host-agent/systemd/`), `OnUnitActiveSec=60s` (Andres's own ask - free
   call, no cost pressure to poll less often). Wired into `install.sh`
   exactly like the existing push-check timer - units installed but **not

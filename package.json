@@ -1,5 +1,5 @@
 {
-  "name": "claude-session-manager",
+  "name": "sessioneer",
   "private": true,
   "description": "Dev-only tooling - Tailwind CSS build and the JSDoc type-check. Never required to install or run the app itself; see CONTRIBUTING.md.",
   "scripts": {

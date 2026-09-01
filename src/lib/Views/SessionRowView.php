@@ -190,7 +190,7 @@ class SessionRowView extends View
      * One archived (dormant) session's dashboard row - title/cwd/last-active.
      * Links straight to the read-only archived transcript view; also renders
      * a "Resume" button (phase 5 of the unify-claude-sessions plan) when
-     * $a['cwd'] is known - resume_cc_session() needs an absolute workdir to
+     * $a['cwd'] is known - resume_agent_session() needs an absolute workdir to
      * spawn into, and a handful of archived rows have a null cwd
      * (TranscriptService::find_first_cwd() found no real message line to
      * read it from), so those rows just don't get a button rather than

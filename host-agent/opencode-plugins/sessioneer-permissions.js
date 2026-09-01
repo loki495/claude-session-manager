@@ -1,5 +1,5 @@
 /**
- * CSM OpenCode plugin: bridge OpenCode's permission.ask hook into Claude
+ * Sessioneer OpenCode plugin: bridge OpenCode's permission.ask hook into Claude
  * Session Manager.
  *
  * OpenCode has NO queryable server-side state for a pending permission (the
@@ -16,15 +16,15 @@
  * in-process, in the same process that owns the permission).
  *
  * Store: one JSON file per ses_* id under OPENCODE_PERMISSION_DIR (default
- * /run/user/<uid>/csm-sessions/opencode-permissions/), same dir the PHP
+ * /run/user/<uid>/sessioneer-sessions/opencode-permissions/), same dir the PHP
  * host-agent's PermissionStore reads/writes.
  *
  *   { "permission": {<Permission>|null}, "intent": "allow"|"deny"|null }
  *
- * This is a global plugin (installed by CSM's install.sh to
+ * This is a global plugin (installed by Sessioneer's install.sh to
  * ~/.config/opencode/plugins/) so it loads for every oc-* session regardless
  * of cwd. It is pure-observe (never blocks the permission itself) except for
- * answering when CSM has recorded an intent.
+ * answering when Sessioneer has recorded an intent.
  */
 
 import { mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from "node:fs"
@@ -38,7 +38,7 @@ function storeDir() {
   // same default the PHP Config::opencode_permission_dir() uses.
   if (process.env.OPENCODE_PERMISSION_DIR) return process.env.OPENCODE_PERMISSION_DIR
   const uid = typeof process.getuid === "function" ? process.getuid() : 1000
-  return `/run/user/${uid}/csm-sessions/opencode-permissions`
+  return `/run/user/${uid}/sessioneer-sessions/opencode-permissions`
 }
 
 function fileFor(sessionId) {
@@ -104,12 +104,12 @@ function toPermissionRecord(p) {
   }
 }
 
-export const CsmPermissionsPlugin = async ({ project, directory }) => {
+export const SessioneerPermissionsPlugin = async ({ project, directory }) => {
   mkdirSync(storeDir(), { recursive: true, mode: 0o700 })
   // Heartbeat: prove the plugin actually runs (opencode registers it in debug
   // config but there was no log/event evidence it fires — this file's presence
   // is the cheapest way to confirm invocation from outside).
-  writeFileSync(join(storeDir(), "_csm-heartbeat.txt"), `init ${new Date().toISOString()}\n`, { flag: "a", mode: 0o600 })
+  writeFileSync(join(storeDir(), "_sessioneer-heartbeat.txt"), `init ${new Date().toISOString()}\n`, { flag: "a", mode: 0o600 })
 
   return {
     // Authoritative pending-permission signal. Record it (so the host-agent
@@ -118,12 +118,12 @@ export const CsmPermissionsPlugin = async ({ project, directory }) => {
       const sessionId = input?.sessionID
       if (!sessionId || !SESSION_ID_PATTERN.test(sessionId)) return
 
-      writeFileSync(join(storeDir(), "_csm-heartbeat.txt"), `permission.ask ${sessionId} ${input?.title} ${new Date().toISOString()}\n`, { flag: "a", mode: 0o600 })
+      writeFileSync(join(storeDir(), "_sessioneer-heartbeat.txt"), `permission.ask ${sessionId} ${input?.title} ${new Date().toISOString()}\n`, { flag: "a", mode: 0o600 })
 
       const record = readRecord(sessionId)
       record.permission = input
 
-      // If CSM has already staged an answer intent, consume it and respond -
+      // If Sessioneer has already staged an answer intent, consume it and respond -
       // this is how the host-agent answers a permission it surfaced.
       if (record.intent === "allow" || record.intent === "deny") {
         output.status = record.intent
@@ -138,7 +138,7 @@ export const CsmPermissionsPlugin = async ({ project, directory }) => {
 
     event: async ({ event }) => {
       const type = event?.type
-      writeFileSync(join(storeDir(), "_csm-heartbeat.txt"), `event ${type} ${event?.properties?.sessionID ?? ""} ${new Date().toISOString()}\n`, { flag: "a", mode: 0o600 })
+      writeFileSync(join(storeDir(), "_sessioneer-heartbeat.txt"), `event ${type} ${event?.properties?.sessionID ?? ""} ${new Date().toISOString()}\n`, { flag: "a", mode: 0o600 })
 
       // permission.asked: a permission is genuinely pending right now. This is
       // the authoritative "blocked" signal (the plugin permission.ask HOOK is

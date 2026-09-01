@@ -9,7 +9,7 @@ test('dashboard renders OpenCode usage without browser errors', async ({ page })
   page.on('response', response => { if (response.status() >= 500) errors.push(`${response.status()} ${response.url()}`); });
 
   await page.goto('/');
-  await expect(page).toHaveTitle(/Claude Session Manager/);
+  await expect(page).toHaveTitle(/Sessioneer/);
   await page.locator('#quota-toggle-btn').click();
 
   const quota = page.locator('#quota-info');

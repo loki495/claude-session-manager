@@ -1,6 +1,6 @@
 <?php
 $this->layout('layout', [
-    'title' => $found ? (string)($detail['title'] ?? $claudeSessionId) : 'Claude Session Manager',
+    'title' => $found ? (string)($detail['title'] ?? $claudeSessionId) : 'Sessioneer',
     'viewportContent' => 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, viewport-fit=cover',
 ]);
 ?>
@@ -91,7 +91,7 @@ $this->layout('layout', [
 </div>
 
 <script>
-window.CSM_ARCHIVED_BOOTSTRAP = <?= json_encode(['claudeSessionId' => $claudeSessionId, 'jumpLine' => $jumpLine]) ?>;
+window.SESSIONEER_ARCHIVED_BOOTSTRAP = <?= json_encode(['claudeSessionId' => $claudeSessionId, 'jumpLine' => $jumpLine]) ?>;
 </script>
 <script src="<?= \App\Assets::versioned_url('/js/common.js') ?>"></script>
 <script src="<?= \App\Assets::versioned_url('/js/archived-session.js') ?>"></script>

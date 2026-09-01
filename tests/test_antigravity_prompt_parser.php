@@ -21,7 +21,7 @@ use HostAgent\Stores\SidecarStore;
 
 const REAL_TMUX_SOCKET_AGPP = '/tmp/tmux-1000/default';
 
-$fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-agy-prompt-sidecars-' . bin2hex(random_bytes(4));
+$fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-agy-prompt-sidecars-' . bin2hex(random_bytes(4));
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 
 if (Config::tmux_socket() === REAL_TMUX_SOCKET_AGPP) {
@@ -43,7 +43,7 @@ try {
     assert_true($parsed !== null, 'parse_blocking_prompt: detects a real permission-prompt pane');
     assert_equal('Do you want to proceed?', $parsed['question'] ?? null, 'parse_blocking_prompt: question text');
     assert_contains('Requesting permission for:', $parsed['context'] ?? '', 'parse_blocking_prompt: context includes the leading label');
-    assert_contains('echo hello-csm-test', $parsed['context'] ?? '', 'parse_blocking_prompt: context includes the actual command');
+    assert_contains('echo hello-sessioneer-test', $parsed['context'] ?? '', 'parse_blocking_prompt: context includes the actual command');
     assert_equal(4, count($parsed['options'] ?? []), 'parse_blocking_prompt: all 4 options found, not cut short at the wrapped one');
     assert_equal('Yes', $parsed['options'][0]['label'] ?? null, 'parse_blocking_prompt: option 1 label');
     assert_equal(

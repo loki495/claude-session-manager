@@ -1,8 +1,8 @@
-name: claude-session-manager
+name: sessioneer
 
 services:
   app:
-    container_name: csm-app
+    container_name: sessioneer-app
     build:
       context: .
       args:
@@ -36,7 +36,7 @@ services:
         CMD ["php", "-S", "0.0.0.0:80", "-t", "/var/www/public", "/var/www/public/index.php"]
     restart: unless-stopped
     environment:
-      CSM_AGENT_SOCKET: /run/csm-agent.sock
+      SESSIONEER_AGENT_SOCKET: /run/sessioneer-agent.sock
       # php -S is single-threaded by default, so session.php's 3 parallel poll
       # requests (history/info/sidebar) were queuing behind each other instead
       # of actually running concurrently - measured ~165ms serialized vs an
@@ -62,7 +62,7 @@ services:
       # already be installed and running (host-agent/install.sh) BEFORE
       # this container starts, or Docker will bind-mount an empty
       # directory instead of the real socket file. See README.md.
-      - ${CSM_AGENT_SOCKET_HOST:-/run/user/1000/csm-agent.sock}:/run/csm-agent.sock
+      - ${SESSIONEER_AGENT_SOCKET_HOST:-/run/user/1000/sessioneer-agent.sock}:/run/sessioneer-agent.sock
     ports:
       # Bind explicitly to a LAN interface IP, never 0.0.0.0. See README.
       - "${BIND_ADDR:-127.0.0.1}:${APP_PORT:-8091}:80"
@@ -77,13 +77,13 @@ services:
     # that proxy is ALSO LAN-only. A Traefik example, for reference:
     #   labels:
     #     - "traefik.enable=true"
-    #     - "traefik.http.routers.csm.rule=Host(`csm.example.lan`)"
-    #     - "traefik.http.routers.csm.entrypoints=web"
-    #     - "traefik.http.routers.csm-secure.rule=Host(`csm.example.lan`)"
-    #     - "traefik.http.routers.csm-secure.entrypoints=websecure"
-    #     - "traefik.http.routers.csm-secure.tls=true"
-    #     - "traefik.http.routers.csm-secure.service=csm"
-    #     - "traefik.http.services.csm.loadbalancer.server.port=80"
+    #     - "traefik.http.routers.sessioneer.rule=Host(`sessioneer.example.lan`)"
+    #     - "traefik.http.routers.sessioneer.entrypoints=web"
+    #     - "traefik.http.routers.sessioneer-secure.rule=Host(`sessioneer.example.lan`)"
+    #     - "traefik.http.routers.sessioneer-secure.entrypoints=websecure"
+    #     - "traefik.http.routers.sessioneer-secure.tls=true"
+    #     - "traefik.http.routers.sessioneer-secure.service=sessioneer"
+    #     - "traefik.http.services.sessioneer.loadbalancer.server.port=80"
     #   networks:
     #     - web
     # networks:

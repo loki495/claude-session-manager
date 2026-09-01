@@ -11,7 +11,7 @@ use HostAgent\Stores\GlobalStateStore;
  * "Is everything this app needs actually installed/configured" - backs
  * the dashboard's health box, instead of leaving Andres to discover each
  * missing piece separately (a stale/never-set VAPID key, tmux's socket
- * dir wiped by a reboot, whether the csm-push-check timer is actually
+ * dir wiped by a reboot, whether the sessioneer-push-check timer is actually
  * ticking, etc).
  */
 class PushHealthService
@@ -57,7 +57,7 @@ class PushHealthService
         $status = GlobalStateStore::read($statusKey);
 
         if (!is_array($status) || !is_int($status['checked_at'] ?? null)) {
-            return ['key' => $key, 'label' => $label, 'ok' => false, 'detail' => 'csm-push-check timer has never run - is it installed and enabled?'];
+            return ['key' => $key, 'label' => $label, 'ok' => false, 'detail' => 'sessioneer-push-check timer has never run - is it installed and enabled?'];
         }
 
         $ageSeconds = time() - $status['checked_at'];
@@ -74,14 +74,14 @@ class PushHealthService
         // as a false "all good". 120s is generous slack over the default 10s
         // interval regardless of whatever interval is actually configured.
         if ($ageSeconds > 120) {
-            return ['key' => $key, 'label' => $label, 'ok' => false, 'detail' => "Last check was {$ageSeconds}s ago - csm-push-check timer may not be running"];
+            return ['key' => $key, 'label' => $label, 'ok' => false, 'detail' => "Last check was {$ageSeconds}s ago - sessioneer-push-check timer may not be running"];
         }
 
         return ['key' => $key, 'label' => $label, 'ok' => true, 'detail' => "Last check {$ageSeconds}s ago, no failures"];
     }
 
     /**
-     * health_check() entry for the csm-push-check timer's session-transition
+     * health_check() entry for the sessioneer-push-check timer's session-transition
      * pass - not just "are VAPID keys configured" (that's its own separate
      * check, a prerequisite rather than this), but whether the timer is
      * actually running AND whether its most recent tick's sends succeeded.
@@ -154,7 +154,7 @@ class PushHealthService
     }
 
     /**
-     * The CSM OpenCode plugin (host-agent/opencode-plugins/csm-permissions.js)
+     * The Sessioneer OpenCode plugin (host-agent/opencode-plugins/sessioneer-permissions.js)
      * - the authoritative pending-permission signal, loaded as a global plugin
      * by install.sh. A session survives this check only if the file is present
      * at the global plugin path; missing means blocked-prompts for OpenCode
@@ -166,17 +166,17 @@ class PushHealthService
      */
     public static function opencode_plugin_check(): array
     {
-        $pluginPath = Config::home_root() . '/.config/opencode/plugins/csm-permissions.js';
+        $pluginPath = Config::home_root() . '/.config/opencode/plugins/sessioneer-permissions.js';
 
         if ($pluginPath === '') {
-            return ['key' => 'opencode_plugin', 'label' => 'OpenCode CSM plugin', 'ok' => false, 'detail' => 'home root unknown'];
+            return ['key' => 'opencode_plugin', 'label' => 'OpenCode Sessioneer plugin', 'ok' => false, 'detail' => 'home root unknown'];
         }
 
         $ok = is_file($pluginPath);
 
         return [
             'key' => 'opencode_plugin',
-            'label' => 'OpenCode CSM plugin',
+            'label' => 'OpenCode Sessioneer plugin',
             'ok' => $ok,
             'detail' => $ok ? $pluginPath : 'not installed (run host-agent/install.sh; restart opencode TUIs to load it)',
         ];
@@ -187,7 +187,7 @@ class PushHealthService
      */
     private static function codex_bridge_check(): array
     {
-        $unitName = 'csm-codex-bridge.service';
+        $unitName = 'sessioneer-codex-bridge.service';
 
         $activeResult = ProcessRunner::run_process(['systemctl', '--user', 'is-active', $unitName]);
         $unitActive = trim($activeResult['stdout']) === 'active';
@@ -294,7 +294,7 @@ class PushHealthService
         $codexBridge['section'] = 'Codex';
         $checks[] = $codexBridge;
 
-        $vendorAutoload = Config::csm_repo_root() . '/vendor/autoload.php';
+        $vendorAutoload = Config::sessioneer_repo_root() . '/vendor/autoload.php';
         $checks[] = [
             'key' => 'composer_vendor',
             'section' => 'Global',

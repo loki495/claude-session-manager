@@ -18,12 +18,12 @@
   // not something this static file can know) - set by the small inline
   // bootstrap-data <script> tag session.php renders right before this file
   // is loaded.
-  var sessionName = window.CSM_BOOTSTRAP.session;
-  var csrfToken = window.CSM_BOOTSTRAP.csrfToken;
+  var sessionName = window.SESSIONEER_BOOTSTRAP.session;
+  var csrfToken = window.SESSIONEER_BOOTSTRAP.csrfToken;
   // Used only to relativize a Write/Edit/Read tool-call entry's summary
   // filename (see relativizePath()) - fixed for the page's lifetime, same
-  // as every other CSM_BOOTSTRAP value here.
-  var sessionCwd = window.CSM_BOOTSTRAP.workdir || null;
+  // as every other SESSIONEER_BOOTSTRAP value here.
+  var sessionCwd = window.SESSIONEER_BOOTSTRAP.workdir || null;
   var btn = document.getElementById('load-more-btn');
   var untilUserBtn = document.getElementById('load-until-user-btn');
   var thinkingIndicator = document.getElementById('thinking-indicator');
@@ -33,7 +33,7 @@
   var composeBar = document.getElementById('compose-bar');
   var composeInputRow = document.getElementById('compose-input-row');
   var composeBlockedNote = document.getElementById('compose-blocked-note');
-  var newestLine = window.CSM_BOOTSTRAP.newestLine;
+  var newestLine = window.SESSIONEER_BOOTSTRAP.newestLine;
   // /clear, /compact, --resume, and --fork-session all rotate Claude
   // Code's own transcript to a brand new session-id file while staying in
   // the same tmux pane (see host-agent/hooks/session_start.php) - none of
@@ -42,9 +42,9 @@
   // between polls. null means "not known yet" (e.g. a session_detail.php
   // call errors before this is ever set) - deliberately never treated as
   // a change on its own, only a real id -> a DIFFERENT real id is.
-  var currentClaudeSessionId = window.CSM_BOOTSTRAP.claudeSessionId || null;
-  var sessionAgent = window.CSM_BOOTSTRAP.agent || 'claude';
-  var sessionAgentLabel = window.CSM_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : (sessionAgent === 'codex' ? 'Codex' : 'Claude Code'));
+  var currentClaudeSessionId = window.SESSIONEER_BOOTSTRAP.claudeSessionId || null;
+  var sessionAgent = window.SESSIONEER_BOOTSTRAP.agent || 'claude';
+  var sessionAgentLabel = window.SESSIONEER_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : (sessionAgent === 'codex' ? 'Codex' : 'Claude Code'));
 
   // --- optimistic UI state: entries appended locally right after sending,
   // before a poll has confirmed they actually landed. See appendPendingEntry()
@@ -828,7 +828,7 @@
   // already have their own more reliable answerPendingReason-based
   // reconciliation (see the comment on that near the top of this file)
   // rather than generic text-matching. ---
-  var PENDING_MESSAGE_STORAGE_KEY = 'csm-pending-message-' + sessionName;
+  var PENDING_MESSAGE_STORAGE_KEY = 'sessioneer-pending-message-' + sessionName;
   // A restored pending bubble that's actually already long confirmed
   // (the tab closed before its own poll could reconcile+clear storage,
   // then reopened well after Claude Code wrote the real transcript line)
@@ -2198,8 +2198,8 @@
 
   if (composeTextarea && composeSendBtn) {
     var COMPOSE_MAX_HEIGHT_PX = 128; // matches max-h-32
-    var COMPOSE_DRAFT_KEY = 'csm-compose-draft-' + sessionName;
-    var COMPOSE_ATTACHMENTS_KEY = 'csm-compose-attachments-' + sessionName;
+    var COMPOSE_DRAFT_KEY = 'sessioneer-compose-draft-' + sessionName;
+    var COMPOSE_ATTACHMENTS_KEY = 'sessioneer-compose-attachments-' + sessionName;
 
     // Files uploaded via the "+" button but not yet sent - shown as their
     // own removable chips above the textarea (see renderComposeAttachments()
@@ -2885,7 +2885,7 @@
   // Falls back to the normal "land at the bottom" behavior if the element
   // somehow isn't there (e.g. a stale link to a line that's since been
   // pruned/rotated away).
-  var jumpLine = window.CSM_BOOTSTRAP.jumpLine || null;
+  var jumpLine = window.SESSIONEER_BOOTSTRAP.jumpLine || null;
   var jumpTarget = jumpLine !== null ? list.querySelector('[data-line="' + jumpLine + '"]') : null;
 
   if (jumpTarget) {

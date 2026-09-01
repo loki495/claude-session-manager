@@ -26,7 +26,7 @@ class AntigravityHookService
      * command-string scan (this app's own commands only ever live under
      * this one group, so there's nothing else to scan).
      */
-    private const HOOK_GROUP = 'claude-session-manager';
+    private const HOOK_GROUP = 'sessioneer';
 
     /**
      * `grouped: true` (PreToolUse/PostToolUse) needs the `matcher` +

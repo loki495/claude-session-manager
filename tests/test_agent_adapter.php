@@ -7,7 +7,7 @@ declare(strict_types=1);
  * (docs/antigravity-adapter-plan.md Phase 1) and its second real
  * implementation (Phase 2). ClaudeCodeAdapter::build_spawn_argv() must
  * produce BYTE-IDENTICAL argv to what SessionLifecycleService::
- * create_cc_session() built inline before this extraction - this file is
+ * create_agent_session() built inline before this extraction - this file is
  * what proves that, not a rewrite of HookService's own coverage (see
  * test_session_hook.php for that; check_hooks()/install_hooks() here only
  * confirm delegation, not every edge case HookService itself already
@@ -32,7 +32,7 @@ use HostAgent\Services\PermissionMode;
 
 const REAL_HOME_ROOT_AA = '/home/user';
 
-$fixtureHome = sys_get_temp_dir() . '/csm-test-agent-adapter-home-' . bin2hex(random_bytes(4));
+$fixtureHome = sys_get_temp_dir() . '/sessioneer-test-agent-adapter-home-' . bin2hex(random_bytes(4));
 putenv("HOME_ROOT={$fixtureHome}");
 
 if (Config::home_root() === REAL_HOME_ROOT_AA) {
@@ -67,7 +67,7 @@ try {
     assert_equal('cc', $adapter->session_name_prefix(), 'session_name_prefix(): cc, matching the tmux session names this app has always generated');
     assert_equal(PermissionMode::HOOK_PERMISSION_MODE_MAP, $adapter->permission_mode_map(), 'permission_mode_map(): the exact same map PermissionMode already exposes, not a second copy of it');
 
-    // --- build_spawn_argv(): the actual extraction from create_cc_session() ---
+    // --- build_spawn_argv(): the actual extraction from create_agent_session() ---
 
     $bare = $adapter->build_spawn_argv([]);
     assert_equal([Config::claude_bin(), '--session-id', $bare['assigned_id']], $bare['argv'], 'build_spawn_argv([]): bare argv is just the binary + --session-id <assigned uuid>, no extra flags');
@@ -97,7 +97,7 @@ try {
     // --- build_spawn_argv(model): the bug found live 2026-08-30 (Andres:
     // "requesting a model at session launch... doesn't work for Claude
     // sessions") - Sessions.php's 'create' case extracted $modelId off the
-    // request but never actually passed it to create_cc_session()/this
+    // request but never actually passed it to create_agent_session()/this
     // adapter, so a model chosen on the New Session form was silently
     // dropped for Claude Code (unlike Antigravity/OpenCode above, which
     // both already wire 'model' through their own adapters - this was the

@@ -46,7 +46,7 @@ class TmuxService
     /**
      * Every real tmux session on the box, regardless of name or who started
      * it. Used where "does a tmux session by this name still actually
-     * exist" is the question - e.g. create_cc_session()'s just-spawned-still-
+     * exist" is the question - e.g. create_agent_session()'s just-spawned-still-
      * alive check, which runs before any sidecar has been written, so
      * list_tracked_tmux_sessions() below (sidecar-gated) can't answer it yet.
      *
@@ -61,7 +61,7 @@ class TmuxService
      * use, while #{window_activity} ("Time of window last activity") on
      * the SAME session updated correctly in real time, seconds after
      * being checked. Every session this app tracks is single-window (see
-     * create_cc_session()), so the active window IS the session for this
+     * create_agent_session()), so the active window IS the session for this
      * purpose - #{window_activity} resolves to it directly even from a
      * list-sessions format string (verified live), no per-window query
      * needed.

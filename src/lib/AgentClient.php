@@ -17,8 +17,8 @@ class AgentClient
 {
     public static function agent_socket_path(): string
     {
-        $path = getenv('CSM_AGENT_SOCKET');
-        return $path !== false && $path !== '' ? $path : '/run/csm-agent.sock';
+        $path = getenv('SESSIONEER_AGENT_SOCKET');
+        return $path !== false && $path !== '' ? $path : '/run/sessioneer-agent.sock';
     }
 
     /**
@@ -32,7 +32,7 @@ class AgentClient
         if ($socket === false) {
             return [
                 'ok' => false,
-                'message' => "Cannot reach host agent ({$errstr}). Is the csm-agent.socket systemd unit running on the host?",
+                'message' => "Cannot reach host agent ({$errstr}). Is the sessioneer-agent.socket systemd unit running on the host?",
             ];
         }
 

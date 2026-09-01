@@ -16,7 +16,7 @@
 //
 // Plain global functions/vars, same convention as common.js/scroll.js/
 // highlights.js/sidebar.js - fully self-contained, no dependency on (or
-// from) any other extracted module. Reads window.CSM_BOOTSTRAP.session
+// from) any other extracted module. Reads window.SESSIONEER_BOOTSTRAP.session
 // directly (same as sidebar.js's own sessionName derivation) rather than
 // depending on session.js's local. Extracted from session.js 2026-08-24,
 // sixth and final cut of the "split session.js into modules" pass.
@@ -102,7 +102,7 @@ function runSessionSearch() {
 
     var url = global
       ? '/search_sessions.php?q=' + encodeURIComponent(query)
-      : '/session_search.php?session=' + encodeURIComponent(window.CSM_BOOTSTRAP.session) + '&q=' + encodeURIComponent(query);
+      : '/session_search.php?session=' + encodeURIComponent(window.SESSIONEER_BOOTSTRAP.session) + '&q=' + encodeURIComponent(query);
 
     fetch(url, { credentials: 'same-origin', signal: sessionSearchAbortController.signal })
       .then(function (r) { return r.json(); })
@@ -149,7 +149,7 @@ if (sessionSearchInput && sessionSearchResults) {
     var resultBtn = closestEventTarget(e, '.session-search-result-btn');
 
     if (resultBtn) {
-      window.location.href = '/session.php?session=' + encodeURIComponent(window.CSM_BOOTSTRAP.session) + '&jump_line=' + encodeURIComponent(resultBtn.dataset.line);
+      window.location.href = '/session.php?session=' + encodeURIComponent(window.SESSIONEER_BOOTSTRAP.session) + '&jump_line=' + encodeURIComponent(resultBtn.dataset.line);
     }
   });
 }

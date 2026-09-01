@@ -11,7 +11,7 @@
 //                                    returns the {"ok":true-ish} shape the
 //                                    real server returns.
 
-$stubStateFile = $argv[1] ?? (getenv('CSM_STUB_STATE') ?: '/tmp/csm-ocq-stub-state.json');
+$stubStateFile = $argv[1] ?? (getenv('SESSIONEER_STUB_STATE') ?: '/tmp/sessioneer-ocq-stub-state.json');
 
 if (!file_exists($stubStateFile)) {
     file_put_contents($stubStateFile, json_encode(['replies' => []]));

@@ -1,0 +1,197 @@
+# PLAN.md — Rename "Claude Session Manager" → "Sessioneer"
+
+## Objective
+
+Rename the project from "Claude Session Manager" (repo `claude-session-manager`,
+internal short form `csm`) to **"Sessioneer"**, driven by the tool now managing
+sessions for multiple CLI coding agents (Claude Code, Codex, OpenCode, Antigravity),
+not just Claude. Decided with Andres 2026-09-01 — see conversation log for the naming
+discussion (CIAi/sessioneer/Handler considered; Sessioneer chosen, no stylization).
+
+Full naming/branding audit is cached at
+`.ai/research/naming-audit-cc-csm-claude.md` — read that before touching any task
+below rather than re-deriving it.
+
+**Confirmed, does not need to change:** the `cc`/`cx`/`oc`/`ag` per-agent tmux
+session-name prefix system (`host-agent/lib/Agents/*Adapter.php`) — `cc` legitimately
+means "Claude Code" the agent, not this project's old name.
+
+**All three open questions resolved (see QUESTIONS.md):**
+- Q1 — new short form is the full word `SESSIONEER_` (env vars etc.), not a new
+  abbreviation.
+- Q2 — rename both `spawned_by_csm` and `claude_session_id` DB columns now (real
+  migration).
+- Q3 — rename the hostname too: `csm.example.com` → `sessioneer.example.com` (touches
+  `~/www/traefik`, needs a new TLS cert, updates homie's dashboard card).
+
+---
+
+## Task 1 — Decide remaining open questions
+
+**Status:** done — all three answered 2026-09-01, see `QUESTIONS.md`.
+
+---
+
+## Task 2 — Code-only renames (no external migration cost)
+
+**Objective:** Rename everything self-contained to this repo with no live
+dependency outside it.
+
+**Relevant files:** ~120 files per the research cache's `csm` bucket — see that file
+for the full breakdown rather than re-grepping from scratch.
+
+**Includes:**
+- `csm` → `SESSIONEER_`-style full-word naming across env vars (`CSM_SESSION_NAME` →
+  `SESSIONEER_SESSION_NAME`, etc.), the JS globals (`window.CSM_BOOTSTRAP` →
+  `window.SESSIONEER_BOOTSTRAP`, `window.__csmReplay` → `window.__sessioneerReplay`),
+  test-fixture temp-path names (`csm-test-*`), the `csm-permissions.js` OpenCode
+  plugin file (rename file + `CsmPermissionsPlugin` class), socket path constants
+  (`csm-agent.sock`, `csm-codex-bridge.sock`).
+- "Claude Session Manager" → "Sessioneer" in: `README.md` title, `package.json`,
+  `composer.json` (`loki495/claude-session-manager` → `loki495/sessioneer`),
+  `docker-compose.yml` compose name + `container_name: csm-app` →
+  `container_name: sessioneer-app`, page `<title>`s (`src/partials/pages/*.php`),
+  `public/sw.js`.
+- Legacy function names: `create_cc_session()` → `create_agent_session()` (and
+  `resume_cc_session()`, `kill_cc_session()` similarly) in `SessionLifecycleService.php`.
+- Fix the stale top-line description in `README.md`/`CLAUDE.md`/`GEMINI.md` ("manages
+  `cc-*` tmux sessions running Claude Code" → mentions all four agents/prefixes:
+  cc/cx/oc/ag for Claude Code/Codex/OpenCode/Antigravity).
+
+**Status:** done — worker completed the bulk (129 files), orchestrator review found
+and fixed a gap (CONTRIBUTING.md + 5 docs/*.md planning files, ~56 lines, missed by
+the worker), then re-verified clean. See RESULT.md for full verification detail.
+
+**Acceptance criteria:** `bash tests/run.sh` passes; grep for old `csm`/
+`claude-session-manager` strings in code (excluding legitimate Claude Code
+references — cross-check against the research cache's Bucket A) returns nothing
+unexpected; `docker compose up -d --build` still starts cleanly under the new
+container/compose names. First two independently verified; container rebuild
+deferred to Task 5's dual-run step (no reason to rebuild twice).
+
+---
+
+## Task 3 — DB migrations: rename `spawned_by_csm` and `claude_session_id`
+
+**Objective:** Real SQLite migration for both columns (on `sidecars` and
+`sessions`/wherever `claude_session_id` actually lives — confirm exact table via
+`SqliteDb.php` before writing the migration), plus every read/write site.
+
+**Relevant files:** `host-agent/lib/Stores/SqliteDb.php`, wherever
+`claude_session_id_already_live()` and `spawned_by_csm` are read/written (grep fresh
+— the research cache doesn't enumerate every call site).
+
+**Status:** pending
+
+**Acceptance criteria:** existing sessions/sidecars survive the migration with data
+intact (verify row counts + spot-check values before/after); `bash tests/run.sh`
+passes; no remaining references to the old column names anywhere in `host-agent/`.
+
+**Implementation notes:** This touches the *live* `sessions.sqlite` on this machine,
+not just a fixture. To keep Task 5's real cutover window short and predictable
+(Andres asked to minimize downtime): write and test the migration script against a
+**copy** of the live DB first, confirm row counts/values match before/after on that
+copy, and only run it against the real file during Task 5 step 5's actual cutover
+— at that point it's already a proven, fast operation rather than exploratory work
+done while the service is down. Same backup-then-verify discipline used for
+homie's screenshot session earlier today.
+
+---
+
+## Task 4 — Repo + directory rename
+
+**Objective:** Rename the GitHub repo (`loki495/claude-session-manager` →
+`loki495/sessioneer`) and the local directory (`~/www/claude-session-manager` →
+`~/www/sessioneer`).
+
+**Status:** pending
+
+**Implementation notes:** GitHub keeps an automatic redirect from the old slug, so
+this is lower-risk than it feels — but update the local git remote URL after (or
+confirm it still resolves via the redirect), and check for any absolute-path
+assumptions in `.env`/`.env.testing`/systemd unit `WorkingDirectory=`/`ExecStart=`
+lines that would break on a directory move. Do this AFTER Task 2/3 are committed —
+renaming the directory mid-work would break relative-path assumptions in an
+in-progress editing session.
+
+---
+
+## Task 5 — External infra cutover (separate repos/host files)
+
+**Objective:** Update everything outside this repo that references the old
+name/host, minimizing downtime by running old and new side by side wherever
+possible rather than a hard stop/replace. Andres has asked to be told explicitly
+when it's safe to switch from `csm.example.com` to `sessioneer.example.com` — this
+task's whole structure is built around producing that exact signal, not just
+getting the rename done.
+
+**Sub-steps, in order:**
+
+1. **Host agent, dual-run.** Install the new-named systemd socket/service
+   (`sessioneer-agent.socket`, etc.) *alongside* the still-running old one — new
+   socket path, old one untouched. Don't stop/disable the old unit yet.
+2. **Container, dual-run.** Bring up the renamed container (Task 2's naming) on a
+   temporary alternate port, pointed at the NEW host-agent socket from step 1 and
+   the migrated DB copy from Task 3's rehearsal (not the live DB yet). Verify it
+   lists real sessions correctly, health check passes, no "Cannot reach host agent"
+   errors.
+3. **New TLS cert.** Generate the new self-signed cert for `sessioneer.example.com`
+   (`~/www/traefik/dynamic/csm-tls.yml` → new file) before adding the router, so
+   the router isn't live for a moment with no valid cert behind it.
+4. **Add the new Traefik router** (`sessioneer-ac495` / `Host(sessioneer.example.com)`
+   → the dual-run container from step 2) — **without removing the old
+   `csm-ac495` router yet.** Both hostnames now resolve simultaneously, one to the
+   verified new stack, one still to the untouched original.
+5. **Real cutover, minimal window:** stop the ORIGINAL container → run the Task 3
+   migration against the real live `sessions.sqlite` (already rehearsed against a
+   copy, so this run should be fast and predictable) → point the new container at
+   the now-migrated real DB and the new host-agent socket → start it for real →
+   verify session list against the real data.
+6. **Tell Andres explicitly**, at this exact point — not before — that
+   `sessioneer.example.com` is live and verified against real data, and that
+   `csm.example.com` still works during a grace period but should be switched to
+   (bookmarks, phone home-screen shortcut). Call out the **Web Push
+   re-subscription requirement**: the old subscription is scoped to the old
+   origin and won't carry over — re-do "Add to Home Screen" + "Enable
+   notifications" on the new host once switched.
+7. **homie's dashboard card** → update name + URL to `https://sessioneer.example.com`
+   at this point too (same moment Andres switches, not before — otherwise the
+   card would point somewhere not yet verified).
+8. **Grace period**, length TBD with Andres (default proposal: a few days, long
+   enough to confirm the new push subscription actually works before committing
+   further) — then remove the OLD `csm-ac495` Traefik router, the OLD `csm-tls.yml`
+   cert, and stop+disable the OLD systemd units. Don't remove any of this in the
+   same sitting as the cutover itself.
+9. **`~/.gemini/config/hooks.json`** — `AntigravityHookService::HOOK_GROUP` key
+   rename. This can happen at the container cutover (step 5) since Antigravity
+   sessions re-check hook registration on next launch, not continuously — no
+   separate dual-run needed here.
+10. **The real statusline script** — re-run whatever installs
+    `StatuslineMarkerService`'s markers at the container cutover (step 5); check
+    for orphaned old markers left behind if the installer doesn't clean up its own
+    prior output.
+
+**Status:** pending
+
+**Dependencies:** Task 2 (code renames) and Task 3 (DB migration, rehearsed against
+a copy) land first.
+
+**Acceptance criteria:** at every point before step 6's explicit go-ahead,
+`csm.example.com` continues working uninterrupted (dual-run, not a gap); after step 8,
+no `docker ps`/`systemctl --user list-units` output still shows old container/unit
+names; a fresh Claude Code launch shows the renamed statusline marker; Antigravity
+hook registration still reports installed via the dashboard's health check; Web
+Push re-subscribed and confirmed delivering on the new origin before the grace
+period ends.
+
+---
+
+## Task 6 — Manual/human follow-up (not executed by Claude)
+
+**Objective:** Track, don't execute — Andres's own accounts.
+
+- Update LinkedIn project reference.
+- Update resume text.
+
+**Status:** pending — tracked here so it isn't forgotten, not something a worker
+touches.

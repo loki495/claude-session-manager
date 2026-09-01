@@ -12,7 +12,7 @@ namespace HostAgent\Services;
  * phrasing, seen in a live pane) - split out of PromptParser.php (2026-08-24
  * readability audit: PromptParser mixed pane-title reading, prompt
  * detection/parsing, AND this vocabulary translation, reached into by both
- * PromptInteractionService::set_mode() and SessionLifecycleService::create_cc_session()) into
+ * PromptInteractionService::set_mode() and SessionLifecycleService::create_agent_session()) into
  * its own class, since none of it is actually pane-parsing logic - it's a
  * closed, fixed value space this app defines, not something scraped from a
  * pane the way a blocking prompt's content is. Constant/method names kept

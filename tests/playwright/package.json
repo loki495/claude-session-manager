@@ -1,10 +1,10 @@
 {
-  "name": "csm-playwright-tests",
+  "name": "sessioneer-playwright-tests",
   "private": true,
-  "description": "Optional browser tests for Claude Session Manager",
+  "description": "Optional browser tests for Sessioneer",
   "scripts": {
     "test": "playwright test",
-    "test:codex-live": "CSM_PLAYWRIGHT_LIVE=1 playwright test codex-live.spec.js"
+    "test:codex-live": "SESSIONEER_PLAYWRIGHT_LIVE=1 playwright test codex-live.spec.js"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"

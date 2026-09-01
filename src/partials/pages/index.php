@@ -1,6 +1,6 @@
 <?php
 $this->layout('layout', [
-    'title' => 'Claude Session Manager',
+    'title' => 'Sessioneer',
     'viewportContent' => 'width=device-width, initial-scale=1, viewport-fit=cover',
     'fixedShell' => true,
 ]);
@@ -18,7 +18,7 @@ $this->layout('layout', [
 <header class="select-none px-4 pt-6 pb-2">
   <div class="max-w-2xl mx-auto flex items-start justify-between gap-2">
     <div class="min-w-0">
-      <h1 class="text-xl font-semibold tracking-tight">Claude Session Manager</h1>
+      <h1 class="text-xl font-semibold tracking-tight">Sessioneer</h1>
       <p id="session-count-text" class="text-sm text-slate-400 mt-1"><?= \App\Views\SessionRowView::session_count_label_html(count($sessions)) ?></p>
       <label class="select-none mt-1 flex items-center gap-1.5 text-xs text-slate-500">
         <input type="checkbox" id="show-worker-sessions-toggle" class="rounded border-slate-600 bg-slate-800">
@@ -61,7 +61,7 @@ $this->layout('layout', [
     <div class="select-none mb-4 rounded-lg px-4 py-3 text-sm bg-red-900/50 text-red-200 border border-red-700">
       <p class="font-medium">Cannot reach the host agent.</p>
       <p class="mt-1"><?= $this->e((string)($listResult['message'] ?? 'Unknown error')) ?></p>
-      <p class="mt-1 text-red-300">Check on the host: <code>systemctl --user status csm-agent.socket</code></p>
+      <p class="mt-1 text-red-300">Check on the host: <code>systemctl --user status sessioneer-agent.socket</code></p>
     </div>
   <?php endif; ?>
 
@@ -154,13 +154,13 @@ $this->layout('layout', [
            driven by the #mode-select on session.php itself), so this is a
            separate "start directly in this mode" choice, not a replacement
            for anything. Default option carries an empty value, deliberately
-           NOT "manual" - an empty starting_mode means create_cc_session()
+           NOT "manual" - an empty starting_mode means create_agent_session()
            omits --permission-mode entirely, so the untouched-dropdown case
            is byte-for-byte the same command line as before this existed,
            not a newly-added explicit --permission-mode default/manual. The
            other options reuse TranscriptView::MODE_OPTIONS - this app's own
            mode vocabulary, translated to Claude Code's real enum value
-           host-agent-side (see create_cc_session()'s own docblock). -->
+           host-agent-side (see create_agent_session()'s own docblock). -->
       <label class="flex items-center gap-2 text-sm text-slate-300">
         Starting mode
         <select name="starting_mode" class="rounded-lg border border-slate-700 bg-slate-800 text-sm text-slate-200 px-2 py-1.5">
@@ -226,7 +226,7 @@ $this->layout('layout', [
 </div>
 
 <script>
-window.CSM_BOOTSTRAP = <?= json_encode(['agentReachable' => $agentReachable]) ?>;
+window.SESSIONEER_BOOTSTRAP = <?= json_encode(['agentReachable' => $agentReachable]) ?>;
 </script>
 <script src="<?= \App\Assets::versioned_url('/js/common.js') ?>"></script>
 <script src="<?= \App\Assets::versioned_url('/js/index.js') ?>"></script>

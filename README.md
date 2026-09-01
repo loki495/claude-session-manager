@@ -1,10 +1,11 @@
-# Claude Session Manager
+# Sessioneer
 
-A self-hosted, LAN-only web UI for managing `cc-*` tmux sessions running
-[Claude Code](https://claude.com/claude-code) on your own dev box - see
-blocked prompts, answer them, send messages, view transcripts, and kill
-sessions, all from a phone or any browser on your network. No database, no
-user accounts - access control is the network binding, not a login.
+A self-hosted, LAN-only web UI for managing tmux sessions running Claude
+Code, Codex, OpenCode, and Antigravity (`cc-*`, `cx-*`, `oc-*`, `ag-*`) on
+your own dev box - see blocked prompts, answer them, send messages, view
+transcripts, and kill sessions, all from a phone or any browser on your
+network. No database, no user accounts - access control is the network
+binding, not a login.
 
 > **Note on scope**: this project's primary author runs it as a personal
 > tool on their own machine, so day-to-day development is driven by that
@@ -138,7 +139,7 @@ socket, and everything will fail with "Cannot reach host agent."
    Verify the socket exists and is a socket (`s` in `ls -la`), not a
    directory:
    ```
-   ls -la $XDG_RUNTIME_DIR/csm-agent.sock
+   ls -la $XDG_RUNTIME_DIR/sessioneer-agent.sock
    ```
    Lingering must be enabled for the socket to survive logout/reboot
    without an active login session - `install.sh` checks this and prints
@@ -150,8 +151,8 @@ socket, and everything will fail with "Cannot reach host agent."
      output). `APP_UID` doesn't need to match a specific host user - the
      container never touches the host filesystem or tmux directly, only
      the agent socket.
-   - `CSM_AGENT_SOCKET_HOST` - path to the real socket from step 1,
-     normally `/run/user/<your-uid>/csm-agent.sock`.
+   - `SESSIONEER_AGENT_SOCKET_HOST` - path to the real socket from step 1,
+     normally `/run/user/<your-uid>/sessioneer-agent.sock`.
    - `BIND_ADDR` / `APP_PORT` - see "Network binding" below.
 
 3. Build and start the container:
@@ -198,7 +199,7 @@ default (your real `$HOME`, your real uid) or is optional:
 | `WWW_ROOT`                   | `HOME_ROOT`                                   | Starting folder for the New Session browser |
 | `HOME_ROOT`                  | your real `$HOME`                             | Upper bound the folder browser can't escape |
 | `TMUX_SOCKET`                | `/tmp/tmux-<uid>/default`                     | tmux socket this agent drives (`-S`)        |
-| `SIDECAR_DIR`                | `/run/user/<uid>/csm-sessions`                | Per-session workdir/spawned_at metadata     |
+| `SIDECAR_DIR`                | `/run/user/<uid>/sessioneer-sessions`                | Per-session workdir/spawned_at metadata     |
 | `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                                 | Inactivity threshold for "Kill inactive"    |
 | `QUOTA_LIVE_STATE_FILE`      | `host-agent/state/quota-live-state.json`      | Where the statusline marker writes quota    |
 
@@ -277,7 +278,7 @@ timer running) - every piece is a harmless no-op until you opt in.
    starting a new recurring background service deserves a deliberate
    opt-in):
    ```
-   systemctl --user enable --now csm-push-check.timer
+   systemctl --user enable --now sessioneer-push-check.timer
    ```
 
 **iOS's subscription lifecycle is flaky, by design of the platform, not a

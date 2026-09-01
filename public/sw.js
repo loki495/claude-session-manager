@@ -23,7 +23,7 @@
 function readPushCsrfToken() {
   return new Promise(function (resolve) {
     try {
-      var openReq = indexedDB.open('csm-push', 1);
+      var openReq = indexedDB.open('sessioneer-push', 1);
 
       openReq.onupgradeneeded = function () {
         openReq.result.createObjectStore('kv');
@@ -87,7 +87,7 @@ self.addEventListener('push', function (event) {
     data = event.data ? event.data.json() : {};
   } catch (e) {}
 
-  var title = data.title || 'Claude Session Manager';
+  var title = data.title || 'Sessioneer';
   var options = {
     body: data.body || 'A session needs your attention.',
     data: {

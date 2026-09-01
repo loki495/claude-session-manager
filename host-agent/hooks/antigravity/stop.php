@@ -20,11 +20,11 @@ declare(strict_types=1);
  * stdin.
  *
  * decision (string, required per Antigravity's own docs): any value
- * other than "continue" lets the agent actually stop - CSM never wants
+ * other than "continue" lets the agent actually stop - Sessioneer never wants
  * to force continuation, so this always returns a fixed non-"continue"
  * sentinel ("allow_stop").
  *
- * CSM_SESSION_NAME gate: same convention as every hook script here - this
+ * SESSIONEER_SESSION_NAME gate: same convention as every hook script here - this
  * hook fires globally (every agy invocation on the machine), so an
  * untracked session still needs a valid decision returned.
  */
@@ -202,7 +202,7 @@ function antigravity_find_unanswered_turn_error(string $transcriptPath, string $
     return null;
 }
 
-$sessionName = getenv('CSM_SESSION_NAME');
+$sessionName = getenv('SESSIONEER_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
     echo json_encode(['decision' => 'allow_stop']);

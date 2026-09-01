@@ -71,7 +71,7 @@ function spawn_harness(string $harnessScript, string $socketPath): array
 }
 
 $harnessScript = __DIR__ . '/lib/socket_harness.php';
-$socketPath = sys_get_temp_dir() . '/csm-test-socket-harness-cleanup-' . getmypid() . '.sock';
+$socketPath = sys_get_temp_dir() . '/sessioneer-test-socket-harness-cleanup-' . getmypid() . '.sock';
 
 $firstProcess = null;
 $secondProcess = null;

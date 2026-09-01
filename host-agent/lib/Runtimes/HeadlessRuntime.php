@@ -114,10 +114,10 @@ class HeadlessRuntime implements RuntimeProvider
         // Permission prompt: POST the v2 permission reply endpoint.
         // Note: on opencode 1.18.21, GET /permission returns empty and the
         // permission.ask hook is dormant, so this endpoint may also fail
-        // (PermissionNotFoundError). The CSM plugin's intent mechanism
+        // (PermissionNotFoundError). The Sessioneer plugin's intent mechanism
         // requires the hook to fire, which it doesn't on this version.
         // Permission detection works (via PermissionStore fed by the
-        // permission.asked event), but answering from CSM is not yet
+        // permission.asked event), but answering from Sessioneer is not yet
         // possible — the user must answer in the opencode webui/TUI.
         if ($pending['tool_name'] === 'permission') {
             $reply = match ($answers['option'] ?? 0) {
@@ -147,7 +147,7 @@ class HeadlessRuntime implements RuntimeProvider
             return $this->client->answer_question($sessionRef, $labels);
         }
 
-        // Single question answered by option number (the CSM canonical shape):
+        // Single question answered by option number (the Sessioneer canonical shape):
         // resolve that number to the pending prompt's label, then answer by
         // label.
         $option = $answers['option'] ?? null;

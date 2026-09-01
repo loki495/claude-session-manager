@@ -41,13 +41,13 @@ function extract_csrf_token(string $html): ?string
 $workdir = getenv('WWW_ROOT') . '/project-a';
 $ctx = replay_setup('full-session', $workdir);
 
-$agentSocket = sys_get_temp_dir() . '/csm-test-replay-agent.sock';
+$agentSocket = sys_get_temp_dir() . '/sessioneer-test-replay-agent.sock';
 $agentHarness = start_harness(['php', dirname(__DIR__) . '/host-agent/agent.php'], $agentSocket);
 
 $port = 18199;
 $baseUrl = "http://127.0.0.1:{$port}";
 
-$serverEnv = array_merge(getenv(), ['CSM_AGENT_SOCKET' => $agentSocket]);
+$serverEnv = array_merge(getenv(), ['SESSIONEER_AGENT_SOCKET' => $agentSocket]);
 $serverProcess = proc_open(
     [
         'php', '-S', "127.0.0.1:{$port}",
@@ -90,7 +90,7 @@ if (!$ready) {
 }
 
 try {
-    $cookieJar = tempnam(sys_get_temp_dir(), 'csm-test-replay-cookies');
+    $cookieJar = tempnam(sys_get_temp_dir(), 'sessioneer-test-replay-cookies');
     $sessionName = $ctx['session_name'];
 
     $page = curl_request('GET', "{$baseUrl}/session.php?session=" . urlencode($sessionName), [], $cookieJar);

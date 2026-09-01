@@ -6,7 +6,7 @@ namespace HostAgent\Runtimes;
 
 /**
  * One implementation per runtime (see RuntimeType). Deliberately narrow
- * and CSM-shaped: it expresses "the things a session can do", WITHOUT
+ * and Sessioneer-shaped: it expresses "the things a session can do", WITHOUT
  * leaking the runtime's own mechanics into callers.
  *
  * This mirrors the AgentAdapter philosophy inverted - AgentAdapter holds
@@ -106,7 +106,7 @@ interface RuntimeProvider
     public function send_message(string $sessionRef, string $text, array $attachmentPaths = []): array;
 
     /**
-     * The session's currently pending prompt, normalized to CSM's OWN
+     * The session's currently pending prompt, normalized to Sessioneer's OWN
      * canonical prompt shape that the dashboard renders (tool_name:
      * 'permission'|'question'|..., question, context, options:
      * [{number,label}], multi_question) - see PromptInteractionService/
@@ -118,7 +118,7 @@ interface RuntimeProvider
     public function pending_prompt(string $sessionRef): ?array;
 
     /**
-     * Answers the current pending prompt. $answers is CSM-shaped, matching
+     * Answers the current pending prompt. $answers is Sessioneer-shaped, matching
      * what pending_prompt() reported and how PromptInteractionService names
      * its own already-agreed shapes:
      *  - a permission prompt: ['option' => int, 'text' => ?string]

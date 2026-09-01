@@ -15,14 +15,14 @@ use HostAgent\Services\Config;
 use HostAgent\Services\UploadService;
 use HostAgent\Stores\SidecarStore;
 
-const REAL_SIDECAR_DIR = '/run/user/1000/csm-sessions';
+const REAL_SIDECAR_DIR = '/run/user/1000/sessioneer-sessions';
 
 if (Config::sidecar_dir() === REAL_SIDECAR_DIR) {
     fwrite(STDERR, "REFUSING TO RUN: SIDECAR_DIR resolves to the real one. Check tests/.env.testing.\n");
     exit(1);
 }
 
-$fixtureWorkdir = sys_get_temp_dir() . '/csm-test-uploads-' . bin2hex(random_bytes(4));
+$fixtureWorkdir = sys_get_temp_dir() . '/sessioneer-test-uploads-' . bin2hex(random_bytes(4));
 mkdir($fixtureWorkdir, 0700, true);
 
 $sessionName = 'cc-test-uploads-' . bin2hex(random_bytes(4));
@@ -80,7 +80,7 @@ try {
     assert_equal($content, file_get_contents($fixtureWorkdir . '/.claude/uploads/note.txt'), 'save_uploaded_file: the file on disk actually contains the real (decoded) content, not the base64 text');
 
     // .claude/ is NOT reliably already gitignored (confirmed live against
-    // the real claude-session-manager repo itself while building this
+    // the real sessioneer repo itself while building this
     // feature) - a self-contained .gitignore inside the uploads dir is
     // what actually protects an upload from showing up in `git status`.
     assert_equal(true, is_file($fixtureWorkdir . '/.claude/uploads/.gitignore'), 'save_uploaded_file: creates a self-contained .gitignore in the uploads dir, protecting uploads regardless of the project\'s own .gitignore state');
@@ -120,7 +120,7 @@ try {
     assert_equal(true, array_search('big.bin', $namesInOrder, true) < array_search('note.txt', $namesInOrder, true), 'list_uploaded_files: newest file (big.bin, saved last) sorts before the oldest (note.txt, saved first)');
 
     $emptySessionName = 'cc-test-uploads-empty-' . bin2hex(random_bytes(4));
-    $emptyWorkdir = sys_get_temp_dir() . '/csm-test-uploads-empty-' . bin2hex(random_bytes(4));
+    $emptyWorkdir = sys_get_temp_dir() . '/sessioneer-test-uploads-empty-' . bin2hex(random_bytes(4));
     mkdir($emptyWorkdir, 0700, true);
     SidecarStore::write_sidecar($emptySessionName, ['workdir' => $emptyWorkdir, 'spawned_at' => time(), 'claude_session_id' => null]);
     $emptyListed = UploadService::list_uploaded_files($emptySessionName);

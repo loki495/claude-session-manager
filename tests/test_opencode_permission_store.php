@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Exercises HostAgent\Services\PermissionStore (the CSM OpenCode plugin bridge:
+ * Exercises HostAgent\Services\PermissionStore (the Sessioneer OpenCode plugin bridge:
  * read pending permissions, read/write answer intent, join ses_* -> sidecar
  * name) in isolation - no live opencode process, no real tmux pane (the store
  * is pure JSON files, and the join is a sidecar-DB query against a fixture
@@ -16,10 +16,10 @@ use HostAgent\Services\Config;
 use HostAgent\Services\PermissionStore;
 use HostAgent\Stores\SidecarStore;
 
-const REAL_SIDECAR_OCPS = '/run/user/1000/csm-sessions';
+const REAL_SIDECAR_OCPS = '/run/user/1000/sessioneer-sessions';
 
-$fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-ocps-sidecars-' . bin2hex(random_bytes(4));
-$fixturePermDir = sys_get_temp_dir() . '/csm-test-ocps-perms-' . bin2hex(random_bytes(4));
+$fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-ocps-sidecars-' . bin2hex(random_bytes(4));
+$fixturePermDir = sys_get_temp_dir() . '/sessioneer-test-ocps-perms-' . bin2hex(random_bytes(4));
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 putenv("OPENCODE_PERMISSION_DIR={$fixturePermDir}");
 
@@ -63,7 +63,7 @@ try {
     PermissionStore::delete_permission($ses);
     assert_equal(null, PermissionStore::read_pending_permission($ses), 'delete_permission: removes the record');
 
-    // --- sidecar join: ses_* -> csM session name via a fixture sidecar ---
+    // --- sidecar join: ses_* -> Sessioneer session name via a fixture sidecar ---
     $sessName = 'oc-test-ocps-' . getmypid();
     SidecarStore::write_sidecar($sessName, ['workdir' => sys_get_temp_dir(), 'spawned_at' => time(), 'claude_session_id' => $ses, 'spawned_by_csm' => true, 'agent' => 'opencode']);
     assert_equal($sessName, PermissionStore::find_by_session_id($ses), 'find_by_session_id: resolves ses_* to the bound sidecar session name');

@@ -24,9 +24,9 @@ use HostAgent\Stores\SidecarStore;
 const REAL_HOME_ROOT_SM = '/home/user';
 const REAL_PUSH_SQLITE_FILE_SM = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
 
-$fixtureHome = sys_get_temp_dir() . '/csm-test-statusline-home-' . bin2hex(random_bytes(4));
-$fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-statusline-sidecars-' . bin2hex(random_bytes(4));
-$fixturePushSqliteFile = sys_get_temp_dir() . '/csm-test-statusline-quota-' . bin2hex(random_bytes(4)) . '/push.sqlite';
+$fixtureHome = sys_get_temp_dir() . '/sessioneer-test-statusline-home-' . bin2hex(random_bytes(4));
+$fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-statusline-sidecars-' . bin2hex(random_bytes(4));
+$fixturePushSqliteFile = sys_get_temp_dir() . '/sessioneer-test-statusline-quota-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 
 putenv("HOME_ROOT={$fixtureHome}");
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
@@ -53,7 +53,7 @@ try {
     $id = 'abcdef01-2345-6789-abcd-ef0123456789';
     $empty = ['session_id' => null, 'context_used_percentage' => null, 'git_worktree' => null];
 
-    $full = StatuslineMarkerService::parse_marker_from_pane("Opus | ctx: 12%\n\x1b[2mcsm-data:{\"session_id\":\"{$id}\",\"ctx_pct\":42,\"git_worktree\":\"my-feature\"}\x1b[0m\n");
+    $full = StatuslineMarkerService::parse_marker_from_pane("Opus | ctx: 12%\n\x1b[2msessioneer-data:{\"session_id\":\"{$id}\",\"ctx_pct\":42,\"git_worktree\":\"my-feature\"}\x1b[0m\n");
     assert_equal($id, $full['session_id'], 'parse_marker_from_pane: extracts session_id from a real rendered pane (ANSI codes and all)');
     assert_equal(42.0, $full['context_used_percentage'], 'parse_marker_from_pane: extracts context_used_percentage');
     assert_equal('my-feature', $full['git_worktree'], 'parse_marker_from_pane: extracts git_worktree');
@@ -61,15 +61,15 @@ try {
     // Fields the shell side drops (jq's with_entries(select(.value != null))
     // omits null/absent ones - see StatuslineMarkerService::JQ_FILTER) come
     // back null here too, without the whole marker being rejected.
-    $partial = StatuslineMarkerService::parse_marker_from_pane("csm-data:{\"session_id\":\"{$id}\"}");
+    $partial = StatuslineMarkerService::parse_marker_from_pane("sessioneer-data:{\"session_id\":\"{$id}\"}");
     assert_equal($id, $partial['session_id'], 'parse_marker_from_pane: session_id alone (no ctx_pct/git_worktree keys) still parses');
     assert_equal(null, $partial['context_used_percentage'], 'parse_marker_from_pane: a genuinely absent key is null, not 0 or an error');
     assert_equal(null, $partial['git_worktree'], 'parse_marker_from_pane: a genuinely absent key is null, not an error');
 
     assert_equal($empty, StatuslineMarkerService::parse_marker_from_pane('no marker here at all'), 'parse_marker_from_pane: all-null when the marker is entirely absent');
-    assert_equal($empty, StatuslineMarkerService::parse_marker_from_pane('csm-data:{not valid json'), 'parse_marker_from_pane: all-null on unparseable JSON after the marker, never crashes');
-    assert_equal(null, StatuslineMarkerService::parse_marker_from_pane("csm-data:{\"session_id\":\"not-a-real-uuid\"}")['session_id'], 'parse_marker_from_pane: session_id is null when the JSON value is not UUID-shaped');
-    assert_equal(strtolower($id), StatuslineMarkerService::parse_marker_from_pane("csm-data:{\"session_id\":\"" . strtoupper($id) . "\"}")['session_id'], 'parse_marker_from_pane: session_id is case-insensitive, normalized to lowercase');
+    assert_equal($empty, StatuslineMarkerService::parse_marker_from_pane('sessioneer-data:{not valid json'), 'parse_marker_from_pane: all-null on unparseable JSON after the marker, never crashes');
+    assert_equal(null, StatuslineMarkerService::parse_marker_from_pane("sessioneer-data:{\"session_id\":\"not-a-real-uuid\"}")['session_id'], 'parse_marker_from_pane: session_id is null when the JSON value is not UUID-shaped');
+    assert_equal(strtolower($id), StatuslineMarkerService::parse_marker_from_pane("sessioneer-data:{\"session_id\":\"" . strtoupper($id) . "\"}")['session_id'], 'parse_marker_from_pane: session_id is case-insensitive, normalized to lowercase');
 
     // Found live 2026-08-23: a tall pane (TMUX_PANE_HEIGHT=150 by default)
     // can still have an OLDER statusline render visible above the current
@@ -78,7 +78,7 @@ try {
     // a stale id, repeatedly overwriting a correct sidecar with a wrong one.
     $staleId = 'aaaaaaaa-1111-2222-3333-444444444444';
     $freshId = 'bbbbbbbb-5555-6666-7777-888888888888';
-    $multiMarker = StatuslineMarkerService::parse_marker_from_pane("csm-data:{\"session_id\":\"{$staleId}\",\"ctx_pct\":85}\n...older output...\ncsm-data:{\"session_id\":\"{$freshId}\",\"ctx_pct\":12}\n");
+    $multiMarker = StatuslineMarkerService::parse_marker_from_pane("sessioneer-data:{\"session_id\":\"{$staleId}\",\"ctx_pct\":85}\n...older output...\nsessioneer-data:{\"session_id\":\"{$freshId}\",\"ctx_pct\":12}\n");
     assert_equal($freshId, $multiMarker['session_id'], 'parse_marker_from_pane: with multiple markers visible in one pane, takes the LAST (most recent) one, not the first');
     assert_equal(12.0, $multiMarker['context_used_percentage'], 'parse_marker_from_pane: with multiple markers, the other fields come from that same last marker too');
 
@@ -123,7 +123,7 @@ try {
 
     // Running the patched script for real with a JSON payload must still
     // print the original script's own output (model name), AND our marker -
-    // the stdin-replay trick (exec 0<<< "$csm_statusline_input") must not
+    // the stdin-replay trick (exec 0<<< "$sessioneer_statusline_input") must not
     // break the original script's own later `cat`.
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $proc = proc_open(['bash', $scriptPath], $descriptors, $pipes);
@@ -191,8 +191,8 @@ try {
     // marker (managed, safe to delete) >>>") - only the exact MARKER_BEGIN
     // line itself is unique to the actual marker block being duplicated.
     $scriptContent = (string)file_get_contents($scriptPath);
-    assert_equal(1, substr_count($scriptContent, '# >>> claude-session-manager: session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: calling twice does not duplicate the marker block');
-    assert_equal(1, substr_count($scriptContent, '# >>> claude-session-manager: quota state capture (managed, safe to delete) >>>'), 'install_statusline_marker: calling twice does not duplicate the quota-capture block');
+    assert_equal(1, substr_count($scriptContent, '# >>> sessioneer: session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: calling twice does not duplicate the marker block');
+    assert_equal(1, substr_count($scriptContent, '# >>> sessioneer: quota state capture (managed, safe to delete) >>>'), 'install_statusline_marker: calling twice does not duplicate the quota-capture block');
 
     GlobalStateStore::delete(Config::quota_live_state_key());
     unlink($settingsPath);
@@ -213,7 +213,7 @@ try {
     // Simulate "predates the quota-capture block" by stripping just that
     // block back out, leaving everything else (CAPTURE_BEGIN + MARKER)
     // exactly as a real pre-upgrade script would have it.
-    $oldStyleContent = (string)preg_replace('/\n?# >>> claude-session-manager: quota state capture.*?# <<< claude-session-manager: quota state capture <<<\n?/s', "\n", $oldStyleContent);
+    $oldStyleContent = (string)preg_replace('/\n?# >>> sessioneer: quota state capture.*?# <<< sessioneer: quota state capture <<<\n?/s', "\n", $oldStyleContent);
     assert_true(!str_contains($oldStyleContent, 'quota state capture'), 'upgrade test setup: quota-capture block successfully stripped back out');
     file_put_contents($scriptPath, $oldStyleContent);
 
@@ -225,9 +225,9 @@ try {
     assert_equal(true, StatuslineMarkerService::check_statusline_marker()['installed'], 'check_statusline_marker: fully installed after the upgrade');
 
     $upgradedContent = (string)file_get_contents($scriptPath);
-    assert_equal(1, substr_count($upgradedContent, '# >>> claude-session-manager: session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: upgrade does not touch/duplicate the existing session-id marker');
-    assert_equal(1, substr_count($upgradedContent, '# >>> claude-session-manager: capture stdin for session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: upgrade does not add a second stdin-capture prelude');
-    assert_equal(1, substr_count($upgradedContent, '# >>> claude-session-manager: quota state capture (managed, safe to delete) >>>'), 'install_statusline_marker: upgrade appends exactly one quota-capture block');
+    assert_equal(1, substr_count($upgradedContent, '# >>> sessioneer: session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: upgrade does not touch/duplicate the existing session-id marker');
+    assert_equal(1, substr_count($upgradedContent, '# >>> sessioneer: capture stdin for session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: upgrade does not add a second stdin-capture prelude');
+    assert_equal(1, substr_count($upgradedContent, '# >>> sessioneer: quota state capture (managed, safe to delete) >>>'), 'install_statusline_marker: upgrade appends exactly one quota-capture block');
 
     // The upgraded script still needs to actually work end to end.
     $runWithQuota($scriptPath, [
@@ -247,20 +247,20 @@ try {
     GlobalStateStore::delete(Config::quota_live_state_key());
     $staleQuotaBody = str_replace(
         implode("\n", [
-            '# >>> claude-session-manager: quota state capture (managed, safe to delete) >>>',
-            'csm_quota_new=$(printf \'%s\' "$csm_statusline_input" | jq -c \'{five_hour: .rate_limits.five_hour, seven_day: .rate_limits.seven_day} | with_entries(select(.value != null))\' 2>/dev/null)',
-            'if [ -n "$csm_quota_new" ] && [ "$csm_quota_new" != "{}" ]; then',
-            '  printf \'%s\' "$csm_quota_new" | ' . Config::quota_live_state_write_command() . ' >/dev/null 2>&1',
+            '# >>> sessioneer: quota state capture (managed, safe to delete) >>>',
+            'sessioneer_quota_new=$(printf \'%s\' "$sessioneer_statusline_input" | jq -c \'{five_hour: .rate_limits.five_hour, seven_day: .rate_limits.seven_day} | with_entries(select(.value != null))\' 2>/dev/null)',
+            'if [ -n "$sessioneer_quota_new" ] && [ "$sessioneer_quota_new" != "{}" ]; then',
+            '  printf \'%s\' "$sessioneer_quota_new" | ' . Config::quota_live_state_write_command() . ' >/dev/null 2>&1',
             'fi',
-            '# <<< claude-session-manager: quota state capture <<<',
+            '# <<< sessioneer: quota state capture <<<',
         ]),
         implode("\n", [
-            '# >>> claude-session-manager: quota state capture (managed, safe to delete) >>>',
-            'csm_quota_new=$(printf \'%s\' "$csm_statusline_input" | jq -c \'{five_hour: .rate_limits.five_hour, seven_day: .rate_limits.seven_day} | with_entries(select(.value != null))\' 2>/dev/null)',
-            'if [ -n "$csm_quota_new" ] && [ "$csm_quota_new" != "{}" ]; then',
-            '  echo "$csm_quota_new" > /tmp/old-jq-quota-state.json',
+            '# >>> sessioneer: quota state capture (managed, safe to delete) >>>',
+            'sessioneer_quota_new=$(printf \'%s\' "$sessioneer_statusline_input" | jq -c \'{five_hour: .rate_limits.five_hour, seven_day: .rate_limits.seven_day} | with_entries(select(.value != null))\' 2>/dev/null)',
+            'if [ -n "$sessioneer_quota_new" ] && [ "$sessioneer_quota_new" != "{}" ]; then',
+            '  echo "$sessioneer_quota_new" > /tmp/old-jq-quota-state.json',
             'fi',
-            '# <<< claude-session-manager: quota state capture <<<',
+            '# <<< sessioneer: quota state capture <<<',
         ]),
         $upgradedContent
     );
@@ -276,8 +276,8 @@ try {
 
     $replacedContent = (string)file_get_contents($scriptPath);
     assert_true(!str_contains($replacedContent, 'old-jq-quota-state.json'), 'install_statusline_marker: the stale jq-only body is gone after the replace');
-    assert_equal(1, substr_count($replacedContent, '# >>> claude-session-manager: quota state capture (managed, safe to delete) >>>'), 'install_statusline_marker: replacing the stale body does not duplicate the block');
-    assert_equal(1, substr_count($replacedContent, '# >>> claude-session-manager: session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: replacing the quota-capture body leaves the session-id marker block untouched');
+    assert_equal(1, substr_count($replacedContent, '# >>> sessioneer: quota state capture (managed, safe to delete) >>>'), 'install_statusline_marker: replacing the stale body does not duplicate the block');
+    assert_equal(1, substr_count($replacedContent, '# >>> sessioneer: session-id marker (managed, safe to delete) >>>'), 'install_statusline_marker: replacing the quota-capture body leaves the session-id marker block untouched');
 
     $runWithQuota($scriptPath, [
         'session_id' => $id,

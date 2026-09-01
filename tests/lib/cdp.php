@@ -69,16 +69,16 @@ function cdp_launch(string $chromeBin): ?array
     // --user-data-dir means nothing here is a fixed/reused resource path -
     // unlike tests/lib/socket_harness.php's fixed socket, there's no
     // stale-listener case to guard against on launch.
-    $userDataDir = sys_get_temp_dir() . '/csm-test-cdp-profile-' . getmypid();
+    $userDataDir = sys_get_temp_dir() . '/sessioneer-test-cdp-profile-' . getmypid();
     @mkdir($userDataDir, 0700, true);
 
-    // CSM_TEST_HEADED=1 (see tests/run.sh's --headed flag) drops
+    // SESSIONEER_TEST_HEADED=1 (see tests/run.sh's --headed flag) drops
     // --headless=new entirely, so a real visible window opens on
     // whatever display this process inherits (DISPLAY/WAYLAND_DISPLAY,
     // same as any other GUI app run from this shell) - for watching the
     // replay happen live, still fully automated (nothing here waits on
     // real human input, unlike an actually-interactive devtools session).
-    $headed = getenv('CSM_TEST_HEADED') === '1';
+    $headed = getenv('SESSIONEER_TEST_HEADED') === '1';
 
     $cmd = [
         $chromeBin,

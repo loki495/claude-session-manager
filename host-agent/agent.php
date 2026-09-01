@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * Entry point for a single request. Invoked by systemd socket activation
- * (see systemd/csm-agent.socket + csm-agent@.service, Accept=yes) with
+ * (see systemd/sessioneer-agent.socket + sessioneer-agent@.service, Accept=yes) with
  * STDIN/STDOUT bound directly to the accepted connection: one JSON
  * request in, one JSON response out, then this process exits. No
  * networking code needed here - systemd owns the socket lifecycle.

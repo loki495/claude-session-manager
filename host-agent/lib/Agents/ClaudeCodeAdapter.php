@@ -40,7 +40,7 @@ class ClaudeCodeAdapter implements AgentAdapter
     /**
      * $options['enable_task_tools'] (bool) and $options['starting_mode']
      * (?string, this app's own manual/accept edits/plan/auto vocabulary)
-     * mirror create_cc_session()'s own former inline parameters exactly -
+     * mirror create_agent_session()'s own former inline parameters exactly -
      * see that method's docblock (unchanged) for why each exists.
      * $options['model'] (?string) is one of SelectableModel::PICKER_OPTIONS'
      * keys minus 'default' (sonnet/fable/opus/haiku) - the real CLI's
@@ -97,7 +97,7 @@ class ClaudeCodeAdapter implements AgentAdapter
 
     /**
      * Claude Code's headless path (the Agent SDK, or one-shot `claude -p`)
-     * is pay-per-API and not a drivable session CSM can watch like a tmux
+     * is pay-per-API and not a drivable session Sessioneer can watch like a tmux
      * pane, so headless is intentionally not offered here - see the
      * headless-runtime plan. Tmux is the only runtime.
      */

@@ -9,11 +9,11 @@ Description=Periodically poll Antigravity's own account-wide quota (agy -p "/usa
 # usage elsewhere, so once a minute is already generous relative to how
 # fast the underlying number actually moves.
 # OnUnitActiveSec (not OnCalendar) so a slow tick (an overloaded host)
-# can't pile up overlapping runs - same reasoning csm-push-check.timer
+# can't pile up overlapping runs - same reasoning sessioneer-push-check.timer
 # already uses.
 OnBootSec=60s
 OnUnitActiveSec=60s
-Unit=csm-antigravity-quota-check.service
+Unit=sessioneer-antigravity-quota-check.service
 
 [Install]
 WantedBy=timers.target

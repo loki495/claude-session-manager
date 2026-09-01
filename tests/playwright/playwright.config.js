@@ -1,6 +1,6 @@
 const { defineConfig } = require('@playwright/test');
 
-const live = process.env.CSM_PLAYWRIGHT_LIVE === '1';
+const live = process.env.SESSIONEER_PLAYWRIGHT_LIVE === '1';
 
 module.exports = defineConfig({
   testDir: '.',
@@ -9,7 +9,7 @@ module.exports = defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: process.env.CSM_PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:18100',
+    baseURL: process.env.SESSIONEER_PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:18100',
     browserName: 'chromium',
     launchOptions: {
       executablePath: '/usr/bin/google-chrome-stable',

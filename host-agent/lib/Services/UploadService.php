@@ -45,7 +45,7 @@ class UploadService
      * same sidecar-backed value build_session_entry() exposes as 'workdir'
      * elsewhere, fetched directly here since uploads only ever need this one
      * field. Only ever set for app-spawned sessions (see write_sidecar() in
-     * create_cc_session()) - a bare/manually-attached session has no sidecar
+     * create_agent_session()) - a bare/manually-attached session has no sidecar
      * and so no known workdir, same limitation every other workdir-dependent
      * feature in this app already has.
      */
@@ -65,7 +65,7 @@ class UploadService
      */
     public static function max_upload_bytes(): int
     {
-        return (int)Config::csm_config('MAX_UPLOAD_BYTES', (string)(64 * 1024 * 1024));
+        return (int)Config::sessioneer_config('MAX_UPLOAD_BYTES', (string)(64 * 1024 * 1024));
     }
 
     /**

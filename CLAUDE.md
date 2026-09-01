@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A personal, single-user web UI for managing `cc-*` tmux sessions running
-`claude` on this dev box — list sessions, see blocked prompts, answer them,
-send messages, view transcripts, kill sessions. No database, no user
-accounts; access control is the network binding (LAN-only), not a login.
+A personal, single-user web UI for managing tmux sessions running Claude
+Code, Codex, OpenCode, and Antigravity (`cc-*`, `cx-*`, `oc-*`, `ag-*`) on
+this dev box — list sessions, see blocked prompts, answer them, send
+messages, view transcripts, kill sessions. No database, no user accounts;
+access control is the network binding (LAN-only), not a login.
 
 ## Commands
 
@@ -162,8 +163,8 @@ in both places.
   reasoning. All three are pure-observe, same as PreToolUse.
 
 All five are no-ops for a plain `claude` session started by hand outside
-this app (they key off a `CSM_SESSION_NAME` tmux pane environment variable
-that only `create_cc_session()`-spawned sessions have).
+this app (they key off a `SESSIONEER_SESSION_NAME` tmux pane environment variable
+that only `create_agent_session()`-spawned sessions have).
 
 ## Conventions worth knowing before editing
 
@@ -179,7 +180,7 @@ that only `create_cc_session()`-spawned sessions have).
    stream only emits `server.connected`/`server.heartbeat` — no session
    status/step/permission events. The per-session `GET /api/session/:id/event`
    serves HTML, not SSE. Session status detection relies on throttled
-   `GET /session/status` polling (in `csm_headless_sync()`).
+   `GET /session/status` polling (in `sessioneer_headless_sync()`).
 
 - **Claude Code tools/hooks questions: check the real docs first, not
   memory.** Whenever a change or investigation touches what tools/hooks a

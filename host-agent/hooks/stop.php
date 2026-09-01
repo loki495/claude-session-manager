@@ -24,7 +24,7 @@ declare(strict_types=1);
  * Writes nothing to stdout and always exits 0 - same "no opinion"
  * convention as every other hook this app installs.
  *
- * CSM_SESSION_NAME gate: same as the other hooks - a plain claude session
+ * SESSIONEER_SESSION_NAME gate: same as the other hooks - a plain claude session
  * started by hand is a deliberate no-op.
  */
 
@@ -33,7 +33,7 @@ require __DIR__ . '/../lib/Sessions.php';
 use HostAgent\Services\PermissionMode;
 use HostAgent\Stores\SessionStatusStore;
 
-$sessionName = getenv('CSM_SESSION_NAME');
+$sessionName = getenv('SESSIONEER_SESSION_NAME');
 
 if ($sessionName === false || $sessionName === '') {
     exit(0);

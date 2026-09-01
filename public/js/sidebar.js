@@ -3,12 +3,12 @@
 // plan/handoff files, and the confirm-before-answer/show-subagent
 // settings it hosts) - plain global functions/vars, same convention as
 // common.js/scroll.js/highlights.js. Own independent
-// document.getElementById() lookups and reads window.CSM_BOOTSTRAP
+// document.getElementById() lookups and reads window.SESSIONEER_BOOTSTRAP
 // directly (same as session.js's own sessionName/csrfToken derivation)
 // rather than depending on session.js's locals. Extracted from session.js
 // 2026-08-24, fifth cut of the "split session.js into modules" pass.
-var sessionName = window.CSM_BOOTSTRAP.session;
-var csrfToken = window.CSM_BOOTSTRAP.csrfToken;
+var sessionName = window.SESSIONEER_BOOTSTRAP.session;
+var csrfToken = window.SESSIONEER_BOOTSTRAP.csrfToken;
 
 var appShell = document.getElementById('app-shell');
 var sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
@@ -59,7 +59,7 @@ if (confirmBeforeAnswerToggle) {
 // toggles this used to be also merged into this one, same date - a
 // subagent call and its own report are little enough traffic that
 // splitting them wasn't worth the extra checkbox.
-var SHOW_SUBAGENT_KEY = 'csm-show-subagent-' + sessionName;
+var SHOW_SUBAGENT_KEY = 'sessioneer-show-subagent-' + sessionName;
 
 function shouldShowSubagent() {
   try {
@@ -125,7 +125,7 @@ if (showWorkerSessionsToggle) {
 // session that's simply always been idle from lighting up green on
 // first-ever observation (a transition has to be detected, not just a
 // state).
-var SIDEBAR_SESSION_STATE_KEY = 'csm-sidebar-session-state';
+var SIDEBAR_SESSION_STATE_KEY = 'sessioneer-sidebar-session-state';
 
 function readSidebarSessionState() {
   try {
@@ -162,7 +162,7 @@ function otherSessionState(s) {
 // SIDEBAR_SESSION_STATE_KEY above, just a separate key/clearing rule),
 // keyed by session name so any tab can update any other session's
 // entry, but only that session's OWN page load ever acknowledges it. ---
-var SESSION_DONE_STATE_KEY = 'csm-session-done-state';
+var SESSION_DONE_STATE_KEY = 'sessioneer-session-done-state';
 
 function readSessionDoneState() {
   try {

@@ -1,5 +1,5 @@
 [Unit]
-Description=Claude Session Manager push-notification check (one run)
+Description=Sessioneer push-notification check (one run)
 
 [Service]
 Type=oneshot

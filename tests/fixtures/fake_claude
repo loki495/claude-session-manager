@@ -2,7 +2,7 @@
 # Stand-in for the real `claude` binary (see tests/.env.testing's CLAUDE_BIN).
 # Used to be a plain symlink to /bin/cat - simplest possible "blocks on
 # stdin forever, like an idle claude pane" behavior. Now a script instead,
-# because create_cc_session() passes real flags (e.g. --session-id <uuid>)
+# because create_agent_session() passes real flags (e.g. --session-id <uuid>)
 # that /bin/cat and every other coreutils/interpreter binary reject outright
 # as an unrecognized option (verified: cat, tee, sh, dd, tail, xargs, env,
 # sleep, perl, python3, node, php, lua all exit nonzero immediately instead

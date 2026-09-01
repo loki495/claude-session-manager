@@ -33,7 +33,7 @@ per-directory behavior.
 ## Applying
 
 ```bash
-# From the CSM repo:
+# From the Sessioneer repo:
 python3 docs/opencode-serve-fix/apply-opencode-patch.py
 
 # Or with custom OpenCode source path:

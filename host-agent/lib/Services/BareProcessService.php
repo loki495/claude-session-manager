@@ -9,7 +9,7 @@ namespace HostAgent\Services;
  * SessionService.php (2026-08-24 readability audit - see the plan this
  * followed) - the one cluster with real fan-out, depending on core
  * SessionService::list_all_sessions(), ArchivedSessionService::
- * list_archived_sessions(), and SessionLifecycleService::resume_cc_session()
+ * list_archived_sessions(), and SessionLifecycleService::resume_agent_session()
  * - inherent to what "take over a bare process" does (search archived
  * candidates, exclude already-tracked ones, then resume), a legitimate
  * orchestration role rather than a smell, and still a one-directional
@@ -229,7 +229,7 @@ class BareProcessService
                 return $killResult;
             }
 
-            return SessionLifecycleService::resume_cc_session($workdir, $matchedId);
+            return SessionLifecycleService::resume_agent_session($workdir, $matchedId);
         }
 
         $resolved = self::bare_process_take_over_candidates($workdir, $startedAt ?? time(), $pid);
@@ -268,6 +268,6 @@ class BareProcessService
             }
         }
 
-        return SessionLifecycleService::resume_cc_session($workdir, $claudeSessionId);
+        return SessionLifecycleService::resume_agent_session($workdir, $claudeSessionId);
     }
 }

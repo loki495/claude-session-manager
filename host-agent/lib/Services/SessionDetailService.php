@@ -22,7 +22,7 @@ class SessionDetailService
      * Fresh, single-session snapshot for the detail page - re-derives
      * everything from a live tmux/proc scan by name rather than trusting
      * anything from the caller, same discipline as SessionLifecycleService::
-     * kill_cc_session()'s whitelist re-check.
+     * kill_agent_session()'s whitelist re-check.
      *
      * @return array{ok:bool, message?:string, has_transcript?:bool, todos?:?array}
      */

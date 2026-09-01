@@ -17,11 +17,11 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 
 use App\AgentClient;
 
-$socketPath = sys_get_temp_dir() . '/csm-test-agent-protocol.sock';
+$socketPath = sys_get_temp_dir() . '/sessioneer-test-agent-protocol.sock';
 $agentPhp = dirname(__DIR__) . '/host-agent/agent.php';
 
 $harness = start_harness(['php', $agentPhp], $socketPath);
-putenv("CSM_AGENT_SOCKET={$socketPath}");
+putenv("SESSIONEER_AGENT_SOCKET={$socketPath}");
 
 try {
     // --- list ---
@@ -42,17 +42,17 @@ try {
     assert_equal(false, $result['ok'] ?? null, 'browse_dir (/etc): rejected as outside the home directory');
 
     // --- create_dir: dispatched through to SessionService::create_dir() over the real socket ---
-    $newDirPath = getenv('WWW_ROOT') . '/csm-test-protocol-new-folder';
+    $newDirPath = getenv('WWW_ROOT') . '/sessioneer-test-protocol-new-folder';
     @rmdir($newDirPath); // in case a previous failed run left it behind
 
-    $result = AgentClient::agent_call(['action' => 'create_dir', 'path' => getenv('WWW_ROOT'), 'name' => 'csm-test-protocol-new-folder']);
+    $result = AgentClient::agent_call(['action' => 'create_dir', 'path' => getenv('WWW_ROOT'), 'name' => 'sessioneer-test-protocol-new-folder']);
     assert_true($result['ok'] ?? false, 'create_dir: ok=true');
     assert_true(is_dir($newDirPath), 'create_dir: the directory really exists on disk afterward');
     assert_equal($newDirPath, $result['path'] ?? null, 'create_dir: response path is the new folder itself');
 
     @rmdir($newDirPath);
 
-    $result = AgentClient::agent_call(['action' => 'create_dir', 'path' => '/etc', 'name' => 'csm-test-protocol-escape']);
+    $result = AgentClient::agent_call(['action' => 'create_dir', 'path' => '/etc', 'name' => 'sessioneer-test-protocol-escape']);
     assert_equal(false, $result['ok'] ?? null, 'create_dir (/etc): rejected as outside the home directory');
 
     // --- session_detail / session_history: wired over the socket (deeper
@@ -90,7 +90,7 @@ try {
     assert_equal('Malformed request', $decoded['message'] ?? null, 'malformed: agent.php reports the expected message');
 
     // --- unreachable socket ---
-    putenv('CSM_AGENT_SOCKET=' . sys_get_temp_dir() . '/csm-test-does-not-exist.sock');
+    putenv('SESSIONEER_AGENT_SOCKET=' . sys_get_temp_dir() . '/sessioneer-test-does-not-exist.sock');
     $result = AgentClient::agent_call(['action' => 'list']);
     assert_equal(false, $result['ok'] ?? null, 'unreachable: ok=false');
     assert_contains('Cannot reach host agent', $result['message'] ?? '', 'unreachable: message explains the failure');

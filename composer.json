@@ -1,5 +1,5 @@
 {
-    "name": "loki495/claude-session-manager",
+    "name": "loki495/sessioneer",
     "description": "A self-hosted web UI for managing tmux sessions running Claude Code - see blocked prompts, answer them, send messages, view transcripts, all from a phone or any browser on your LAN.",
     "type": "project",
     "license": "MIT",

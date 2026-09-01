@@ -15,7 +15,7 @@ namespace HostAgent\Services;
  * This is a stronger signal than the SessionStart hook alone for the
  * exact corruption class found live 2026-08-08 (a `claude` process run
  * manually from inside a tracked pane's own Bash tool inherits
- * CSM_SESSION_NAME and fires its own genuine SessionStart, clobbering the
+ * SESSIONEER_SESSION_NAME and fires its own genuine SessionStart, clobbering the
  * pane's sidecar with an unrelated session_id - see session_start.php's
  * own transcript-existence check, added the same day). The statusline
  * reflects whatever process currently owns the pane's TUI - once a nested
@@ -31,12 +31,12 @@ namespace HostAgent\Services;
  */
 class StatuslineMarkerService
 {
-    private const CAPTURE_BEGIN = '# >>> claude-session-manager: capture stdin for session-id marker (managed, safe to delete) >>>';
-    private const CAPTURE_END = '# <<< claude-session-manager: capture stdin <<<';
-    private const MARKER_BEGIN = '# >>> claude-session-manager: session-id marker (managed, safe to delete) >>>';
-    private const MARKER_END = '# <<< claude-session-manager: session-id marker <<<';
-    private const QUOTA_CAPTURE_BEGIN = '# >>> claude-session-manager: quota state capture (managed, safe to delete) >>>';
-    private const QUOTA_CAPTURE_END = '# <<< claude-session-manager: quota state capture <<<';
+    private const CAPTURE_BEGIN = '# >>> sessioneer: capture stdin for session-id marker (managed, safe to delete) >>>';
+    private const CAPTURE_END = '# <<< sessioneer: capture stdin <<<';
+    private const MARKER_BEGIN = '# >>> sessioneer: session-id marker (managed, safe to delete) >>>';
+    private const MARKER_END = '# <<< sessioneer: session-id marker <<<';
+    private const QUOTA_CAPTURE_BEGIN = '# >>> sessioneer: quota state capture (managed, safe to delete) >>>';
+    private const QUOTA_CAPTURE_END = '# <<< sessioneer: quota state capture <<<';
 
     /**
      * Builds the compact JSON blob parse_marker_from_pane() reads back -
@@ -62,7 +62,7 @@ class StatuslineMarkerService
 
     /**
      * The live pane text carries our marker as a single compact JSON blob,
-     * "csm-data:{...}" on its own line - tmux capture-pane -p strips ANSI
+     * "sessioneer-data:{...}" on its own line - tmux capture-pane -p strips ANSI
      * escapes by default, so the dim styling written in the script never
      * has to be accounted for here. Every field is independently optional (the shell side
      * drops any key whose source value was null/absent, via jq's
@@ -87,7 +87,7 @@ class StatuslineMarkerService
     {
         $empty = ['session_id' => null, 'context_used_percentage' => null, 'git_worktree' => null];
 
-        if (preg_match_all('/csm-data:(\{[^\n]*\})/', $paneContent, $m) === 0) {
+        if (preg_match_all('/sessioneer-data:(\{[^\n]*\})/', $paneContent, $m) === 0) {
             return $empty;
         }
 
@@ -311,7 +311,7 @@ class StatuslineMarkerService
      * with neither gets both in one write (append_marker_to_script()); a
      * script that already has the (older) session-id marker but not the
      * newer quota-capture block gets just that one appended, reusing the
-     * $csm_statusline_input variable the existing CAPTURE_BEGIN block
+     * $sessioneer_statusline_input variable the existing CAPTURE_BEGIN block
      * already set up - it never needs a second stdin-capture prelude. A
      * script that has a quota-capture block whose BODY is stale (see
      * quota_capture_up_to_date()) gets that block replaced in place rather
@@ -387,7 +387,7 @@ class StatuslineMarkerService
         }
 
         $lines = explode("\n", $content);
-        $captureBlock = [self::CAPTURE_BEGIN, 'csm_statusline_input=$(cat)', 'exec 0<<< "$csm_statusline_input"', self::CAPTURE_END];
+        $captureBlock = [self::CAPTURE_BEGIN, 'sessioneer_statusline_input=$(cat)', 'exec 0<<< "$sessioneer_statusline_input"', self::CAPTURE_END];
 
         if (isset($lines[0]) && str_starts_with($lines[0], '#!')) {
             array_splice($lines, 1, 0, $captureBlock);
@@ -398,8 +398,8 @@ class StatuslineMarkerService
         $markerBlock = [
             '',
             self::MARKER_BEGIN,
-            'csm_json=$(printf \'%s\' "$csm_statusline_input" | jq -c \'' . self::JQ_FILTER . '\' 2>/dev/null)',
-            '[ -n "$csm_json" ] && [ "$csm_json" != "{}" ] && printf "\\033[2mcsm-data:%s\\033[0m\\n" "$csm_json"',
+            'sessioneer_json=$(printf \'%s\' "$sessioneer_statusline_input" | jq -c \'' . self::JQ_FILTER . '\' 2>/dev/null)',
+            '[ -n "$sessioneer_json" ] && [ "$sessioneer_json" != "{}" ] && printf "\\033[2msessioneer-data:%s\\033[0m\\n" "$sessioneer_json"',
             self::MARKER_END,
         ];
 
@@ -420,7 +420,7 @@ class StatuslineMarkerService
     /**
      * Upgrade path for a script that already has the session-id marker
      * (and therefore the CAPTURE_BEGIN prelude that sets
-     * $csm_statusline_input) but predates the quota-capture block - just
+     * $sessioneer_statusline_input) but predates the quota-capture block - just
      * appends that one block, nothing else.
      *
      * @return array{ok:bool, installed:bool, message?:string}
@@ -450,7 +450,7 @@ class StatuslineMarkerService
      * The quota-state-capture block's lines - shared by append_marker_to_script()
      * (fresh install) and append_quota_capture_block() (upgrading an
      * existing marker install), and install_fallback_script() below.
-     * Depends on $csm_statusline_input already being set (see CAPTURE_BEGIN).
+     * Depends on $sessioneer_statusline_input already being set (see CAPTURE_BEGIN).
      * Shells out to host-agent/quota_live_state_write.php (Config::
      * quota_live_state_write_command()) for the actual merge-and-write
      * (GlobalStateStore, SQLite - see that script's own docblock for why
@@ -476,9 +476,9 @@ class StatuslineMarkerService
         return [
             '',
             self::QUOTA_CAPTURE_BEGIN,
-            'csm_quota_new=$(printf \'%s\' "$csm_statusline_input" | jq -c \'{five_hour: .rate_limits.five_hour, seven_day: .rate_limits.seven_day} | with_entries(select(.value != null))\' 2>/dev/null)',
-            'if [ -n "$csm_quota_new" ] && [ "$csm_quota_new" != "{}" ]; then',
-            '  printf \'%s\' "$csm_quota_new" | ' . Config::quota_live_state_write_command() . ' >/dev/null 2>&1',
+            'sessioneer_quota_new=$(printf \'%s\' "$sessioneer_statusline_input" | jq -c \'{five_hour: .rate_limits.five_hour, seven_day: .rate_limits.seven_day} | with_entries(select(.value != null))\' 2>/dev/null)',
+            'if [ -n "$sessioneer_quota_new" ] && [ "$sessioneer_quota_new" != "{}" ]; then',
+            '  printf \'%s\' "$sessioneer_quota_new" | ' . Config::quota_live_state_write_command() . ' >/dev/null 2>&1',
             'fi',
             self::QUOTA_CAPTURE_END,
         ];
@@ -492,11 +492,11 @@ class StatuslineMarkerService
     {
         $scriptPath = Config::statusline_fallback_script_path();
         $script = "#!/usr/bin/env bash\n"
-            . "csm_statusline_input=\$(cat)\n"
+            . "sessioneer_statusline_input=\$(cat)\n"
             . "\n"
             . self::MARKER_BEGIN . "\n"
-            . "csm_json=\$(printf '%s' \"\$csm_statusline_input\" | jq -c '" . self::JQ_FILTER . "' 2>/dev/null)\n"
-            . '[ -n "$csm_json" ] && [ "$csm_json" != "{}" ] && printf "\033[2mcsm-data:%s\033[0m\n" "$csm_json"' . "\n"
+            . "sessioneer_json=\$(printf '%s' \"\$sessioneer_statusline_input\" | jq -c '" . self::JQ_FILTER . "' 2>/dev/null)\n"
+            . '[ -n "$sessioneer_json" ] && [ "$sessioneer_json" != "{}" ] && printf "\033[2msessioneer-data:%s\033[0m\n" "$sessioneer_json"' . "\n"
             . self::MARKER_END . "\n"
             . implode("\n", self::quota_capture_block()) . "\n";
 

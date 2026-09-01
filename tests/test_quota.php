@@ -36,10 +36,10 @@ use HostAgent\Stores\SidecarStore;
 const REAL_PUSH_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
 const REAL_SESSIONS_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-agent/state/sessions.sqlite';
 
-$pushSqliteFixture = sys_get_temp_dir() . '/csm-test-quota-live-' . bin2hex(random_bytes(4)) . '/push.sqlite';
-$sessionsSqliteFixture = sys_get_temp_dir() . '/csm-test-quota-sessions-' . bin2hex(random_bytes(4)) . '/sessions.sqlite';
-$opencodeDbFixture = sys_get_temp_dir() . '/csm-test-quota-opencode-' . bin2hex(random_bytes(4)) . '/opencode.db';
-$opencodeAuthFixture = sys_get_temp_dir() . '/csm-test-quota-opencode-' . bin2hex(random_bytes(4)) . '/auth.json';
+$pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-quota-live-' . bin2hex(random_bytes(4)) . '/push.sqlite';
+$sessionsSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-quota-sessions-' . bin2hex(random_bytes(4)) . '/sessions.sqlite';
+$opencodeDbFixture = sys_get_temp_dir() . '/sessioneer-test-quota-opencode-' . bin2hex(random_bytes(4)) . '/opencode.db';
+$opencodeAuthFixture = sys_get_temp_dir() . '/sessioneer-test-quota-opencode-' . bin2hex(random_bytes(4)) . '/auth.json';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
 putenv("SESSIONS_SQLITE_FILE={$sessionsSqliteFixture}");
 putenv("OPENCODE_DB_PATH={$opencodeDbFixture}");

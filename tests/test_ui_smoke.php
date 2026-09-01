@@ -25,14 +25,14 @@ const CANNED_RESUMED_SESSION_NAME = 'cc-20260101-1400';
 const CANNED_TAKEN_OVER_SESSION_NAME = 'cc-20260101-1500';
 const CANNED_NEW_SESSION_NAME = 'cc-20260101-1600';
 
-$agentSocket = sys_get_temp_dir() . '/csm-test-ui-agent.sock';
+$agentSocket = sys_get_temp_dir() . '/sessioneer-test-ui-agent.sock';
 $agentHarness = start_harness(['php', __DIR__ . '/fixtures/canned_agent.php'], $agentSocket);
 
 $port = 18099;
 $baseUrl = "http://127.0.0.1:{$port}";
 
 $serverEnv = array_merge(getenv(), [
-    'CSM_AGENT_SOCKET' => $agentSocket,
+    'SESSIONEER_AGENT_SOCKET' => $agentSocket,
 ]);
 $serverProcess = proc_open(
     [
@@ -74,12 +74,12 @@ if (!$ready) {
 }
 
 try {
-    $cookieJar = tempnam(sys_get_temp_dir(), 'csm-test-cookies');
+    $cookieJar = tempnam(sys_get_temp_dir(), 'sessioneer-test-cookies');
 
     // --- page reflects the canned agent's data ---
     $result = curl_request('GET', "{$baseUrl}/", [], $cookieJar);
     assert_equal(200, $result['status'], 'GET /: 200');
-    assert_contains('Claude Session Manager', $result['body'], 'GET /: page title present');
+    assert_contains('Sessioneer', $result['body'], 'GET /: page title present');
     assert_contains('2 active', $result['body'], 'GET /: session count from canned agent');
     assert_true(
         preg_match('/<body class="[^"]*\boverscroll-y-none\b/', $result['body']) === 1,
@@ -90,7 +90,7 @@ try {
     assert_contains('demo-project', $result['body'], 'GET /: canned workdir rendered');
     assert_contains('idle', $result['body'], 'GET /: canned session shown as idle');
     assert_contains('Bare title', $result['body'], "GET /: canned bare process's tmux pane title shown");
-    assert_contains('csm-test-adhoc', $result['body'], "GET /: canned bare process's owning tmux session shown");
+    assert_contains('sessioneer-test-adhoc', $result['body'], "GET /: canned bare process's owning tmux session shown");
     assert_contains("I&#039;ll clean up the temp directory now", $result['body'], 'GET /: last-message preview shown under a non-blocked session row');
     assert_contains('show-recent-btn', $result['body'], 'GET /: "show last 3 messages" toggle button present');
     assert_true(
@@ -260,7 +260,7 @@ try {
     // with an established session's cookie, then confirming that session's CSRF token is
     // still accepted afterwards - a session_start() that rotated or dropped the session
     // would break this. ---
-    $pollCookieJar = tempnam(sys_get_temp_dir(), 'csm-test-poll-cookies');
+    $pollCookieJar = tempnam(sys_get_temp_dir(), 'sessioneer-test-poll-cookies');
     $pollPage = curl_request('GET', "{$baseUrl}/session.php?session=cc-20260101-1200", [], $pollCookieJar);
     $pollCsrfToken = extract_csrf_token($pollPage['body']);
     assert_true($pollCsrfToken !== null, 'GET /session.php: page includes a csrf_token field (poll-keepalive setup)');
@@ -580,7 +580,7 @@ try {
     assert_contains('headerTitle.title = title', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() keeps the header title\'s tooltip (title attribute) in sync too, not just its visible text');
     assert_contains("class=\"copy-block\" data-line=\"' + line + '\"><div class=\"markdown-body", $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button (and data-line, for search-result jump/highlight) on plain text entries');
     assert_contains("closestEventTarget(e, 'summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler safely excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
-    assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in CSM_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
+    assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in SESSIONEER_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
     // --- standalone tool-call entries (TranscriptView::render_transcript_
     // entries_html()/render_tool_call_entry_html() - bundling under a
     // shared "N tool calls" toggle removed 2026-08-22 in favor of each
@@ -916,7 +916,7 @@ try {
     );
     $pushNotifyJs = curl_request('GET', "{$baseUrl}{$pushNotifyScriptMatch[1]}");
     assert_equal(200, $pushNotifyJs['status'], 'GET /js/push-notify.js?v=...: 200 (served as a static file, no 404)');
-    assert_contains("indexedDB.open('csm-push', 1)", $pushNotifyJs['body'], 'GET /js/push-notify.js: caches the CSRF token in the same IndexedDB store sw.js reads from');
+    assert_contains("indexedDB.open('sessioneer-push', 1)", $pushNotifyJs['body'], 'GET /js/push-notify.js: caches the CSRF token in the same IndexedDB store sw.js reads from');
     assert_contains("tx.objectStore('kv').put(CSRF_TOKEN, 'csrf_token')", $pushNotifyJs['body'], 'GET /js/push-notify.js: writes the REAL page CSRF token (not a placeholder) into the cache');
 
     $swJs = curl_request('GET', "{$baseUrl}/sw.js");
@@ -1084,7 +1084,7 @@ try {
     $result = curl_request('GET', "{$baseUrl}/upload_file.php");
     assert_equal(405, $result['status'], 'GET /upload_file.php: 405 (POST required)');
 
-    $uploadFixturePath = sys_get_temp_dir() . '/csm-test-upload-' . bin2hex(random_bytes(4)) . '.txt';
+    $uploadFixturePath = sys_get_temp_dir() . '/sessioneer-test-upload-' . bin2hex(random_bytes(4)) . '.txt';
     file_put_contents($uploadFixturePath, 'fixture upload content');
 
     $result = curl_request('POST', "{$baseUrl}/upload_file.php", [
@@ -1175,11 +1175,11 @@ try {
     assert_equal(200, $jumpResult['status'], 'GET /session.php?jump_line=4: 200');
     assert_contains('Showing a search result', $jumpResult['body'], 'GET /session.php?jump_line=4: renders the jump banner');
     assert_contains('Back to latest', $jumpResult['body'], 'GET /session.php?jump_line=4: banner offers a way back to the normal (non-jumped) view');
-    assert_contains('"jumpLine":4', $jumpResult['body'], 'GET /session.php?jump_line=4: jumpLine is threaded into CSM_BOOTSTRAP for session.js\'s own scroll/highlight');
+    assert_contains('"jumpLine":4', $jumpResult['body'], 'GET /session.php?jump_line=4: jumpLine is threaded into SESSIONEER_BOOTSTRAP for session.js\'s own scroll/highlight');
 
     $noJumpResult = curl_request('GET', "{$baseUrl}/session.php?session=" . urlencode('cc-20260101-1200'));
     assert_true(!str_contains($noJumpResult['body'], 'Showing a search result'), 'GET /session.php (no jump_line): the jump banner is NOT shown on an ordinary visit');
-    assert_contains('"jumpLine":null', $noJumpResult['body'], 'GET /session.php (no jump_line): jumpLine is null in CSM_BOOTSTRAP when not jumping');
+    assert_contains('"jumpLine":null', $noJumpResult['body'], 'GET /session.php (no jump_line): jumpLine is null in SESSIONEER_BOOTSTRAP when not jumping');
 
     $archivedJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&jump_line=3");
     assert_equal(200, $archivedJumpResult['status'], 'GET /archived_session.php?jump_line=3: 200');

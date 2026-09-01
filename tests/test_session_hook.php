@@ -27,8 +27,8 @@ use HostAgent\Stores\SidecarStore;
 
 const REAL_HOME_ROOT = '/home/user';
 
-$fixtureHome = sys_get_temp_dir() . '/csm-test-hook-home-' . bin2hex(random_bytes(4));
-$fixtureSidecarDir = sys_get_temp_dir() . '/csm-test-hook-sidecars-' . bin2hex(random_bytes(4));
+$fixtureHome = sys_get_temp_dir() . '/sessioneer-test-hook-home-' . bin2hex(random_bytes(4));
+$fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-hook-sidecars-' . bin2hex(random_bytes(4));
 
 putenv("HOME_ROOT={$fixtureHome}");
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
@@ -500,7 +500,7 @@ try {
     assert_equal(null, PendingToolStore::read_pending_tool($deadName), 'prune_orphaned_sidecars: a dead session\'s pending-tool file is pruned too');
     assert_equal(null, SessionStatusStore::read_status($deadName), 'prune_orphaned_sidecars: a dead session\'s status file is pruned too');
 
-    // --- the actual hook script: no CSM_SESSION_NAME env -> no-op ---
+    // --- the actual hook script: no SESSIONEER_SESSION_NAME env -> no-op ---
 
     $sidecarName = 'cc-hooktest-' . bin2hex(random_bytes(3));
     $oldId = '11111111-1111-4111-8111-111111111111';
@@ -510,28 +510,28 @@ try {
     SidecarStore::write_sidecar($sidecarName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => $oldId]);
 
     run_session_start_hook(null, ['session_id' => $newId]);
-    assert_equal($oldId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when CSM_SESSION_NAME is unset');
+    assert_equal($oldId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when SESSIONEER_SESSION_NAME is unset');
 
-    // --- CSM_SESSION_NAME set, but no matching sidecar (already killed/never tracked) -> no-op, no crash ---
+    // --- SESSIONEER_SESSION_NAME set, but no matching sidecar (already killed/never tracked) -> no-op, no crash ---
 
     run_session_start_hook('cc-does-not-exist', ['session_id' => $newId]);
-    assert_equal(null, SidecarStore::read_sidecar('cc-does-not-exist'), 'session_start.php: no-op when CSM_SESSION_NAME has no sidecar file');
+    assert_equal(null, SidecarStore::read_sidecar('cc-does-not-exist'), 'session_start.php: no-op when SESSIONEER_SESSION_NAME has no sidecar file');
 
-    // --- CSM_SESSION_NAME set + real sidecar + valid payload with a REAL matching transcript -> rebinds claude_session_id, keeps the rest ---
+    // --- SESSIONEER_SESSION_NAME set + real sidecar + valid payload with a REAL matching transcript -> rebinds claude_session_id, keeps the rest ---
 
     run_session_start_hook($sidecarName, ['session_id' => $newId]);
     $rebound = SidecarStore::read_sidecar($sidecarName);
     assert_equal($newId, $rebound['claude_session_id'] ?? null, 'session_start.php: rebinds claude_session_id to the new session-id from stdin when a real transcript for it exists');
     assert_equal('/fixture/workdir', $rebound['workdir'] ?? null, 'session_start.php: preserves workdir across the rebind');
     assert_equal(1000, $rebound['spawned_at'] ?? null, 'session_start.php: preserves spawned_at across the rebind');
-    assert_equal(true, $rebound['spawned_by_csm'] ?? null, 'session_start.php: a CSM_SESSION_NAME session is recorded as spawned_by_csm=true');
+    assert_equal(true, $rebound['spawned_by_csm'] ?? null, 'session_start.php: a SESSIONEER_SESSION_NAME session is recorded as spawned_by_csm=true');
 
-    // --- CSM_SESSION_NAME set + real sidecar + payload reports a session-id
+    // --- SESSIONEER_SESSION_NAME set + real sidecar + payload reports a session-id
     // with NO matching transcript anywhere -> the rebind is refused, the
     // working sidecar is left exactly as it was. Regression test for the
     // 2026-08-08 live incident: a `claude` process run manually from inside
     // a tracked pane's own Bash tool (e.g. testing `--resume` behavior)
-    // inherits CSM_SESSION_NAME and fires its own genuine SessionStart with
+    // inherits SESSIONEER_SESSION_NAME and fires its own genuine SessionStart with
     // its own, unrelated session_id, which the hook used to trust blindly -
     // clobbering a working sidecar with an id that never had a transcript,
     // permanently breaking "view transcript" for that pane. ---
@@ -540,11 +540,11 @@ try {
     run_session_start_hook($sidecarName, ['session_id' => $phantomId]);
     assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: a session-id with no matching transcript file anywhere is never trusted enough to rebind an existing, working sidecar');
 
-    // --- CSM_SESSION_NAME set + real sidecar + payload reports a session-id
+    // --- SESSIONEER_SESSION_NAME set + real sidecar + payload reports a session-id
     // that's real (has a transcript) but is ALREADY the live id of a
     // DIFFERENT tracked tmux session -> the rebind is refused, same as the
     // phantom-id case. Regression test for the 2026-08-23 live incident: a
-    // nested `claude` child process inheriting this pane's CSM_SESSION_NAME
+    // nested `claude` child process inheriting this pane's SESSIONEER_SESSION_NAME
     // reported ANOTHER pane's own real, transcript-backed session id, which
     // passed the old transcript-exists-only check and clobbered this pane's
     // sidecar onto someone else's transcript - two dashboard rows then
@@ -573,7 +573,7 @@ try {
     run_session_start_hook($sidecarName, null);
     assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
 
-    // --- adopted (non-CSM) sessions: no tmux pane at all -> no-op, no sidecar ever created ---
+    // --- adopted (non-Sessioneer) sessions: no tmux pane at all -> no-op, no sidecar ever created ---
 
     $adoptedName = 'my-hand-picked-tmux-session';
     SidecarStore::delete_sidecar($adoptedName);
@@ -582,7 +582,7 @@ try {
     assert_equal(null, SidecarStore::read_sidecar($adoptedName), 'session_start.php: no TMUX env at all -> no-op, never creates a sidecar (a bare/no-pane session can never get send-keys/capture-pane support regardless)');
 
     // --- adopted sessions: real tmux pane, first time seen -> CREATES a
-    // brand new sidecar (unlike the CSM_SESSION_NAME path, which only ever
+    // brand new sidecar (unlike the SESSIONEER_SESSION_NAME path, which only ever
     // rebinds an already-existing one) - keyed off the pane's own tmux
     // session name (from `tmux display-message -p '#S'`, faked here - see
     // fake_tmux_bin_dir()), not anything app-set. ---
@@ -597,13 +597,13 @@ try {
         'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
     ]);
     $adopted = SidecarStore::read_sidecar($adoptedName);
-    assert_equal($adoptedId1, $adopted['claude_session_id'] ?? null, 'session_start.php: an adopted session (real tmux pane, no CSM_SESSION_NAME) gets a brand new sidecar, first time seen');
+    assert_equal($adoptedId1, $adopted['claude_session_id'] ?? null, 'session_start.php: an adopted session (real tmux pane, no SESSIONEER_SESSION_NAME) gets a brand new sidecar, first time seen');
     assert_equal('/home/user/www/some-other-project', $adopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir comes from the hook payload\'s own cwd field');
     assert_equal(false, $adopted['spawned_by_csm'] ?? null, 'session_start.php: an adopted session is recorded as spawned_by_csm=false, distinguishing it from an app-spawned one');
     assert_true(is_int($adopted['spawned_at'] ?? null), 'session_start.php: an adopted session gets a real spawned_at timestamp on first sight');
 
     // --- adopted sessions: firing again for the SAME pane rebinds (like
-    // the CSM path), preserving the original workdir/spawned_at rather
+    // the Sessioneer path), preserving the original workdir/spawned_at rather
     // than treating every subsequent /clear-triggered fire as "first
     // seen" again. ---
 
@@ -615,7 +615,7 @@ try {
         'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
     ]);
     $reboundAdopted = SidecarStore::read_sidecar($adoptedName);
-    assert_equal($adoptedId2, $reboundAdopted['claude_session_id'] ?? null, 'session_start.php: an adopted session rotating (e.g. /clear) rebinds claude_session_id the same as a CSM one would');
+    assert_equal($adoptedId2, $reboundAdopted['claude_session_id'] ?? null, 'session_start.php: an adopted session rotating (e.g. /clear) rebinds claude_session_id the same as a Sessioneer one would');
     assert_equal('/home/user/www/some-other-project', $reboundAdopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir is preserved across a rebind, not overwritten from the new payload');
     assert_equal($firstSpawnedAt, $reboundAdopted['spawned_at'] ?? null, 'session_start.php: an adopted session\'s spawned_at is preserved across a rebind');
 
@@ -648,14 +648,14 @@ try {
     array_map('unlink', glob("{$failingTmuxDir}/*") ?: []);
     rmdir($failingTmuxDir);
 
-    // --- pre_tool_use.php: no CSM_SESSION_NAME env -> no-op ---
+    // --- pre_tool_use.php: no SESSIONEER_SESSION_NAME env -> no-op ---
 
     $preToolSessionName = 'cc-pretooltest-' . bin2hex(random_bytes(3));
 
     run_pre_tool_use_hook(null, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]);
-    assert_equal(null, PendingToolStore::read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op (no file written) when CSM_SESSION_NAME is unset');
+    assert_equal(null, PendingToolStore::read_pending_tool($preToolSessionName), 'pre_tool_use.php: no-op (no file written) when SESSIONEER_SESSION_NAME is unset');
 
-    // --- CSM_SESSION_NAME set + valid payload -> writes tool_name/tool_input, no sidecar required first ---
+    // --- SESSIONEER_SESSION_NAME set + valid payload -> writes tool_name/tool_input, no sidecar required first ---
 
     run_pre_tool_use_hook($preToolSessionName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'echo hi'], 'tool_use_id' => 'toolu_1']);
     $written = PendingToolStore::read_pending_tool($preToolSessionName);
@@ -715,14 +715,14 @@ try {
 
     assert_equal('', run_pre_tool_use_hook($preToolSessionName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]), 'pre_tool_use.php: writes nothing to stdout, deferring the permission decision entirely to Claude Code\'s normal flow');
 
-    // --- permission_request.php: no CSM_SESSION_NAME env -> no-op ---
+    // --- permission_request.php: no SESSIONEER_SESSION_NAME env -> no-op ---
 
     $permReqName = 'cc-permreqtest-' . bin2hex(random_bytes(3));
 
     run_permission_request_hook(null, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls'], 'permission_mode' => 'default']);
-    assert_equal(null, SessionStatusStore::read_status($permReqName), 'permission_request.php: no-op (no file written) when CSM_SESSION_NAME is unset');
+    assert_equal(null, SessionStatusStore::read_status($permReqName), 'permission_request.php: no-op (no file written) when SESSIONEER_SESSION_NAME is unset');
 
-    // --- CSM_SESSION_NAME set + valid payload -> records blocked state + normalized mode ---
+    // --- SESSIONEER_SESSION_NAME set + valid payload -> records blocked state + normalized mode ---
 
     run_permission_request_hook($permReqName, [
         'tool_name' => 'Bash',
@@ -763,12 +763,12 @@ try {
 
     assert_equal('', run_permission_request_hook($permReqName, ['tool_name' => 'Bash', 'tool_input' => ['command' => 'ls']]), 'permission_request.php: writes nothing to stdout - pure-observe, same convention as pre_tool_use.php');
 
-    // --- user_prompt_submit.php: no CSM_SESSION_NAME env -> no-op ---
+    // --- user_prompt_submit.php: no SESSIONEER_SESSION_NAME env -> no-op ---
 
     $upsName = 'cc-upstest-' . bin2hex(random_bytes(3));
 
     run_user_prompt_submit_hook(null, ['permission_mode' => 'default']);
-    assert_equal(null, SessionStatusStore::read_status($upsName), 'user_prompt_submit.php: no-op when CSM_SESSION_NAME is unset');
+    assert_equal(null, SessionStatusStore::read_status($upsName), 'user_prompt_submit.php: no-op when SESSIONEER_SESSION_NAME is unset');
 
     // --- marks working and clears any previously-recorded blocked state ---
 
@@ -787,12 +787,12 @@ try {
 
     assert_equal('', run_user_prompt_submit_hook($upsName, ['permission_mode' => 'default']), 'user_prompt_submit.php: writes nothing to stdout');
 
-    // --- stop.php: no CSM_SESSION_NAME env -> no-op ---
+    // --- stop.php: no SESSIONEER_SESSION_NAME env -> no-op ---
 
     $stopName = 'cc-stoptest-' . bin2hex(random_bytes(3));
 
     run_stop_hook(null, ['last_assistant_message' => 'All done.', 'permission_mode' => 'default']);
-    assert_equal(null, SessionStatusStore::read_status($stopName), 'stop.php: no-op when CSM_SESSION_NAME is unset');
+    assert_equal(null, SessionStatusStore::read_status($stopName), 'stop.php: no-op when SESSIONEER_SESSION_NAME is unset');
 
     // --- marks idle, clears blocked state, records last_assistant_message and mode ---
 
@@ -852,7 +852,7 @@ test_exit();
 
 /**
  * Runs the real host-agent/hooks/session_start.php as a subprocess, same
- * as Claude Code itself would - $csmSessionName becomes its CSM_SESSION_NAME
+ * as Claude Code itself would -  becomes its SESSIONEER_SESSION_NAME
  * env var (omitted entirely when null, mirroring a plain untracked claude
  * process), $payload is JSON-encoded to its stdin (raw '' when null, to
  * exercise the empty/malformed-input path). $extraEnv merges in on top of
@@ -865,7 +865,7 @@ test_exit();
  * @param array<string, mixed>|null $payload
  * @param array<string, string> $extraEnv
  */
-function run_session_start_hook(?string $csmSessionName, ?array $payload, array $extraEnv = []): void
+function run_session_start_hook(?string $sessioneerSessionName, ?array $payload, array $extraEnv = []): void
 {
     $env = [
         'HOME_ROOT' => Config::home_root(),
@@ -874,8 +874,8 @@ function run_session_start_hook(?string $csmSessionName, ?array $payload, array 
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
     ];
 
-    if ($csmSessionName !== null) {
-        $env['CSM_SESSION_NAME'] = $csmSessionName;
+    if ($sessioneerSessionName !== null) {
+        $env['SESSIONEER_SESSION_NAME'] = $sessioneerSessionName;
     }
 
     $env = $extraEnv + $env;
@@ -932,7 +932,7 @@ function write_fixture_transcript(string $sessionId): void
  */
 function fake_tmux_bin_dir(?string $sessionNameOutput): string
 {
-    $dir = sys_get_temp_dir() . '/csm-test-fake-tmux-' . bin2hex(random_bytes(4));
+    $dir = sys_get_temp_dir() . '/sessioneer-test-fake-tmux-' . bin2hex(random_bytes(4));
     mkdir($dir, 0700, true);
 
     $script = $sessionNameOutput === null
@@ -952,7 +952,7 @@ function fake_tmux_bin_dir(?string $sessionNameOutput): string
  *
  * @param array<string, mixed>|null $payload
  */
-function run_pre_tool_use_hook(?string $csmSessionName, ?array $payload): string
+function run_pre_tool_use_hook(?string $sessioneerSessionName, ?array $payload): string
 {
     $env = [
         'HOME_ROOT' => Config::home_root(),
@@ -960,8 +960,8 @@ function run_pre_tool_use_hook(?string $csmSessionName, ?array $payload): string
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
     ];
 
-    if ($csmSessionName !== null) {
-        $env['CSM_SESSION_NAME'] = $csmSessionName;
+    if ($sessioneerSessionName !== null) {
+        $env['SESSIONEER_SESSION_NAME'] = $sessioneerSessionName;
     }
 
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
@@ -993,11 +993,11 @@ function run_pre_tool_use_hook(?string $csmSessionName, ?array $payload): string
  * run_user_prompt_submit_hook()/run_stop_hook() below - same shape as
  * run_pre_tool_use_hook() above, just parameterized by script path instead
  * of copy-pasted three more times (all three new hooks share the exact
- * same CSM_SESSION_NAME-gated, stdin-JSON-in/stdout-string-out contract).
+ * same SESSIONEER_SESSION_NAME-gated, stdin-JSON-in/stdout-string-out contract).
  *
  * @param array<string, mixed>|null $payload
  */
-function run_status_hook_script(string $scriptPath, ?string $csmSessionName, ?array $payload): string
+function run_status_hook_script(string $scriptPath, ?string $sessioneerSessionName, ?array $payload): string
 {
     $env = [
         'HOME_ROOT' => Config::home_root(),
@@ -1005,8 +1005,8 @@ function run_status_hook_script(string $scriptPath, ?string $csmSessionName, ?ar
         'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
     ];
 
-    if ($csmSessionName !== null) {
-        $env['CSM_SESSION_NAME'] = $csmSessionName;
+    if ($sessioneerSessionName !== null) {
+        $env['SESSIONEER_SESSION_NAME'] = $sessioneerSessionName;
     }
 
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
@@ -1030,23 +1030,23 @@ function run_status_hook_script(string $scriptPath, ?string $csmSessionName, ?ar
 /**
  * @param array<string, mixed>|null $payload
  */
-function run_permission_request_hook(?string $csmSessionName, ?array $payload): string
+function run_permission_request_hook(?string $sessioneerSessionName, ?array $payload): string
 {
-    return run_status_hook_script(dirname(__DIR__) . '/host-agent/hooks/permission_request.php', $csmSessionName, $payload);
+    return run_status_hook_script(dirname(__DIR__) . '/host-agent/hooks/permission_request.php', $sessioneerSessionName, $payload);
 }
 
 /**
  * @param array<string, mixed>|null $payload
  */
-function run_user_prompt_submit_hook(?string $csmSessionName, ?array $payload): string
+function run_user_prompt_submit_hook(?string $sessioneerSessionName, ?array $payload): string
 {
-    return run_status_hook_script(dirname(__DIR__) . '/host-agent/hooks/user_prompt_submit.php', $csmSessionName, $payload);
+    return run_status_hook_script(dirname(__DIR__) . '/host-agent/hooks/user_prompt_submit.php', $sessioneerSessionName, $payload);
 }
 
 /**
  * @param array<string, mixed>|null $payload
  */
-function run_stop_hook(?string $csmSessionName, ?array $payload): string
+function run_stop_hook(?string $sessioneerSessionName, ?array $payload): string
 {
-    return run_status_hook_script(dirname(__DIR__) . '/host-agent/hooks/stop.php', $csmSessionName, $payload);
+    return run_status_hook_script(dirname(__DIR__) . '/host-agent/hooks/stop.php', $sessioneerSessionName, $payload);
 }

@@ -4,11 +4,11 @@ This file provides guidance to Antigravity (agy) when working with code in this 
 
 ## What this is
 
-A personal, single-user web UI for managing `cc-*` tmux sessions running
-`claude` (and Antigravity agents) on this dev box — list sessions, see blocked
-prompts, answer them, send messages, view transcripts, kill sessions. No
-database, no user accounts; access control is the network binding (LAN-only),
-not a login.
+A personal, single-user web UI for managing tmux sessions running Claude
+Code, Codex, OpenCode, and Antigravity (`cc-*`, `cx-*`, `oc-*`, `ag-*`) on
+this dev box — list sessions, see blocked prompts, answer them, send
+messages, view transcripts, kill sessions. No database, no user accounts;
+access control is the network binding (LAN-only), not a login.
 
 ## Commands
 
@@ -100,8 +100,8 @@ blocked-prompt state:
   transcript UUID on /clear//compact/--resume/--fork-session.
 
 All hooks are no-ops for sessions started outside this app (they key off a
-`CSM_SESSION_NAME` tmux pane environment variable that only
-`create_cc_session()`-spawned sessions have).
+`SESSIONEER_SESSION_NAME` tmux pane environment variable that only
+`create_agent_session()`-spawned sessions have).
 
 ## Conventions worth knowing before editing
 

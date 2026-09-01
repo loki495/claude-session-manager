@@ -1,6 +1,6 @@
 # Feature reference
 
-This is the canonical, exhaustive list of what Claude Session Manager can do.
+This is the canonical, exhaustive list of what Sessioneer can do.
 It is the source of truth for the tool's *capabilities* (the atlas's
 `.claude/feature-atlas/REPORT.md` is the source of truth for *finding/quality*
 per subsystem — read these together when planning work).
@@ -170,10 +170,10 @@ result) · **N/A** (not applicable to that agent).
 |---|---|---|---|---|
 | Blocked-permission detection | Claude Code | Complete | `PromptParser` pane-scrape + `PermissionRequest`/`PreToolUse` hooks | Multi-question tab-bar path is the only pane-only carve-out |
 | | Antigravity | Complete | `AntigravityPromptParser` (substring match; no dedicated hook) | Content comes from the pane, not a hook payload |
-| | OpenCode | Partial | `OpenCodePromptParser` (structural modal) + serve-API + `csm-permissions` plugin | Permission bridge is authoritative; `permission.ask` hook dormant in opencode 1.18.21 |
+| | OpenCode | Partial | `OpenCodePromptParser` (structural modal) + serve-API + `sessioneer-permissions` plugin | Permission bridge is authoritative; `permission.ask` hook dormant in opencode 1.18.21 |
 | Session-id self-heal | Claude Code | Complete | `session_start` hook rebinds sidecar on `/clear`/`/compact`/`/resume`/`--fork` | Needs a real transcript + not-already-live guard |
 | | Antigravity | Complete | `pre_invocation` hook reactively binds real `conversationId` on first firing | No up-front id; identity learned post-spawn |
-| | OpenCode | Partial | Reactive binding from `opencode.db` (`ses_*`); **no session-id hook** | `csm-status` plugin not shipped — `check_hooks`/`install_hooks` are stubs |
+| | OpenCode | Partial | Reactive binding from `opencode.db` (`ses_*`); **no session-id hook** | `sessioneer-status` plugin not shipped — `check_hooks`/`install_hooks` are stubs |
 | Multi-question `AskUserQuestion` | Claude Code | Complete | `build_multi_question_key_sequence` sends the whole tab-bar sequence in one shot | 2+ questions only; single-question uses the pane path |
 | | Antigravity | N/A | — | No equivalent mechanism |
 | | OpenCode | N/A | — | Answers via its own serve-API questions instead |
@@ -185,7 +185,7 @@ result) · **N/A** (not applicable to that agent).
 | | OpenCode | Missing | Same | Same |
 | Model switch | Claude Code | Complete | Drives `/model` picker; `SelectableModel::PICKER_OPTIONS` | Rejected while blocked |
 | | Antigravity | Complete | `set_antigravity_model`; re-captures picker after each keypress (drop-safe) | Globally overwrites account-wide default (no session-only key) |
-| | OpenCode | Partial | Adapter supports `--model`, but **not reachable** from the New Session UI | `create_cc_session()` only forwards `enable_task_tools`/`starting_mode` (atlas `agent-abstraction`) |
+| | OpenCode | Partial | Adapter supports `--model`, but **not reachable** from the New Session UI | `create_agent_session()` only forwards `enable_task_tools`/`starting_mode` (atlas `agent-abstraction`) |
 | Switch mode | Claude Code | Complete | `set_mode` (BTab relative steps) | — |
 | | Antigravity | Complete | `--mode` flight; `SETTING_MODE_FLAGS` | `manual`/`auto` have no flag (omitting = manual default) |
 | | OpenCode | Missing | No mode vocabulary; only boolean `--auto` | By design, not a bug |
@@ -216,12 +216,12 @@ list as the "same features for each agent" work queue.
    updating once any non-renderable row precedes the newest renderable message.
    (atlas: `session-view` finding 1)
 4. **OpenCode hooks are not production-wired** — the adapter's
-   `check_hooks`/`install_hooks` are honest stubs (a `csm-permissions` plugin is
-   installed; a full `csm-status` hook/plugin is planned but not shipped). So
+   `check_hooks`/`install_hooks` are honest stubs (a `sessioneer-permissions` plugin is
+   installed; a full `sessioneer-status` hook/plugin is planned but not shipped). So
    OpenCode lacks the hook-fed status and session-id self-heal the others have.
    (atlas: `agent-abstraction`)
 5. **Antigravity/OpenCode model & create-option reachability** —
-   `create_cc_session()` only forwards `enable_task_tools`/`starting_mode` to the
+   `create_agent_session()` only forwards `enable_task_tools`/`starting_mode` to the
    adapter, so Antigravity's `--model`/`--effort` and OpenCode's
    positional-workdir/`--model`/`--agent` options are not reachable through the
    New Session UI even though the adapters support them.

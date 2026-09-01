@@ -192,7 +192,7 @@ claude-session-manager/
 │                             # one subdirectory of templates per App\Views\* class above
 ├── host-agent/             # installed natively on the HOST, not in Docker
 │   ├── agent.php            # per-connection entry point (systemd socket activation)
-│   ├── push_trigger.php     # entry point run periodically by the csm-push-check systemd timer
+│   ├── push_trigger.php     # entry point run periodically by the sessioneer-push-check systemd timer
 │   ├── .env.example         # copy to .env, host-specific paths, never commit .env
 │   ├── hooks/
 │   │   ├── session_start.php  # Claude Code SessionStart hook - see "Why the SessionStart hook exists"
@@ -210,10 +210,10 @@ claude-session-manager/
 │   │   │                     # NotificationContentBuilder)
 │   │   └── Stores/           # SidecarStore, PendingToolStore, SessionStatusStore, PushSubscriptionStore, PushSessionStateStore
 │   ├── systemd/
-│   │   ├── csm-agent.socket / csm-agent@.service   # unit TEMPLATES (@REPO_ROOT@/@PHP_BIN@/
+│   │   ├── sessioneer-agent.socket / sessioneer-agent@.service   # unit TEMPLATES (@REPO_ROOT@/@PHP_BIN@/
 │   │   │                                            # @SOCKET_GROUP@ placeholders) - install.sh
 │   │   │                                            # substitutes real values in, never a raw `cp`
-│   │   └── csm-push-check.timer / .service          # periodic push_trigger.php run (opt-in, see README)
+│   │   └── sessioneer-push-check.timer / .service          # periodic push_trigger.php run (opt-in, see README)
 │   └── install.sh            # installs + enables the systemd units, creates .env
 └── tests/                  # dependency-free test suite, see "Running tests" below
     ├── run.sh               # entrypoint: bash tests/run.sh
@@ -245,7 +245,7 @@ under `~/.claude/projects/<cwd>/`) on `/clear`, `/compact` (auto or
 manual), `--resume`, or `--fork-session` - all while staying in the same
 tmux pane/process. This app's sidecar (one JSON file per tracked session,
 under `SIDECAR_DIR`) records that session-id exactly once, at spawn
-(`create_cc_session()` in `host-agent/lib/Services/SessionLifecycleService.php`), and
+(`create_agent_session()` in `host-agent/lib/Services/SessionLifecycleService.php`), and
 has no other way to learn it changed. Without the hook, any of those
 events leaves the sidecar pointing at an abandoned, no-longer-growing
 transcript file forever after - not a polling-speed problem, the file the
@@ -255,11 +255,11 @@ app is reading has genuinely stopped receiving new lines.
 `SessionStart` hook (fires on every session start, matcher `*` so it
 covers `startup`/`resume`/`clear`/`compact`/`fork`), fixes this by
 rebinding the sidecar's `claude_session_id` live every time it fires.
-`create_cc_session()` passes `CSM_SESSION_NAME=<session name>` as a tmux
+`create_agent_session()` passes `SESSIONEER_SESSION_NAME=<session name>` as a tmux
 pane environment variable (`tmux new-session -e ...`) specifically so the
 hook - inherited into that pane's `claude` process and anything it spawns
 - can tell which sidecar (if any) belongs to it; a plain `claude` session
-started by hand outside this app has no `CSM_SESSION_NAME` and the hook
+started by hand outside this app has no `SESSIONEER_SESSION_NAME` and the hook
 is a no-op for it.
 
 This only takes effect going forward: a session that already rotated
@@ -295,9 +295,9 @@ and always exits `0`, which Claude Code treats as "no opinion" - it never
 approves, denies, or otherwise affects the real permission decision, only
 observes it.
 
-Same `CSM_SESSION_NAME` mechanism as the `SessionStart` hook above: a
+Same `SESSIONEER_SESSION_NAME` mechanism as the `SessionStart` hook above: a
 plain `claude` session started by hand outside this app has no
-`CSM_SESSION_NAME` and the hook is a no-op for it. The recorded pending-
+`SESSIONEER_SESSION_NAME` and the hook is a no-op for it. The recorded pending-
 tool file is cleared once this app itself submits an answer to the prompt
 or the session is killed; it's otherwise just overwritten by the next
 tool call, so a stale leftover from answering outside this app (e.g.
@@ -410,7 +410,7 @@ sending a real keystroke - live pre-flight safety checks, not related to
 SessionStatusStore at all, and would need the pane read regardless of how
 complete hook coverage ever got.
 
-Same `CSM_SESSION_NAME`-gated, pure-observe (never writes to stdout, always
+Same `SESSIONEER_SESSION_NAME`-gated, pure-observe (never writes to stdout, always
 exits `0`) conventions as the `SessionStart`/`PreToolUse` hooks above -
 multiple hook commands already coexist per event in `~/.claude/settings.json`
 today, so installing these never disturbs any hooks you've already
@@ -486,7 +486,7 @@ the fix to that blind spot.
 
 `host-agent/agent.php` and everything under `host-agent/lib/` run directly
 off the checked-out repo path (`ExecStart=` in the generated
-`csm-agent@.service`), so editing any of them takes effect on the *next*
+`sessioneer-agent@.service`), so editing any of them takes effect on the *next*
 connection with no restart needed - each connection gets a fresh PHP
 process. You only need to re-run `install.sh` (or `systemctl --user
 daemon-reload`) if you change the `.socket`/`.service` unit *templates*
@@ -494,8 +494,8 @@ under `host-agent/systemd/` themselves.
 
 ## The agent socket caveat (read this)
 
-- The agent's socket lives at `$XDG_RUNTIME_DIR/csm-agent.sock`, created by
-  systemd from the generated `csm-agent.socket` unit with `SocketMode=0660`
+- The agent's socket lives at `$XDG_RUNTIME_DIR/sessioneer-agent.sock`, created by
+  systemd from the generated `sessioneer-agent.socket` unit with `SocketMode=0660`
   and a `SocketGroup=` matching whoever ran `install.sh`. Only the owning
   user and that group can connect - the container needs `APP_GID` set to
   that same numeric gid (`install.sh` prints it).
@@ -504,12 +504,12 @@ under `host-agent/systemd/` themselves.
   directly to that connection - no daemon loop, no manual socket-handling
   code, systemd owns the whole lifecycle.
 - If the app shows "Cannot reach host agent", check on the host:
-  `systemctl --user status csm-agent.socket` and
-  `journalctl --user -u 'csm-agent@*' -n 50`.
+  `systemctl --user status sessioneer-agent.socket` and
+  `journalctl --user -u 'sessioneer-agent@*' -n 50`.
 - If `docker compose up` was run before the agent was installed, the bind
   mount will have created a plain directory at the socket path instead of
   passing through the real socket. Fix: `docker compose down`, confirm
-  `ls -la $XDG_RUNTIME_DIR/csm-agent.sock` shows a real socket (reinstall
+  `ls -la $XDG_RUNTIME_DIR/sessioneer-agent.sock` shows a real socket (reinstall
   via `install.sh` if not), then `docker compose up -d`.
 
 ## Web Push delivery mechanism
@@ -517,7 +517,7 @@ under `host-agent/systemd/` themselves.
 See the README's "Web Push notifications" section for setup. Mechanism:
 no client-side background mechanism exists on iOS to detect a session
 transitioning to blocked (no Periodic Background Sync support), so it's
-entirely server/host-triggered - the `csm-push-check` timer runs
+entirely server/host-triggered - the `sessioneer-push-check` timer runs
 `host-agent/push_trigger.php` on an interval (default 10s), which compares
 each live session's current blocked/working/idle state
 (`NotificationContentBuilder::push_session_state()`) against what it was on
@@ -669,7 +669,7 @@ different global scope (`self`/`clients`/notification-event fields, no
 `window`/DOM) that would need its own separate tsconfig with the
 `webworker` lib, not the browser-page one the rest of this app uses; not
 set up yet. `public/js/types.d.ts` declares the one ambient global this
-app adds itself, `window.CSM_BOOTSTRAP` - never loaded by the browser (a
+app adds itself, `window.SESSIONEER_BOOTSTRAP` - never loaded by the browser (a
 `.d.ts` has no runtime output), type-checking only.
 
 Same "don't grind through the whole codebase in one pass" convention as
@@ -759,7 +759,7 @@ otherwise.
 **Isolation, since this tool can create real tmux sessions and spawn real
 processes on the host:**
 
-- `tests/.env.testing` points `TMUX_SOCKET` at `/tmp/csm-test-tmux/socket`
+- `tests/.env.testing` points `TMUX_SOCKET` at `/tmp/sessioneer-test-tmux/socket`
   - a completely separate tmux **server**, never your real one. It cannot
   see or touch your real `cc-*` sessions.
 - `CLAUDE_BIN` points at `tests/fixtures/fake_claude`, a script that behaves

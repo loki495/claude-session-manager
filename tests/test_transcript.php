@@ -393,7 +393,7 @@ assert_equal(10000, strlen($normalLongLine['blocks'][0]['text']), 'parse_transcr
 
 // --- TranscriptService::find_transcript_path(): only matches UUID-shaped ids, globs across
 // every project dir under claude_projects_dir() (Config::home_root() . '/.claude/projects') ---
-$fakeHome = sys_get_temp_dir() . '/csm-test-transcript-home-' . getmypid();
+$fakeHome = sys_get_temp_dir() . '/sessioneer-test-transcript-home-' . getmypid();
 $uuid = '12345678-1234-4123-8123-123456789012';
 @mkdir($fakeHome . '/.claude/projects/-some-project', 0700, true);
 file_put_contents($fakeHome . '/.claude/projects/-some-project/' . $uuid . '.jsonl', "{}\n");
@@ -602,7 +602,7 @@ assert_equal(false, $missingArchivedHistory['ok'] ?? null, 'archived_session_his
 // non-Claude backends must resolve real cwd (and, for OpenCode, title) instead
 // of silently coming back null/wrong when fed a non-file "path". ---
 try {
-    $archivedHistoryRoot = sys_get_temp_dir() . '/csm-test-archived-history-' . bin2hex(random_bytes(4));
+    $archivedHistoryRoot = sys_get_temp_dir() . '/sessioneer-test-archived-history-' . bin2hex(random_bytes(4));
     @mkdir($archivedHistoryRoot, 0700, true);
 
     $antigravityId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeffffffff';
@@ -804,7 +804,7 @@ assert_equal(false, $afterUntilUser['has_more'] ?? null, 'read_transcript_page: 
 // the walk must still terminate cleanly at index 0 rather than looping
 // forever or erroring, reporting has_more=false same as an ordinary page
 // that happens to reach the start of the file.
-$noUserFixture = sys_get_temp_dir() . '/csm-test-no-user-message-' . getmypid() . '.jsonl';
+$noUserFixture = sys_get_temp_dir() . '/sessioneer-test-no-user-message-' . getmypid() . '.jsonl';
 file_put_contents($noUserFixture, implode("\n", [
     '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}',
     '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"x","content":[{"type":"text","text":"file1"}]}]}}',
@@ -887,7 +887,7 @@ assert_true(!array_key_exists('attachments', $nonAttachmentToolResultLine['block
 // base64 - the browser only ever supplies (session, line, file_uuid),
 // never a real path, so this re-derives the path itself from the
 // transcript rather than trusting one from the caller. ---
-$attachmentFixtureDir = sys_get_temp_dir() . '/csm-test-attachment-' . getmypid();
+$attachmentFixtureDir = sys_get_temp_dir() . '/sessioneer-test-attachment-' . getmypid();
 @mkdir($attachmentFixtureDir, 0700, true);
 $attachmentFile = $attachmentFixtureDir . '/hello.txt';
 file_put_contents($attachmentFile, 'hello attachment bytes');
@@ -923,7 +923,7 @@ assert_equal(false, $missingFile['ok'] ?? null, 'read_attachment: attachment pat
 // exactly as well as a live one, unlike a live-pane-title scrape) - keeps
 // the LATEST ai-title line, since a long conversation can get more than
 // one as Claude Code refines it. ---
-$aiTitleFixture = sys_get_temp_dir() . '/csm-test-ai-title-' . getmypid() . '.jsonl';
+$aiTitleFixture = sys_get_temp_dir() . '/sessioneer-test-ai-title-' . getmypid() . '.jsonl';
 file_put_contents($aiTitleFixture, implode("\n", [
     '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}',
     '{"type":"ai-title","aiTitle":"First title","sessionId":"abc"}',
@@ -962,7 +962,7 @@ assert_equal('Title inside the window', TranscriptService::find_latest_ai_title(
 // model" dropdown - the raw model ID off the most recent assistant
 // message, same "keep the latest" tail-scan shape as find_latest_ai_title()
 // above. ---
-$modelFixture = sys_get_temp_dir() . '/csm-test-latest-model-' . getmypid() . '.jsonl';
+$modelFixture = sys_get_temp_dir() . '/sessioneer-test-latest-model-' . getmypid() . '.jsonl';
 file_put_contents($modelFixture, implode("\n", [
     '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}',
     '{"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-5","content":[{"type":"text","text":"ok"}]}}',
@@ -998,7 +998,7 @@ assert_equal(null, SelectableModel::family_from_raw_model('default'), 'family_fr
 // legitimately go untouched for a long stretch of a long conversation
 // while still being current, unlike a title (rewritten near-continuously
 // in practice), so "not in the tail" must NOT mean "doesn't exist". ---
-$todoFixture = sys_get_temp_dir() . '/csm-test-todo-list-' . getmypid() . '.jsonl';
+$todoFixture = sys_get_temp_dir() . '/sessioneer-test-todo-list-' . getmypid() . '.jsonl';
 
 file_put_contents($todoFixture, implode("\n", [
     '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}',
@@ -1112,7 +1112,7 @@ function task_tool_result_jsonl(string $toolUseId, string $text, ?array $toolUse
     return json_encode($line);
 }
 
-$taskFixture = sys_get_temp_dir() . '/csm-test-task-list-' . getmypid() . '.jsonl';
+$taskFixture = sys_get_temp_dir() . '/sessioneer-test-task-list-' . getmypid() . '.jsonl';
 
 // Happy path: two creates, then a sequence of updates - final state must
 // reflect every applied change, in CREATION order (not update order).
@@ -1234,7 +1234,7 @@ assert_equal('fallback', SessionService::title_cascade('', '', '', 'fallback'), 
 // the one source that's always available (a title should never come back
 // blank). Uses the same HOME_ROOT-fixture pattern as find_transcript_path()
 // above since this function resolves a real transcript path internally. ---
-$titleFakeHome = sys_get_temp_dir() . '/csm-test-session-title-home-' . getmypid();
+$titleFakeHome = sys_get_temp_dir() . '/sessioneer-test-session-title-home-' . getmypid();
 $titleUuid = '87654321-4321-4321-8321-210987654321';
 @mkdir($titleFakeHome . '/.claude/projects/-some-project', 0700, true);
 file_put_contents(

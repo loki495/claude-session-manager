@@ -53,45 +53,45 @@ function browser_wait_until(callable $check, float $timeoutSeconds = 10.0): bool
 }
 
 /**
- * CSM_TEST_HEADED=1 only (tests/run.sh's --headed) - injects a small
+ * SESSIONEER_TEST_HEADED=1 only (tests/run.sh's --headed) - injects a small
  * heads-up panel (current step, last step's result, Run/Pause + Next
  * buttons) into the page. A no-op if it's already there (this gets
  * called again after every real navigation, since a navigation wipes all
- * injected DOM/JS state, including window.__csmReplay). Client-side
- * state lives entirely on window.__csmReplay = {mode, advance} -
+ * injected DOM/JS state, including window.__sessioneerReplay). Client-side
+ * state lives entirely on window.__sessioneerReplay = {mode, advance} -
  * control_panel_wait_for_go() below is the only thing that reads it.
  */
 function inject_control_panel(array &$page): void
 {
     $js = <<<'JS'
     (function () {
-        if (document.getElementById('csm-replay-panel')) {
+        if (document.getElementById('sessioneer-replay-panel')) {
             return;
         }
 
         var panel = document.createElement('div');
-        panel.id = 'csm-replay-panel';
+        panel.id = 'sessioneer-replay-panel';
         panel.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;'
             + 'background:#111;color:#eee;font:12px/1.6 monospace;padding:8px 12px;'
             + 'border-bottom:2px solid #444;';
         panel.innerHTML =
-            '<div id="csm-replay-current">Current: (starting...)</div>'
-            + '<div id="csm-replay-last">Last: (none yet)</div>'
-            + '<button id="csm-replay-run-pause" type="button" style="margin-top:4px;margin-right:6px;">Run</button>'
-            + '<button id="csm-replay-next" type="button">Next</button>';
+            '<div id="sessioneer-replay-current">Current: (starting...)</div>'
+            + '<div id="sessioneer-replay-last">Last: (none yet)</div>'
+            + '<button id="sessioneer-replay-run-pause" type="button" style="margin-top:4px;margin-right:6px;">Run</button>'
+            + '<button id="sessioneer-replay-next" type="button">Next</button>';
         document.body.appendChild(panel);
 
-        window.__csmReplay = { mode: 'paused', advance: false };
+        window.__sessioneerReplay = { mode: 'paused', advance: false };
 
-        document.getElementById('csm-replay-run-pause').addEventListener('click', function () {
-            var nextBtn = document.getElementById('csm-replay-next');
+        document.getElementById('sessioneer-replay-run-pause').addEventListener('click', function () {
+            var nextBtn = document.getElementById('sessioneer-replay-next');
 
-            if (window.__csmReplay.mode === 'running') {
-                window.__csmReplay.mode = 'paused';
+            if (window.__sessioneerReplay.mode === 'running') {
+                window.__sessioneerReplay.mode = 'paused';
                 this.textContent = 'Run';
                 nextBtn.disabled = false;
             } else {
-                window.__csmReplay.mode = 'running';
+                window.__sessioneerReplay.mode = 'running';
                 this.textContent = 'Pause';
                 // Disabled while free-running - clicking it mid-run doesn't
                 // actually do anything useful (control_panel_wait_for_go()
@@ -102,8 +102,8 @@ function inject_control_panel(array &$page): void
             }
         });
 
-        document.getElementById('csm-replay-next').addEventListener('click', function () {
-            window.__csmReplay.advance = true;
+        document.getElementById('sessioneer-replay-next').addEventListener('click', function () {
+            window.__sessioneerReplay.advance = true;
         });
     })();
     JS;
@@ -114,14 +114,14 @@ function inject_control_panel(array &$page): void
 function control_panel_set_current(array &$page, string $text): void
 {
     $textJs = json_encode('Current: ' . $text);
-    cdp_evaluate($page, "var __e = document.getElementById('csm-replay-current'); if (__e) { __e.textContent = {$textJs}; }");
+    cdp_evaluate($page, "var __e = document.getElementById('sessioneer-replay-current'); if (__e) { __e.textContent = {$textJs}; }");
 }
 
 function control_panel_set_last(array &$page, string $text, bool $passed): void
 {
     $textJs = json_encode('Last: ' . ($passed ? 'PASS' : 'FAIL') . ' - ' . $text);
     $colorJs = json_encode($passed ? '#8f8' : '#f88');
-    cdp_evaluate($page, "var __e = document.getElementById('csm-replay-last'); if (__e) { __e.textContent = {$textJs}; __e.style.color = {$colorJs}; }");
+    cdp_evaluate($page, "var __e = document.getElementById('sessioneer-replay-last'); if (__e) { __e.textContent = {$textJs}; __e.style.color = {$colorJs}; }");
 }
 
 /**
@@ -139,7 +139,7 @@ function control_panel_wait_for_go(array &$page): bool
     $deadStrikes = 0;
 
     while (true) {
-        $raw = cdp_evaluate($page, 'window.__csmReplay ? JSON.stringify(window.__csmReplay) : null');
+        $raw = cdp_evaluate($page, 'window.__sessioneerReplay ? JSON.stringify(window.__sessioneerReplay) : null');
 
         if (!is_string($raw)) {
             $deadStrikes++;
@@ -160,7 +160,7 @@ function control_panel_wait_for_go(array &$page): bool
         }
 
         if (($state['advance'] ?? false) === true) {
-            cdp_evaluate($page, 'window.__csmReplay.advance = false;');
+            cdp_evaluate($page, 'window.__sessioneerReplay.advance = false;');
             return true;
         }
 
@@ -173,7 +173,7 @@ function control_panel_wait_for_go(array &$page): bool
 // the entire point is a human can inspect it after a failing run. Only
 // ever grows on an actual FAILURE (browser_assert() below), so a normal
 // green run leaves nothing here at all.
-$debugDir = sys_get_temp_dir() . '/csm-test-replay-browser-failures-' . getmypid();
+$debugDir = sys_get_temp_dir() . '/sessioneer-test-replay-browser-failures-' . getmypid();
 $debugCounter = 0;
 
 /**
@@ -235,13 +235,13 @@ function browser_assert_no_console_errors(array &$page, string $context, string 
 $workdir = getenv('WWW_ROOT') . '/project-a';
 $ctx = replay_setup('full-session', $workdir);
 
-$agentSocket = sys_get_temp_dir() . '/csm-test-replay-browser-agent.sock';
+$agentSocket = sys_get_temp_dir() . '/sessioneer-test-replay-browser-agent.sock';
 $agentHarness = start_harness(['php', dirname(__DIR__) . '/host-agent/agent.php'], $agentSocket);
 
 $port = 18198;
 $baseUrl = "http://127.0.0.1:{$port}";
 
-$serverEnv = array_merge(getenv(), ['CSM_AGENT_SOCKET' => $agentSocket]);
+$serverEnv = array_merge(getenv(), ['SESSIONEER_AGENT_SOCKET' => $agentSocket]);
 $serverProcess = proc_open(
     [
         'php', '-S', "127.0.0.1:{$port}",
@@ -297,7 +297,7 @@ try {
     }
 
     if ($page !== null) {
-        // CSM_TEST_HEADED=1 (tests/run.sh's --headed) already told
+        // SESSIONEER_TEST_HEADED=1 (tests/run.sh's --headed) already told
         // cdp_launch() to open a real visible window instead of a
         // headless one - this additionally injects an on-page control
         // panel (see inject_control_panel() above) and makes the
@@ -306,7 +306,7 @@ try {
         // fully automated end to end in the sense that nothing here
         // fakes/skips a real human click - it just waits for one instead
         // of a fixed timer.
-        $headed = getenv('CSM_TEST_HEADED') === '1';
+        $headed = getenv('SESSIONEER_TEST_HEADED') === '1';
 
         if ($headed) {
             echo "  (headed mode - a real browser window should now be visible, paused before the first step; use its Run/Next buttons)\n";
@@ -328,7 +328,7 @@ try {
         // place for THIS origin before session.js's own script (which
         // reads them once, synchronously, at load) runs on the real page.
         assert_true(cdp_navigate($page, "{$baseUrl}/"), 'cdp: initial navigation to establish origin succeeds');
-        cdp_evaluate($page, "window.localStorage.setItem('csm-poll-interval-ms','1000'); window.localStorage.setItem('csm-confirm-before-answer','0');");
+        cdp_evaluate($page, "window.localStorage.setItem('sessioneer-poll-interval-ms','1000'); window.localStorage.setItem('sessioneer-confirm-before-answer','0');");
 
         assert_true(cdp_navigate($page, $sessionUrl), 'cdp: navigation to the replay fixture session.php succeeds');
         browser_assert($page, cdp_evaluate($page, "document.getElementById('compose-bar') !== null") === true, 'session.php: renders the compose bar', 'compose-bar-missing');
@@ -366,7 +366,7 @@ try {
                 }
             }
 
-            $failuresBeforeStep = $GLOBALS['__csm_test_failures'];
+            $failuresBeforeStep = $GLOBALS['__sessioneer_test_failures'];
 
             // A single transcript LINE can render more than one DOM block
             // sharing the same data-line (e.g. an assistant message with
@@ -540,7 +540,7 @@ try {
             browser_assert_no_console_errors($page, "session.php (step {$i})", "step-{$i}-console-errors");
 
             if ($headed) {
-                $stepPassed = $GLOBALS['__csm_test_failures'] === $failuresBeforeStep;
+                $stepPassed = $GLOBALS['__sessioneer_test_failures'] === $failuresBeforeStep;
                 control_panel_set_last($page, $stepLabel, $stepPassed);
             }
         }

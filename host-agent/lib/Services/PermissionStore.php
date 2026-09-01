@@ -7,7 +7,7 @@ namespace HostAgent\Services;
 use HostAgent\Stores\SidecarStore;
 
 /**
- * Bridges CSM to OpenCode's permission.ask plugin hook.
+ * Bridges Sessioneer to OpenCode's permission.ask plugin hook.
  *
  * OpenCode's TUI surfaces a pending permission only to the session's own
  * process (via the plugin `permission.ask` hook) - there is NO queryable
@@ -17,8 +17,8 @@ use HostAgent\Stores\SidecarStore;
  * footer can be STALE - the feasibility session showed a resolved dialog while
  * actively working). So detection MUST come from the hook, not the pane.
  *
- * Design (mirrors CSM's Claude-Code hook -> SessionStatusStore pattern):
- *   - The CSM plugin (~/.config/opencode/plugins/csm-permissions.js) receives
+ * Design (mirrors Sessioneer's Claude-Code hook -> SessionStatusStore pattern):
+ *   - The Sessioneer plugin (~/.config/opencode/plugins/sessioneer-permissions.js) receives
  *     permission.ask / permission.updated and writes a JSON record per ses_*
  *     id into Config::opencode_permission_dir().
  *   - The host-agent reads those records here; to answer, it writes an intent
@@ -81,9 +81,9 @@ class PermissionStore
     }
 
     /**
-     * Pending permission resolved back to a CSM tmux session NAME, via the
-     * sidecar join (plugin reports ses_*; CSM tracks oc-* names). Returns
-     * null when the id isn't bound to a CSM-tracked session.
+     * Pending permission resolved back to a Sessioneer tmux session NAME, via the
+     * sidecar join (plugin reports ses_*; Sessioneer tracks oc-* names). Returns
+     * null when the id isn't bound to a Sessioneer-tracked session.
      */
     public static function find_by_session_id(string $sessionId): ?string
     {

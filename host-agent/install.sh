@@ -66,14 +66,14 @@ render_unit() {
 }
 
 mkdir -p "$UNIT_DIR"
-render_unit csm-agent.socket
-render_unit csm-agent@.service
+render_unit sessioneer-agent.socket
+render_unit sessioneer-agent@.service
 
 systemctl --user daemon-reload
-systemctl --user enable --now csm-agent.socket
+systemctl --user enable --now sessioneer-agent.socket
 
-echo "Installed. Socket should now exist at: $RUNTIME_DIR/csm-agent.sock"
-ls -la "$RUNTIME_DIR/csm-agent.sock"
+echo "Installed. Socket should now exist at: $RUNTIME_DIR/sessioneer-agent.sock"
+ls -la "$RUNTIME_DIR/sessioneer-agent.sock"
 
 echo
 echo "The container's own .env needs APP_GID set to match SocketGroup"
@@ -85,28 +85,28 @@ echo "above (\"$SOCKET_GROUP\"): $(getent group "$SOCKET_GROUP" | cut -d: -f3)"
 # background service is worth a deliberate opt-in rather than happening
 # silently on every install.sh run. See the README for the full setup
 # (generate keys, set them in .env, then enable the timer yourself).
-render_unit csm-push-check.service
-cp "$SCRIPT_DIR/systemd/csm-push-check.timer" "$UNIT_DIR/csm-push-check.timer"
+render_unit sessioneer-push-check.service
+cp "$SCRIPT_DIR/systemd/sessioneer-push-check.timer" "$UNIT_DIR/sessioneer-push-check.timer"
 systemctl --user daemon-reload
 
 echo
 echo "Push-notification timer units installed but NOT enabled - see the"
 echo "README's \"Web Push notifications\" section, then run:"
-echo "  systemctl --user enable --now csm-push-check.timer"
+echo "  systemctl --user enable --now sessioneer-push-check.timer"
 
 # Antigravity quota-poll timer: same "installed, not auto-enabled" reasoning
 # as the push-check timer above - a no-op until ANTIGRAVITY_BIN is set in
 # .env anyway (see antigravity_quota_poll.php), and starting a new
 # recurring background service is worth a deliberate opt-in.
-render_unit csm-antigravity-quota-check.service
-cp "$SCRIPT_DIR/systemd/csm-antigravity-quota-check.timer" "$UNIT_DIR/csm-antigravity-quota-check.timer"
+render_unit sessioneer-antigravity-quota-check.service
+cp "$SCRIPT_DIR/systemd/sessioneer-antigravity-quota-check.timer" "$UNIT_DIR/sessioneer-antigravity-quota-check.timer"
 systemctl --user daemon-reload
 
 echo
 echo "Antigravity quota-poll timer units installed but NOT enabled - only"
 echo "useful if you've set ANTIGRAVITY_BIN in .env (see"
 echo "docs/antigravity-adapter-plan.md), then run:"
-echo "  systemctl --user enable --now csm-antigravity-quota-check.timer"
+echo "  systemctl --user enable --now sessioneer-antigravity-quota-check.timer"
 
 # OpenCode headless server: unlike the two timers above, this one IS
 # enabled/started here - it's a live long-running daemon with no
@@ -130,25 +130,25 @@ else
     echo "set OPENCODE_BIN in host-agent/.env, then re-run install.sh."
 fi
 
-# Codex is always headless in CSM. The bridge owns the long-lived
+# Codex is always headless in Sessioneer. The bridge owns the long-lived
 # bidirectional app-server connection needed for approvals and questions;
 # no Codex process is spawned into tmux.
 if [ -n "$CODEX_BIN" ]; then
     if ! grep -qE '^CODEX_BIN=\S' "$SCRIPT_DIR/.env" 2>/dev/null; then
         printf '\nCODEX_BIN=%s\n' "$CODEX_BIN" >> "$SCRIPT_DIR/.env"
     fi
-    render_unit csm-codex-bridge.service
+    render_unit sessioneer-codex-bridge.service
     systemctl --user daemon-reload
-    systemctl --user enable --now csm-codex-bridge.service
+    systemctl --user enable --now sessioneer-codex-bridge.service
     echo
-    echo "csm-codex-bridge.service installed and enabled (native app-server; no tmux)."
+    echo "sessioneer-codex-bridge.service installed and enabled (native app-server; no tmux)."
 else
     echo
     echo "WARNING: no 'codex' on PATH and CODEX_BIN is unset - Codex sessions are unavailable."
 fi
 
-# OpenCode CSM plugin: the authoritative pending-permission signal (see
-# host-agent/opencode-plugins/csm-permissions.js). opencode 1.18.21 keeps
+# OpenCode Sessioneer plugin: the authoritative pending-permission signal (see
+# host-agent/opencode-plugins/sessioneer-permissions.js). opencode 1.18.21 keeps
 # permission state in-memory in the `opencode serve` process and exposes it
 # only as a `permission.asked` bus EVENT (the plugin `permission.ask` HOOK is
 # dormant, and /permission + the api return empty) - so the plugin subscribes
@@ -158,9 +158,9 @@ fi
 # enabled/restarted earlier in this script.
 if [ -n "$OPENCODE_BIN" ]; then
     mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins"
-    cp "$SCRIPT_DIR/opencode-plugins/csm-permissions.js" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/csm-permissions.js"
+    cp "$SCRIPT_DIR/opencode-plugins/sessioneer-permissions.js" "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/sessioneer-permissions.js"
     echo
-    echo "CSM OpenCode plugin installed to ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/csm-permissions.js."
+    echo "Sessioneer OpenCode plugin installed to ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/sessioneer-permissions.js."
     echo "NOTE: opencode-serve.service was (re)started above so the serve loads it; the load is verified by the health-check box."
 fi
 

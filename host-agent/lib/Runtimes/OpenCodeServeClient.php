@@ -97,7 +97,7 @@ class OpenCodeServeClient
      * set (observed returning [0] while /api/session had 50 sessions; a
      * recently-resumed session was absent from v1, which is what made the
      * headless sync prune the just-resumed session's sidecar). Callers are
-     * responsible for the active-vs-dormant filter (see csm_headless_sync).
+     * responsible for the active-vs-dormant filter (see sessioneer_headless_sync).
      *
      * @return array{ok:bool, sessions?:array<int, array<string,mixed>>, message?:string}
      */
@@ -273,7 +273,7 @@ class OpenCodeServeClient
      * The model a session runs under, from its own record (GET
      * /session/{id}), falling back to the serve's default model when the
      * session was created bare (model=null) - which is the common case for a
-     * CSM-created headless session. The v2 /api/session/{id}/prompt endpoint
+     * Sessioneer-created headless session. The v2 /api/session/{id}/prompt endpoint
      * only admits a prompt without running a turn, so sending always needs an
      * explicit model to hand the v1 /session/{id}/message call.
      *
@@ -299,7 +299,7 @@ class OpenCodeServeClient
     /**
      * Sends a free-text message asynchronously via POST /session/{id}/prompt_async
      * - the app-style `parts` + `model` body that actually runs the agent loop,
-     * but returns 204 immediately (no waiting on the full turn), so CSM's send
+     * but returns 204 immediately (no waiting on the full turn), so Sessioneer's send
      * doesn't time out on a long turn ("curl 28"). The reply arrives in the
      * transcript via the session page's poll. The model is the session's own
      * if it has one, else the serve default.
@@ -413,7 +413,7 @@ class OpenCodeServeClient
     }
 
     /**
-     * The current blocked prompt for a session, already normalized to CSM's
+     * The current blocked prompt for a session, already normalized to Sessioneer's
      * canonical shape (tool_name 'permission'|'question' with a request_id
      * so answer_prompt can route to the right reply endpoint). Reads the
      * shape the sync wrote into SessionStatusStore; falls back to a live
@@ -487,7 +487,7 @@ class OpenCodeServeClient
      * dashboard's per-poll list read never has to hit serve.
      *
      * Maps opencode's SessionStatus tagged union (idle / busy / retry) to
-     * CSM's own 'idle' | 'working' (retry is "trying to do work", so treat it
+     * Sessioneer's own 'idle' | 'working' (retry is "trying to do work", so treat it
      * as working). Blocked-prompt state is a separate surface (GET /question
      * / GET /permission) and is not included here.
      *
@@ -551,7 +551,7 @@ class OpenCodeServeClient
 
         if ($body !== null) {
             $payload = json_encode($body);
-            $tmp = tempnam(sys_get_temp_dir(), 'csm-oes-');
+            $tmp = tempnam(sys_get_temp_dir(), 'sessioneer-oes-');
             $bodyFile = $tmp !== false ? $tmp : '/dev/null';
             file_put_contents($bodyFile, (string)$payload);
             $cmd[] = '--header';

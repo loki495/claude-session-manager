@@ -76,7 +76,7 @@ fi
 # ignores it, so exporting it unconditionally for the whole run is
 # harmless even outside --replay/--browser.
 if [ "$headed" -eq 1 ]; then
-    export CSM_TEST_HEADED=1
+    export SESSIONEER_TEST_HEADED=1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,7 +92,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # under the one still running. -n (non-blocking) fails fast with a clear
 # message instead of silently hanging behind a run that might itself be
 # stuck.
-LOCK_FILE="/tmp/csm-test-run-$(echo -n "$SCRIPT_DIR" | cksum | cut -d' ' -f1).lock"
+LOCK_FILE="/tmp/sessioneer-test-run-$(echo -n "$SCRIPT_DIR" | cksum | cut -d' ' -f1).lock"
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then
     echo "REFUSING TO RUN: another tests/run.sh for this same checkout ($SCRIPT_DIR) is already in progress (lock: $LOCK_FILE). Wait for it to finish - running two at once would corrupt each other's isolated tmux/sidecar state." >&2
@@ -109,7 +109,7 @@ set +a
 # a typo in .env.testing can never make this script tear down the real
 # session.
 REAL_TMUX_SOCKET="/tmp/tmux-1000/default"
-REAL_SIDECAR_DIR="/run/user/1000/csm-sessions"
+REAL_SIDECAR_DIR="/run/user/1000/sessioneer-sessions"
 
 if [ "$TMUX_SOCKET" = "$REAL_TMUX_SOCKET" ] || [ -z "$TMUX_SOCKET" ]; then
     echo "REFUSING TO RUN: TMUX_SOCKET in tests/.env.testing resolves to the real host socket (or is empty). Aborting before touching tmux." >&2

@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Web Push notifications - lets a session's newly-blocked prompt reach
  * the phone without the tab open and polling. Server/host-triggered (see
- * host-agent/push_trigger.php, run periodically by the csm-push-check
+ * host-agent/push_trigger.php, run periodically by the sessioneer-push-check
  * systemd timer): iOS Safari has no working client-side background-sync
  * mechanism, so detecting a session transitioning INTO a blocked state
  * has to happen here, not in the browser. Uses minishlink/web-push

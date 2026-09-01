@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-$GLOBALS['__csm_test_failures'] = 0;
+$GLOBALS['__sessioneer_test_failures'] = 0;
 
 function assert_true(bool $condition, string $message): void
 {
@@ -10,7 +10,7 @@ function assert_true(bool $condition, string $message): void
         return;
     }
 
-    $GLOBALS['__csm_test_failures']++;
+    $GLOBALS['__sessioneer_test_failures']++;
     fwrite(STDOUT, "  FAIL: {$message}\n");
 }
 
@@ -43,5 +43,5 @@ function assert_contains(string $needle, string $haystack, string $message): voi
  */
 function test_exit(): never
 {
-    exit($GLOBALS['__csm_test_failures'] > 0 ? 1 : 0);
+    exit($GLOBALS['__sessioneer_test_failures'] > 0 ? 1 : 0);
 }

@@ -57,7 +57,7 @@ class TmuxRuntime implements RuntimeProvider
             return ['ok' => false, 'message' => 'create() requires a workdir'];
         }
 
-        return SessionLifecycleService::create_cc_session(
+        return SessionLifecycleService::create_agent_session(
             $workdir,
             (bool)($options['enable_task_tools'] ?? false),
             is_string($options['starting_mode'] ?? null) ? $options['starting_mode'] : null,
@@ -83,7 +83,7 @@ class TmuxRuntime implements RuntimeProvider
 
     public function kill(string $sessionRef): array
     {
-        return SessionLifecycleService::kill_cc_session($sessionRef);
+        return SessionLifecycleService::kill_agent_session($sessionRef);
     }
 
     public function status(string $sessionRef): array

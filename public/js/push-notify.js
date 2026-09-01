@@ -28,7 +28,7 @@
   // actually supported below (harmless either way) - kept ahead of that
   // check so it stays simple, not because it needs to run before it.
   try {
-    var csrfCacheOpenReq = indexedDB.open('csm-push', 1);
+    var csrfCacheOpenReq = indexedDB.open('sessioneer-push', 1);
 
     csrfCacheOpenReq.onupgradeneeded = function () {
       csrfCacheOpenReq.result.createObjectStore('kv');

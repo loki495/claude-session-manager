@@ -1,5 +1,5 @@
 [Unit]
-Description=Claude Session Manager Codex app-server bridge
+Description=Sessioneer Codex app-server bridge
 After=default.target
 
 [Service]

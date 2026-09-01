@@ -16,7 +16,7 @@ namespace HostAgent\Services;
  *     questions[{question, header, options[{label,description}], multiple,
  *     custom}], tool{messageID, callID}} - [] when nothing is live or the
  *     modal is ORPHANED (server already resolved it, TUI still showing it),
- *     which is exactly the "sends a number but nothing arrives" failure CSM
+ *     which is exactly the "sends a number but nothing arrives" failure Sessioneer
  *     previously hit by tmux-scraping.
  *   - POST /question/{requestID}/reply -> body {answers: [[label], ...]}.
  *
@@ -98,7 +98,7 @@ class OpenCodeQuestionService
         $server = Config::opencode_server_url();
         $url = $server . '/question/' . rawurlencode($pending['requestID']) . '/reply';
         $payload = json_encode(['answers' => $answers]);
-        $tmp = tempnam(sys_get_temp_dir(), 'csm-ocq-');
+        $tmp = tempnam(sys_get_temp_dir(), 'sessioneer-ocq-');
         $bodyFile = $tmp !== false ? $tmp : '/dev/null';
         file_put_contents($bodyFile, $payload);
 

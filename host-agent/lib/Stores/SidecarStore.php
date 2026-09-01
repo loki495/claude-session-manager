@@ -11,7 +11,7 @@ use HostAgent\Services\Config;
  * doesn't live anywhere tmux itself tracks - one row per app-spawned
  * session in the `sidecars` table of Config::sessions_sqlite_path()
  * (tmpfs, wiped on reboot - see that method's own docblock). Only ever
- * set for sessions this app created (see SessionService::create_cc_session()) -
+ * set for sessions this app created (see SessionService::create_agent_session()) -
  * a bare/manually-attached session has no sidecar.
  *
  * Backed by plain JSON files (one per session, plus separate .status.json/
@@ -56,7 +56,7 @@ class SidecarStore
                 // falling through when a sidecar was written without this
                 // key at all (found live 2026-08-24: coercing to false here
                 // made that ?? see an already-"set" value and never fall
-                // through to the hook's own CSM_SESSION_NAME-based default).
+                // through to the hook's own SESSIONEER_SESSION_NAME-based default).
                 'spawned_by_csm' => $row['spawned_by_csm'] !== null ? (bool)$row['spawned_by_csm'] : null,
                 // Added 2026-08-24 (docs/antigravity-adapter-plan.md Phase
                 // 0) for multi-agent support - a row written before this
@@ -73,7 +73,7 @@ class SidecarStore
                 // session).
                 'runtime' => $row['runtime'],
                 // The agent-visible title, populated by the headless sync
-                // (csm_headless_sync()) from the serve session's own title;
+                // (sessioneer_headless_sync()) from the serve session's own title;
                 // null for pre-headless rows, so callers fall back to a
                 // workdir basename.
                 'title' => $row['title'],
@@ -136,7 +136,7 @@ class SidecarStore
 
     /**
      * A session can die on its own (crash, host reboot, bad cwd) without ever
-     * going through kill_cc_session(), leaving its sidecar/status/pending-tool
+     * going through kill_agent_session(), leaving its sidecar/status/pending-tool
      * rows behind. Since this runs on every listing anyway, prune anything
      * whose session no longer exists rather than letting them accumulate.
      */
@@ -195,8 +195,8 @@ class SidecarStore
     /**
      * Finds the tmux session NAME bound to a given claude_session_id (the
      * agent-generated ses_* id). OpenCode's plugin reports permissions keyed
-     * by ses_*; CSM tracks them under oc-* tmux names, so this reverses that
-     * join. Returns null for an id no sidecar is bound to (not a CSM-tracked
+     * by ses_*; Sessioneer tracks them under oc-* tmux names, so this reverses that
+     * join. Returns null for an id no sidecar is bound to (not a Sessioneer-tracked
      * session, or the id is the harness's own claude id).
      */
     public static function find_by_claude_session_id(string $claudeSessionId): ?string

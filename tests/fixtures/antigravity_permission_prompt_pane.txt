@@ -1,16 +1,16 @@
 ────────────────────────────────────────────────────────────
-> run this command: echo hello-csm-test
+> run this command: echo hello-sessioneer-test
 
 ▸ Thought for 5s
   The user wants me to run a simple echo command.
 
-● Bash(echo hello-csm-test) (ctrl+o to expand)
+● Bash(echo hello-sessioneer-test) (ctrl+o to expand)
 
 Command
 ────────────────────────────────────────────────────────────────────────────────
 
 Requesting permission for:
-   echo hello-csm-test
+   echo hello-sessioneer-test
 
 Do you want to proceed?
 > 1. Yes

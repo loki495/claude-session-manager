@@ -6,7 +6,7 @@ namespace HostAgent\Services;
 
 /**
  * Pure, dependency-free translation between codex app-server's server-request
- * protocol (item/tool/requestUserInput, item/*RequestApproval) and CSM's own
+ * protocol (item/tool/requestUserInput, item/*RequestApproval) and Sessioneer's own
  * blocked-prompt shape (BlockedPromptView/session.js's `question`/`options`/
  * `tool_input`/`prompt_questions` fields). Extracted out of
  * host-agent/codex_bridge.php (2026-08-29) - that script spawns a real
@@ -19,7 +19,7 @@ namespace HostAgent\Services;
 final class CodexPromptProtocol
 {
     /**
-     * Normalizes one codex app-server server-request into CSM's blocked-
+     * Normalizes one codex app-server server-request into Sessioneer's blocked-
      * prompt shape. item/tool/requestUserInput (Codex's AskUserQuestion
      * equivalent) becomes tool_name 'question', carrying every question
      * (not just the first) in tool_input.questions for the multi-question
@@ -78,7 +78,7 @@ final class CodexPromptProtocol
 
     /**
      * Builds the JSON-RPC result codex_bridge.php sends back to app-server
-     * for a pending server request, from the answers CSM's frontend
+     * for a pending server request, from the answers Sessioneer's frontend
      * collected. `$pending` is the bridge's own stored
      * {request_id, method, params, prompt} entry (see codex_bridge.php's
      * $pendingPrompts); `$answers` is whatever the client posted -

@@ -40,7 +40,7 @@ class OpenCodeAdapter implements AgentAdapter
      * directory) is the positional `opencode [project]` arg. $options['model']
      * passes straight through to `--model provider/model` when non-empty;
      * $options['agent'] to `--agent <name>` (OpenCode's own agent concept,
-     * distinct from CSM's agent id). Other keys (enable_task_tools,
+     * distinct from Sessioneer's agent id). Other keys (enable_task_tools,
      * starting_mode, effort) are silently ignored - OpenCode has no
      * --permission-mode / --effort equivalent, only --auto for
      * auto-approve (not wired here; Phase 7 stretch goal).
@@ -83,7 +83,7 @@ class OpenCodeAdapter implements AgentAdapter
      */
     public function check_hooks(): array
     {
-        return ['ok' => true, 'installed' => false, 'message' => 'OpenCode plugin not yet installed (Phase 5 will add csm-status plugin)'];
+        return ['ok' => true, 'installed' => false, 'message' => 'OpenCode plugin not yet installed (Phase 5 will add sessioneer-status plugin)'];
     }
 
     /**
@@ -91,7 +91,7 @@ class OpenCodeAdapter implements AgentAdapter
      */
     public function install_hooks(): array
     {
-        return ['ok' => true, 'installed' => false, 'message' => 'OpenCode plugin not yet installed (Phase 5 will add csm-status plugin)'];
+        return ['ok' => true, 'installed' => false, 'message' => 'OpenCode plugin not yet installed (Phase 5 will add sessioneer-status plugin)'];
     }
 
     /**

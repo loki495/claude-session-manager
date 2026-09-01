@@ -22,15 +22,15 @@ interface CsmArchivedBootstrap {
 }
 
 interface Window {
-  CSM_BOOTSTRAP: CsmBootstrap;
-  CSM_ARCHIVED_BOOTSTRAP: CsmArchivedBootstrap;
+  SESSIONEER_BOOTSTRAP: CsmBootstrap;
+  SESSIONEER_ARCHIVED_BOOTSTRAP: CsmArchivedBootstrap;
   openFullscreenTextModal: (text: string, html?: string | null) => void;
 }
 
 declare function openFullscreenTextModal(text: string, html?: string | null): void;
 
 // getElementById() cannot infer an element subtype from an arbitrary string.
-// These overloads document the stable IDs emitted by CSM's server-rendered
+// These overloads document the stable IDs emitted by Sessioneer's server-rendered
 // templates so checkJs retains real form-control APIs without casting every
 // use to `any` or pretending every HTMLElement has `.value`/`.disabled`.
 interface Document {

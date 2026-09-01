@@ -39,7 +39,7 @@ interface AgentAdapter
 
     /**
      * The tmux session-name prefix this agent's own spawned sessions get
-     * (e.g. 'cc' -> cc-20260824-131822). CSM's own naming convention, not
+     * (e.g. 'cc' -> cc-20260824-131822). Sessioneer's own naming convention, not
      * the agent's - session TRACKING is sidecar-existence-based, not a
      * prefix glob (see SessionService::list_all_sessions()'s own comment),
      * so this only affects the generated name, never what gets listed.
@@ -49,7 +49,7 @@ interface AgentAdapter
     /**
      * Builds this agent's own binary + CLI flags for a brand-new
      * interactive session (the tmux `new-session` wrapper itself - pane
-     * size, cwd, CSM_SESSION_NAME - stays in SessionLifecycleService,
+     * size, cwd, SESSIONEER_SESSION_NAME - stays in SessionLifecycleService,
      * agent-agnostic). `assigned_id` is this agent's own conversation/
      * session identifier if it can be chosen up front (Claude Code's
      * --session-id), or null if the agent has no such mechanism and the
@@ -87,7 +87,7 @@ interface AgentAdapter
 
     /**
      * This agent's own raw permission-mode enum values (as seen in its
-     * hook payloads) mapped to CSM's own manual/accept edits/plan/auto
+     * hook payloads) mapped to Sessioneer's own manual/accept edits/plan/auto
      * vocabulary (TranscriptView::MODE_OPTIONS) - same shape as
      * PermissionMode::HOOK_PERMISSION_MODE_MAP, just per-agent. A raw
      * value with no entry here means "unrecognized", same as
@@ -102,7 +102,7 @@ interface AgentAdapter
      * Which hostings this agent's sessions can live under (see RuntimeType).
      * The ordering is a preference - the first entry is the default when
      * nothing else says otherwise. An agent that has no headless session
-     * mode at all just returns [RuntimeType::TMUX], and CSM should not
+     * mode at all just returns [RuntimeType::TMUX], and Sessioneer should not
      * pretend it can spawn it headless.
      *
      * Deliberately lives on the adapter (not the runtime) because whether a

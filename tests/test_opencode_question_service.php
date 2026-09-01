@@ -15,8 +15,8 @@ use HostAgent\Services\Config;
 use HostAgent\Services\OpenCodeQuestionService;
 
 $stub = __DIR__ . '/fixtures/opencode_question_stub.php';
-$stateFile = sys_get_temp_dir() . '/csm-test-ocq-state-' . bin2hex(random_bytes(4));
-putenv("CSM_STUB_STATE={$stateFile}");
+$stateFile = sys_get_temp_dir() . '/sessioneer-test-ocq-state-' . bin2hex(random_bytes(4));
+putenv("SESSIONEER_STUB_STATE={$stateFile}");
 file_put_contents($stateFile, json_encode(['replies' => []]));
 
 // Pick a free port, start `php -S`, and point OPENCODE_SERVE_URL at it.

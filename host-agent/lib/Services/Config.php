@@ -21,7 +21,7 @@ namespace HostAgent\Services;
  */
 class Config
 {
-    public static function csm_config(string $key, string $default): string
+    public static function sessioneer_config(string $key, string $default): string
     {
         $value = getenv($key);
         return $value !== false && $value !== '' ? $value : $default;
@@ -36,7 +36,7 @@ class Config
      */
     public static function claude_bin(): string
     {
-        return self::csm_config('CLAUDE_BIN', '');
+        return self::sessioneer_config('CLAUDE_BIN', '');
     }
 
     /**
@@ -48,7 +48,7 @@ class Config
      */
     public static function antigravity_bin(): string
     {
-        return self::csm_config('ANTIGRAVITY_BIN', '');
+        return self::sessioneer_config('ANTIGRAVITY_BIN', '');
     }
 
     /**
@@ -59,17 +59,17 @@ class Config
      */
     public static function opencode_bin(): string
     {
-        return self::csm_config('OPENCODE_BIN', '');
+        return self::sessioneer_config('OPENCODE_BIN', '');
     }
 
     public static function codex_bin(): string
     {
-        return self::csm_config('CODEX_BIN', '');
+        return self::sessioneer_config('CODEX_BIN', '');
     }
 
     public static function codex_bridge_socket(): string
     {
-        return self::csm_config('CODEX_BRIDGE_SOCKET', '/run/user/' . getmyuid() . '/csm-codex-bridge.sock');
+        return self::sessioneer_config('CODEX_BRIDGE_SOCKET', '/run/user/' . getmyuid() . '/sessioneer-codex-bridge.sock');
     }
 
     /**
@@ -80,12 +80,12 @@ class Config
      */
     public static function www_root(): string
     {
-        return self::csm_config('WWW_ROOT', self::home_root());
+        return self::sessioneer_config('WWW_ROOT', self::home_root());
     }
 
     public static function home_root(): string
     {
-        return self::csm_config('HOME_ROOT', getenv('HOME') ?: '');
+        return self::sessioneer_config('HOME_ROOT', getenv('HOME') ?: '');
     }
 
     /**
@@ -96,30 +96,30 @@ class Config
      */
     public static function tmux_socket(): string
     {
-        return self::csm_config('TMUX_SOCKET', '/tmp/tmux-' . getmyuid() . '/default');
+        return self::sessioneer_config('TMUX_SOCKET', '/tmp/tmux-' . getmyuid() . '/default');
     }
 
     public static function sidecar_dir(): string
     {
-        return self::csm_config('SIDECAR_DIR', '/run/user/' . getmyuid() . '/csm-sessions');
+        return self::sessioneer_config('SIDECAR_DIR', '/run/user/' . getmyuid() . '/sessioneer-sessions');
     }
 
     /**
-     * Where the OpenCode CSM plugin writes pending-permission records (and the
+     * Where the OpenCode Sessioneer plugin writes pending-permission records (and the
      * host-agent reads them back) - a small JSON file per ses_* id, so the
      * plugin (Bun/JS, running inside each TUI) and this PHP host-agent never
      * contend on a single shared DB connection. Sits under the same sidecar
-     * dir as the rest of CSM's per-session state (both runtimes can write
+     * dir as the rest of Sessioneer's per-session state (both runtimes can write
      * there under the same user). Overridable for tests via OPENCODE_PERMISSION_DIR.
      */
     public static function opencode_permission_dir(): string
     {
-        return self::csm_config('OPENCODE_PERMISSION_DIR', self::sidecar_dir() . '/opencode-permissions');
+        return self::sessioneer_config('OPENCODE_PERMISSION_DIR', self::sidecar_dir() . '/opencode-permissions');
     }
 
     public static function cleanup_threshold_seconds(): int
     {
-        return (int)self::csm_config('CLEANUP_THRESHOLD_SECONDS', '43200'); // 12h
+        return (int)self::sessioneer_config('CLEANUP_THRESHOLD_SECONDS', '43200'); // 12h
     }
 
     /**
@@ -137,12 +137,12 @@ class Config
      */
     public static function new_session_pane_width(): int
     {
-        return (int)self::csm_config('TMUX_PANE_WIDTH', '200');
+        return (int)self::sessioneer_config('TMUX_PANE_WIDTH', '200');
     }
 
     public static function new_session_pane_height(): int
     {
-        return (int)self::csm_config('TMUX_PANE_HEIGHT', '150');
+        return (int)self::sessioneer_config('TMUX_PANE_HEIGHT', '150');
     }
 
     /**
@@ -181,7 +181,7 @@ class Config
      * a genuinely different mechanism from Claude Code's above: there is
      * no statusline-JSON equivalent, so this is written by
      * host-agent/antigravity_quota_poll.php, run periodically by the
-     * (opt-in, not auto-enabled) csm-antigravity-quota-check systemd
+     * (opt-in, not auto-enabled) sessioneer-antigravity-quota-check systemd
      * timer - a real, free, headless `agy -p "/usage" --output-format
      * json` call (confirmed live 2026-08-24: duration_seconds=0,
      * zero token usage, no real model turn), not an event-driven capture.
@@ -210,7 +210,7 @@ class Config
      */
     public static function sessions_sqlite_path(): string
     {
-        return self::csm_config('SESSIONS_SQLITE_FILE', self::sidecar_dir() . '/sessions.sqlite');
+        return self::sessioneer_config('SESSIONS_SQLITE_FILE', self::sidecar_dir() . '/sessions.sqlite');
     }
 
     /**
@@ -228,7 +228,7 @@ class Config
      */
     public static function push_sqlite_path(): string
     {
-        return self::csm_config('PUSH_SQLITE_FILE', self::csm_repo_root() . '/host-agent/state/push.sqlite');
+        return self::sessioneer_config('PUSH_SQLITE_FILE', self::sessioneer_repo_root() . '/host-agent/state/push.sqlite');
     }
 
     /**
@@ -240,12 +240,12 @@ class Config
      */
     public static function opencode_db_path(): string
     {
-        return self::csm_config('OPENCODE_DB_PATH', self::home_root() . '/.local/share/opencode/opencode.db');
+        return self::sessioneer_config('OPENCODE_DB_PATH', self::home_root() . '/.local/share/opencode/opencode.db');
     }
 
     public static function opencode_auth_path(): string
     {
-        return self::csm_config('OPENCODE_AUTH_PATH', self::home_root() . '/.local/share/opencode/auth.json');
+        return self::sessioneer_config('OPENCODE_AUTH_PATH', self::home_root() . '/.local/share/opencode/auth.json');
     }
 
     /**
@@ -259,7 +259,7 @@ class Config
      */
     public static function opencode_server_url(): string
     {
-        return rtrim(self::csm_config('OPENCODE_SERVE_URL', 'http://localhost:4096'), '/');
+        return rtrim(self::sessioneer_config('OPENCODE_SERVE_URL', 'http://localhost:4096'), '/');
     }
 
     /**
@@ -270,9 +270,9 @@ class Config
      * Still overridable via env for tests, same convention as every other
      * value here.
      */
-    public static function csm_repo_root(): string
+    public static function sessioneer_repo_root(): string
     {
-        return self::csm_config('CSM_REPO_ROOT', dirname(__DIR__, 3));
+        return self::sessioneer_config('SESSIONEER_REPO_ROOT', dirname(__DIR__, 3));
     }
 
     public static function claude_settings_path(): string
@@ -288,7 +288,7 @@ class Config
      */
     public static function session_start_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/session_start.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/session_start.php';
     }
 
     /**
@@ -298,7 +298,7 @@ class Config
      */
     public static function pre_tool_use_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/pre_tool_use.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/pre_tool_use.php';
     }
 
     /**
@@ -308,7 +308,7 @@ class Config
      */
     public static function permission_request_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/permission_request.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/permission_request.php';
     }
 
     /**
@@ -318,7 +318,7 @@ class Config
      */
     public static function user_prompt_submit_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/user_prompt_submit.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/user_prompt_submit.php';
     }
 
     /**
@@ -328,7 +328,7 @@ class Config
      */
     public static function stop_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/stop.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/stop.php';
     }
 
     /**
@@ -351,22 +351,22 @@ class Config
      */
     public static function antigravity_pre_tool_use_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/pre_tool_use.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/antigravity/pre_tool_use.php';
     }
 
     public static function antigravity_post_tool_use_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/post_tool_use.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/antigravity/post_tool_use.php';
     }
 
     public static function antigravity_pre_invocation_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/pre_invocation.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/antigravity/pre_invocation.php';
     }
 
     public static function antigravity_stop_hook_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/hooks/antigravity/stop.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/antigravity/stop.php';
     }
 
     /**
@@ -378,7 +378,7 @@ class Config
      */
     public static function quota_live_state_write_command(): string
     {
-        return 'php ' . self::csm_repo_root() . '/host-agent/quota_live_state_write.php';
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/quota_live_state_write.php';
     }
 
     /**
@@ -390,6 +390,6 @@ class Config
      */
     public static function statusline_fallback_script_path(): string
     {
-        return self::home_root() . '/.claude/csm-statusline.sh';
+        return self::home_root() . '/.claude/sessioneer-statusline.sh';
     }
 }

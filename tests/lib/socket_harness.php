@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * Generic per-connection Unix socket harness, used by tests to stand in
  * for systemd's Accept=yes socket activation (StandardInput=socket /
- * StandardOutput=socket in csm-agent@.service) without needing systemd.
+ * StandardOutput=socket in sessioneer-agent@.service) without needing systemd.
  *
  * Usage: php socket_harness.php <socket-path> <command...>
  *

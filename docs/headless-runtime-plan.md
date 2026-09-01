@@ -18,7 +18,7 @@ version and probing capabilities at startup are therefore part of the design.
 
 ## Decisions locked
 
-- **Every capability CSM exposes for a tmux session must also be doable
+- **Every capability Sessioneer exposes for a tmux session must also be doable
   from a headless session, per agent** — a "runtime" is a per-agent choice,
   not a global mode. If an agent has no usable headless session mode, it
   stays tmux-driven and we don't pretend otherwise.
@@ -34,18 +34,18 @@ version and probing capabilities at startup are therefore part of the design.
   `agy -p`). Stays tmux-driven.
 - **codex uses `codex app-server` as its primary runtime.** `codex exec
   --json` is a useful one-shot test/fallback surface, but it does not provide
-  the persistent, bidirectional session ownership CSM needs for approvals,
+  the persistent, bidirectional session ownership Sessioneer needs for approvals,
   questions, steering, and live updates.
 - **`opencode serve` is a persistent host service, not a throwaway.** It
   runs as a systemd user unit (`opencode-serve.service`, port `4096`) and
-  is expected to be up at all times — it's part of CSM's own health check
+  is expected to be up at all times — it's part of Sessioneer's own health check
   (`opencode_serve_check()` / the health box). Restart it only when a
-  change actually needs reloading (a setting, the CSM opencode plugin, or
+  change actually needs reloading (a setting, the Sessioneer opencode plugin, or
   a hook it loads). Once it's up, we can spin up any number of sessions
   against it freely.
 - **Codex needs two persistent host-native processes.** The Codex app-server
-  is one; a small CSM Codex bridge is the other. The bridge owns a long-lived
-  app-server JSON-RPC connection and exposes a narrow CSM-shaped Unix-socket
+  is one; a small Sessioneer Codex bridge is the other. The bridge owns a long-lived
+  app-server JSON-RPC connection and exposes a narrow Sessioneer-shaped Unix-socket
   API to the existing socket-activated PHP host agent. This is required
   because Codex sends approvals and `request_user_input` as JSON-RPC requests
   to the connected client, and their replies must carry the original request
@@ -53,7 +53,7 @@ version and probing capabilities at startup are therefore part of the design.
 
 ## Why this framing (grounded in current code)
 
-CSM already abstracts most per-agent seams: `AgentAdapter` (spawn,
+Sessioneer already abstracts most per-agent seams: `AgentAdapter` (spawn,
 identity, hooks, permission vocab), `TranscriptRouter`,
 `SessionStatusStore`, `PromptInteractionService`. What's missing is the
 **runtime** dimension — whether a given agent session lives in a tmux
@@ -93,9 +93,9 @@ that class to `OpenCodeHeadlessRuntime` (or equivalent) and add a separate
 
 ## Codex app-server capability mapping
 
-The installed app-server protocol already covers the important CSM surfaces:
+The installed app-server protocol already covers the important Sessioneer surfaces:
 
-| CSM capability | Codex app-server v2 method/event |
+| Sessioneer capability | Codex app-server v2 method/event |
 |---|---|
 | create | `thread/start` with `cwd`, model, sandbox and approval policy |
 | list active / archived | `thread/list` with pagination and `archived` filter |
@@ -123,11 +123,11 @@ missed event, but event ingestion should provide the normal low-latency path.
 ### Codex bridge state and I/O
 
 - Run app-server on a host-only Unix socket. Do not expose its WebSocket
-  listener to the LAN; the existing CSM web container continues to see only
+  listener to the LAN; the existing Sessioneer web container continues to see only
   the host-agent socket.
 - The bridge initializes one app-server client connection, consumes all
   notifications/server requests, and reconnects with bounded backoff.
-- Persist only normalized CSM state in the existing SQLite stores: Codex
+- Persist only normalized Sessioneer state in the existing SQLite stores: Codex
   thread id, active turn id, status, last event cursor/timestamp, pending
   request method/id/payload, token usage, and last error. Keep raw protocol
   payloads only where needed for diagnostics and cap their size.
@@ -142,13 +142,13 @@ missed event, but event ingestion should provide the normal low-latency path.
   may be a recovery/import path, but must not become the live protocol when
   `thread/read` and paged turn/item APIs are available.
 
-### Canonical CSM prompt mapping for Codex
+### Canonical Sessioneer prompt mapping for Codex
 
 - Command and file-change decisions expose only decisions advertised by the
   request's `availableDecisions`/schema. Typical mappings are accept,
   accept-for-session, decline, and cancel; persistent exec/network amendments
   need explicit UI treatment rather than being silently collapsed to "always".
-- `item/tool/requestUserInput` maps directly to CSM's multi-question form,
+- `item/tool/requestUserInput` maps directly to Sessioneer's multi-question form,
   keyed by each question's stable `id`. Its response is an object of
   `{questionId: {answers: [...]}}`, not the positional OpenCode/Claude shape.
 - Secret questions must never be persisted or included in push bodies/logs.
@@ -205,17 +205,17 @@ serve instance can manage sessions in many workdirs** — no per-project
 serve needed.
 
 **Confirmed live (2026-08-26):** `POST /api/session` with
-`{ "location": { "directory": "/tmp/csm-headless-probe" } }` created a
+`{ "location": { "directory": "/tmp/sessioneer-headless-probe" } }` created a
 session at that directory (create+delete a throwaway; removed afterward,
 sessions untouched). So arbitrary-workdir creation is clean via `location.directory` —
-no workspace plumbing required. This was the last risk for CSM's
+no workspace plumbing required. This was the last risk for Sessioneer's
 "New Session arbitrary workdir" feature; it's resolved.
 
 ## Phased plan
 
 ### Codex implementation (2026-08-27)
 
-- **Implemented:** a persistent `csm-codex-bridge.service` owns
+- **Implemented:** a persistent `sessioneer-codex-bridge.service` owns
   `codex app-server --stdio`; the ordinary host agent talks to the bridge over
   a private Unix socket. No Codex lifecycle or I/O path launches or scrapes a
   tmux pane.
@@ -285,10 +285,10 @@ no workspace plumbing required. This was the last risk for CSM's
   hitting serve on every poll.** DONE (2026-08-26): `sidecars.runtime`
   column (`tmux`|`headless`, null=tmux); headless sessions are adopted into
   sidecars keyed by their `ses_*` id; tmux prune skips `ses_*` rows;
-  `csm_headless_sync()` (throttled, default 15s via `HEADLESS_SYNC_SECONDS`)
+  `sessioneer_headless_sync()` (throttled, default 15s via `HEADLESS_SYNC_SECONDS`)
   adopts serve sessions + batches `GET /session/status` into
   `SessionStatusStore` in ONE round-trip; `list` reads sidecars+status, so
-  the per-poll listing no longer calls serve; `csm_is_headless_session()`
+  the per-poll listing no longer calls serve; `sessioneer_is_headless_session()`
   now reads the sidecar's `runtime` (not a shape heuristic);
   `RuntimeProvider::isHeadless()`/`isTmux()`. Status is `idle`/`working`
   (opencode idle/busy/retry mapped); blocked-prompt rich detection remains
@@ -302,11 +302,11 @@ no workspace plumbing required. This was the last risk for CSM's
   (working/idle/blocked) + a `headless`/`attached` runtime tag (`row.php`);
   the separate "Headless OpenCode" section is gone; the session-page sidebar
   picks them up automatically (`sessions_list.php` returns the merged list).
-  The `list` payload no longer carries a `headless` key. `csm_headless_sync()`
+  The `list` payload no longer carries a `headless` key. `sessioneer_headless_sync()`
   also now writes a status row for EVERY adopted session (default 'idle'),
   because `GET /session/status` omits idle sessions and previously left
   `session_status` empty. session.php now LOADS for headless sessions
-  (`csm_headless_detail_shape()` normalizes the serve object into the
+  (`sessioneer_headless_detail_shape()` normalizes the serve object into the
   session-entry shape), and web-UI opencode New Session creates a headless
   (serve) session instead of a tmux pane. **Done since:** sending is async
   (v1 `/session/{id}/prompt_async` - no "curl 28", text area clears);
@@ -320,7 +320,7 @@ no workspace plumbing required. This was the last risk for CSM's
    `server.heartbeat`, with no session status/step/permission events. The
    per-session `/api/session/:id/event` serves HTML, not SSE. Status detection
    therefore stays on the throttled `GET /session/status` poll in
-   `csm_headless_sync()`; no event consumer is installed.
+   `sessioneer_headless_sync()`; no event consumer is installed.
 - **Phase 5 — parity check + deferred.** Sweep every tmux capability for
   opencode headless and confirm an equivalent (or document the gap).
   claude/antigravity stay tmux unless a headless mode with the right
@@ -328,7 +328,7 @@ no workspace plumbing required. This was the last risk for CSM's
 
 ### Codex work
 
-- **Codex Phase 0 — live protocol proof, no CSM writes.** Start app-server
+- **Codex Phase 0 — live protocol proof, no Sessioneer writes.** Start app-server
   on a temporary Unix socket with the existing logged-in Codex account;
   initialize; list/read existing threads; create one throwaway thread in a
   temp git repo; start a harmless read-only turn; observe event ordering;
@@ -343,7 +343,7 @@ no workspace plumbing required. This was the last risk for CSM's
   `RuntimeRegistry` construct providers by `(agent, runtime)`. Add contract
   fixtures proving OpenCode behavior is unchanged.
 - **Codex Phase 2 — persistent bridge + health.** Add systemd units for a
-  host-only Codex app-server socket and a CSM Codex bridge. Implement
+  host-only Codex app-server socket and a Sessioneer Codex bridge. Implement
   initialize/reconnect, framed JSON-RPC request correlation, normalized event
   ingestion, pending-request storage, startup reconciliation, version/
   capability probing, and health-box reporting. Fail soft when Codex is not
@@ -368,7 +368,7 @@ no workspace plumbing required. This was the last risk for CSM's
 - **Codex Phase 6 — parity and rollout.** Run the full feature matrix against
   Codex, document genuine non-equivalences, add Codex as a New Session choice,
   and keep the tmux implementation available only if it provides a tested
-  recovery benefit. Do not make Codex globally required for CSM startup.
+  recovery benefit. Do not make Codex globally required for Sessioneer startup.
 
 ## Tests (run against the live serve; sad path included per policy)
 
@@ -413,7 +413,7 @@ Codex tests need two tiers:
    v1 `/session`.
 2. ~~One serve vs per-workdir serves~~ → **RESOLVED:** one serve, confirmed
    by Andres + it already tracks multi-workdir sessions (`/project`).
-3. For opencode headless, keep the global `csm-permissions.js` plugin as
+3. For opencode headless, keep the global `sessioneer-permissions.js` plugin as
    the event/status source, or rely on `GET /session/status` +
    `GET /api/session/:id/event` SSE alone? (Set in Phase 4.)
 4. Does Andres want to migrate existing tmux opencode sessions to
@@ -427,17 +427,17 @@ Codex tests need two tiers:
 6. **Create-realization caveat** discovered in Phase 0: a session created
    via v2 `location.directory` in a directory OpenCode hasn't registered
    as a project lands in the `global` project and its v2 read endpoints
-   500 until it's realized. CSM should create in a registered project dir
+   500 until it's realized. Sessioneer should create in a registered project dir
    (or verify OpenCode auto-registers the workdir on first use before
    relying on reads).
 7. **Codex reconnect semantics:** is a pending server-to-client approval or
-   user-input request replayed to a reconnecting/resumed client, or must CSM
+   user-input request replayed to a reconnecting/resumed client, or must Sessioneer
    interrupt/retry the turn? Phase 0 must answer this live before bridge state
    design is finalized.
 8. **Codex multi-client ownership:** when another Codex UI has the same thread
-   loaded, which client receives approval requests and notifications? CSM must
+   loaded, which client receives approval requests and notifications? Sessioneer must
    avoid presenting a prompt it cannot answer.
-9. **Archive versus delete:** use archive as the ordinary CSM "kill/close"
+9. **Archive versus delete:** use archive as the ordinary Sessioneer "kill/close"
    behavior unless live verification shows delete is the established Codex
    lifecycle equivalent. Permanent deletion needs a distinct, explicit action.
 10. **Protocol stability:** determine the minimum supported Codex CLI and which

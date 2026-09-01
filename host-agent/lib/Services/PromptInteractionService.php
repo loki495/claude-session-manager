@@ -263,7 +263,7 @@ class PromptInteractionService
         // live against two real fixture panes. -d deletes the named buffer
         // the instant paste-buffer consumes it, so nothing here needs its
         // own separate cleanup step on the success path.
-        $bufferName = 'csm-' . bin2hex(random_bytes(8));
+        $bufferName = 'sessioneer-' . bin2hex(random_bytes(8));
         $set = TmuxService::tmux_run(['set-buffer', '-b', $bufferName, '--', $text]);
 
         if ($set['exit'] !== 0) {
@@ -306,7 +306,7 @@ class PromptInteractionService
      * $questions is deliberately NOT read from the request - always
      * re-derived here from SessionStatusStore, the same "never trust
      * anything from the caller for a state-changing action" discipline
-     * SessionLifecycleService::kill_cc_session()/answer_prompt() already
+     * SessionLifecycleService::kill_agent_session()/answer_prompt() already
      * follow. $answers is the only thing the caller actually supplies (their
      * own picks); PromptParser::build_multi_question_key_sequence() still
      * validates every one of them against the real $questions before
@@ -386,7 +386,7 @@ class PromptInteractionService
      * reject up front beyond "is this a real managed session at all".
      *
      * Found live 2026-08-30 (Andres: "a session interrupted mid-turn still
-     * shows working/thinking in CSM even though the real Claude Code app
+     * shows working/thinking in Sessioneer even though the real Claude Code app
      * confirms it's no longer thinking"): Escape is a true interrupt (not a
      * natural turn completion), so the Stop hook - which fires ONLY on
      * natural completion (https://code.claude.com/docs/en/hooks, confirmed
@@ -696,7 +696,7 @@ class PromptInteractionService
         // every request here is its own OS process and two genuinely
         // concurrent sends can otherwise clobber each other's staged text
         // before either's paste-buffer runs.
-        $bufferName = 'csm-' . bin2hex(random_bytes(8));
+        $bufferName = 'sessioneer-' . bin2hex(random_bytes(8));
         $set = TmuxService::tmux_run(['set-buffer', '-b', $bufferName, '--', $text]);
 
         if ($set['exit'] !== 0) {

@@ -14,7 +14,7 @@ use Minishlink\WebPush\WebPush;
 /**
  * The actual VAPID-signed send (via minishlink/web-push) and the main
  * push-trigger pass that decides WHEN a session's state transition is
- * worth sending for - called on every csm-push-check systemd timer tick
+ * worth sending for - called on every sessioneer-push-check systemd timer tick
  * (see host-agent/push_trigger.php). iOS Safari has no working
  * client-side background-sync mechanism, so detecting a session
  * transitioning into a blocked state has to happen here, server/host-
@@ -24,12 +24,12 @@ class PushDeliveryService
 {
     public static function vapid_public_key(): string
     {
-        return Config::csm_config('VAPID_PUBLIC_KEY', '');
+        return Config::sessioneer_config('VAPID_PUBLIC_KEY', '');
     }
 
     public static function vapid_private_key(): string
     {
-        return Config::csm_config('VAPID_PRIVATE_KEY', '');
+        return Config::sessioneer_config('VAPID_PRIVATE_KEY', '');
     }
 
     /**
@@ -40,7 +40,7 @@ class PushDeliveryService
      */
     public static function vapid_subject(): string
     {
-        return Config::csm_config('VAPID_SUBJECT', '');
+        return Config::sessioneer_config('VAPID_SUBJECT', '');
     }
 
     /**
@@ -51,7 +51,7 @@ class PushDeliveryService
      */
     public static function push_min_working_seconds_for_finish_notify(): int
     {
-        return (int)Config::csm_config('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY', '60');
+        return (int)Config::sessioneer_config('PUSH_MIN_WORKING_SECONDS_FOR_FINISH_NOTIFY', '60');
     }
 
     /**
@@ -62,7 +62,7 @@ class PushDeliveryService
      */
     public static function push_quota_near_threshold_pct(): int
     {
-        return (int)Config::csm_config('PUSH_QUOTA_NEAR_THRESHOLD_PCT', '90');
+        return (int)Config::sessioneer_config('PUSH_QUOTA_NEAR_THRESHOLD_PCT', '90');
     }
 
     /**
@@ -78,7 +78,7 @@ class PushDeliveryService
     /**
      * Last-tick outcome of check_and_send_pushes() - written on EVERY tick
      * (even ones with nothing to send), so its timestamp doubles as a
-     * heartbeat proving the csm-push-check timer is actually running, not
+     * heartbeat proving the sessioneer-push-check timer is actually running, not
      * just that sends succeed when attempted. Read back by
      * PushHealthService::push_delivery_check() for the dashboard.
      * GlobalStateStore key, not a file, since 2026-08-24 - see that
@@ -133,7 +133,7 @@ class PushDeliveryService
 
         // minishlink/web-push validates VAPID key format (and can throw for
         // other reasons too) - caught rather than left to propagate, since
-        // this runs unattended via the csm-push-check systemd timer: an
+        // this runs unattended via the sessioneer-push-check systemd timer: an
         // uncaught exception here would silently kill that whole tick (every
         // other session's transition check included) rather than just this
         // one send failing. Found live while testing against a deliberately
@@ -183,7 +183,7 @@ class PushDeliveryService
 
     /**
      * Persists the outcome of one check_and_send_pushes() tick and logs any
-     * non-expiry failure to the journal (via error_log(), which csm-push-
+     * non-expiry failure to the journal (via error_log(), which sessioneer-push-
      * check.service's default StandardError=journal already routes there) -
      * previously the ONLY trace of a failed send was silently pruning an
      * expired subscription; anything else (malformed payload, the push
@@ -207,7 +207,7 @@ class PushDeliveryService
         ));
 
         foreach ($failures as $failure) {
-            error_log('csm-push-check: send failed - ' . ($failure['message'] ?? 'unknown reason'));
+            error_log('sessioneer-push-check: send failed - ' . ($failure['message'] ?? 'unknown reason'));
         }
 
         $status = [
@@ -261,7 +261,7 @@ class PushDeliveryService
     }
 
     /**
-     * The main push-trigger pass, called on every csm-push-check timer tick
+     * The main push-trigger pass, called on every sessioneer-push-check timer tick
      * (see host-agent/push_trigger.php): for every currently-live session,
      * compares its current NotificationContentBuilder::push_session_state()
      * against what was last recorded (including how long it's been in that
@@ -373,7 +373,7 @@ class PushDeliveryService
 
     /**
      * The quota counterpart to check_and_send_pushes() above, called
-     * alongside it on every csm-push-check timer tick (see
+     * alongside it on every sessioneer-push-check timer tick (see
      * host-agent/push_trigger.php) with QuotaService::get_quota(null)'s
      * 'quota' sub-array - account-wide only (no session name is ever
      * passed there), so the per-session 'context' bucket never appears
@@ -404,7 +404,7 @@ class PushDeliveryService
      *   JSON (rate_limits.*.resets_at) - no longer reconstructed from lossy
      *   pane text, so comparing it against time() needs no fresh render at
      *   all: even a STALE bucket (last written hours ago, before the
-     *   reset) still carries an accurate resets_at, and the csm-push-check
+     *   reset) still carries an accurate resets_at, and the sessioneer-push-check
      *   timer's own 10s ticks (independent of any session) can detect
      *   "we're past it" within one tick of the real reset, active session
      *   or not.

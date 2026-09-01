@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenCode headless server (Claude Session Manager)
+Description=OpenCode headless server (Sessioneer)
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0

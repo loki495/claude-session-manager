@@ -13,7 +13,7 @@ declare(strict_types=1);
  * Writes {} to stdout (PostToolUse's own documented required response
  * shape) and always exits 0.
  *
- * CSM_SESSION_NAME gate: same convention as every hook script here - this
+ * SESSIONEER_SESSION_NAME gate: same convention as every hook script here - this
  * hook fires globally (every agy invocation on the machine), so an
  * untracked session is a deliberate no-op.
  */
@@ -22,7 +22,7 @@ require __DIR__ . '/../../lib/Sessions.php';
 
 use HostAgent\Stores\PendingToolStore;
 
-$sessionName = getenv('CSM_SESSION_NAME');
+$sessionName = getenv('SESSIONEER_SESSION_NAME');
 
 if ($sessionName !== false && $sessionName !== '') {
     PendingToolStore::delete_pending_tool($sessionName);
