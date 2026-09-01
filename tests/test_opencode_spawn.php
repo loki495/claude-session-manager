@@ -7,7 +7,7 @@ declare(strict_types=1);
  * against the isolated tmux socket and tests/fixtures/fake_opencode
  * (never the real tmux server or real opencode binary — same isolation as
  * test_sessions_lifecycle.php). Verifies the oc-* prefix, sidecar agent
- * field, and that claude_session_id starts as null (reactive binding —
+ * field, and that agent_session_id starts as null (reactive binding —
  * see .ai/QUESTIONS.md Q1.1).
  */
 
@@ -75,9 +75,9 @@ try {
     $sidecar = $name !== null ? SidecarStore::read_sidecar($name) : null;
     assert_equal('opencode', $sidecar['agent'] ?? null, 'sidecar agent field is opencode');
 
-    // --- claude_session_id starts as null (reactive binding) ---
-    assert_true(array_key_exists('claude_session_id', $sidecar ?? []), 'sidecar has claude_session_id key');
-    assert_true($sidecar !== null && $sidecar['claude_session_id'] === null, 'sidecar claude_session_id is null for opencode (reactive, no pre-assignment)');
+    // --- agent_session_id starts as null (reactive binding) ---
+    assert_true(array_key_exists('agent_session_id', $sidecar ?? []), 'sidecar has agent_session_id key');
+    assert_true($sidecar !== null && $sidecar['agent_session_id'] === null, 'sidecar agent_session_id is null for opencode (reactive, no pre-assignment)');
 
     // --- list sees it with correct agent/agent_label ---
     $session = $name !== null ? find_session_op($name) : null;

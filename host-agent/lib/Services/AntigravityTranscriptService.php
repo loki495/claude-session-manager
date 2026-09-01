@@ -64,11 +64,11 @@ class AntigravityTranscriptService
      * 'agent' key so callers can tell the two pools apart.
      *
      * The conversationId IS the session id for Antigravity - stored in
-     * 'claude_session_id' so the shared archived-session infrastructure
+     * 'agent_session_id' so the shared archived-session infrastructure
      * (ArchivedSessionService, SessionRowView, archived-row.php) needs
      * no field-name changes.
      *
-     * @return array<int, array{claude_session_id:string, cwd:?string, ai_title:?string, last_activity:int, path:string, agent:string}>
+     * @return array<int, array{agent_session_id:string, cwd:?string, ai_title:?string, last_activity:int, path:string, agent:string}>
      */
     public static function list_all_transcripts(): array
     {
@@ -97,7 +97,7 @@ class AntigravityTranscriptService
             // Returning null here is honest; the resume button is
             // suppressed for null-cwd rows (same rule as Claude Code side).
             $result[] = [
-                'claude_session_id' => $conversationId,
+                'agent_session_id' => $conversationId,
                 'cwd'               => null,
                 'ai_title'          => null,
                 'last_activity'     => $mtime !== false ? $mtime : 0,

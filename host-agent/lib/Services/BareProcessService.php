@@ -65,7 +65,7 @@ class BareProcessService
 
     /**
      * The one signal that can identify a bare (untracked) process's exact
-     * claude_session_id with certainty: Claude Code's statusLine feature
+     * agent_session_id with certainty: Claude Code's statusLine feature
      * reports session_id in the JSON it feeds a configured statusline
      * script, and StatuslineMarkerService::parse_marker_from_pane() reads
      * that back out of the pane's own rendered text - the same capture-
@@ -83,9 +83,9 @@ class BareProcessService
      * marker names a session with no real transcript on disk - same
      * "must have a real transcript" rule used everywhere else a live
      * signal is trusted enough to act on (see the SessionStart hook,
-     * self_heal_claude_session_id()).
+     * self_heal_agent_session_id()).
      */
-    private static function bare_process_live_claude_session_id(int $pid): ?string
+    private static function bare_process_live_agent_session_id(int $pid): ?string
     {
         $owningPane = ProcessInspector::find_owning_pane($pid, TmuxService::all_tmux_panes(), ProcessInspector::build_ppid_map());
 
@@ -107,7 +107,7 @@ class BareProcessService
      * Every dormant transcript for one specific cwd (a bare process's own
      * working directory), each carrying a "how likely is this the pid's
      * own session" suggestion - the picker-fallback half of take_over_
-     * bare_process(), used when bare_process_live_claude_session_id()
+     * bare_process(), used when bare_process_live_agent_session_id()
      * can't produce a confident match. The suggestion is a heuristic, not
      * a guarantee (Andres's own idea, 2026-08-08): a bare process's OS
      * pid is never recorded in the transcript itself (see
@@ -125,15 +125,15 @@ class BareProcessService
      * candidate list (sorted most-recent-first, same as the archived
      * list) is always there to pick a different one from.
      *
-     * @return array{candidates: array<int, array{claude_session_id:string, cwd:?string, title:string, last_activity:int}>, suggested_claude_session_id: ?string}
+     * @return array{candidates: array<int, array{agent_session_id:string, cwd:?string, title:string, last_activity:int}>, suggested_agent_session_id: ?string}
      */
     private static function bare_process_take_over_candidates(string $workdir, int $processStartedAt, int $excludePid): array
     {
         $trackedIds = [];
 
         foreach (SessionService::list_all_sessions()['sessions'] as $s) {
-            if (is_string($s['claude_session_id'] ?? null)) {
-                $trackedIds[] = $s['claude_session_id'];
+            if (is_string($s['agent_session_id'] ?? null)) {
+                $trackedIds[] = $s['agent_session_id'];
             }
         }
 
@@ -152,7 +152,7 @@ class BareProcessService
                 continue;
             }
 
-            $otherId = self::bare_process_live_claude_session_id((int)$b['pid']);
+            $otherId = self::bare_process_live_agent_session_id((int)$b['pid']);
 
             if ($otherId !== null) {
                 $trackedIds[] = $otherId;
@@ -168,7 +168,7 @@ class BareProcessService
         $closestDelta = null;
 
         foreach ($candidates as $c) {
-            $path = TranscriptService::find_transcript_path($c['claude_session_id']);
+            $path = TranscriptService::find_transcript_path($c['agent_session_id']);
             $created = $path !== null ? TranscriptService::find_first_timestamp($path) : null;
 
             if ($created === null) {
@@ -179,18 +179,18 @@ class BareProcessService
 
             if ($closestDelta === null || $delta < $closestDelta) {
                 $closestDelta = $delta;
-                $suggestedId = $c['claude_session_id'];
+                $suggestedId = $c['agent_session_id'];
             }
         }
 
-        return ['candidates' => $candidates, 'suggested_claude_session_id' => $suggestedId];
+        return ['candidates' => $candidates, 'suggested_agent_session_id' => $suggestedId];
     }
 
     /**
      * "Take over" a foreign (bare/untracked) claude process - the
      * unify-claude-sessions plan's phase 6. Two outcomes:
      *
-     * 1. A confident match (see bare_process_live_claude_session_id()):
+     * 1. A confident match (see bare_process_live_agent_session_id()):
      *    kills the pid and resumes that exact session in one call - a
      *    genuine single click, nothing more needed from the caller.
      * 2. No confident match: returns the cwd's candidate sessions instead,
@@ -201,7 +201,7 @@ class BareProcessService
      *    destructive happens until either a real match is found or a
      *    human explicitly confirms which conversation to resume.
      *
-     * @return array{ok:bool, message?:string, name?:string, needs_choice?:bool, pid?:int, workdir?:string, candidates?:array, suggested_claude_session_id?:?string}
+     * @return array{ok:bool, message?:string, name?:string, needs_choice?:bool, pid?:int, workdir?:string, candidates?:array, suggested_agent_session_id?:?string}
      */
     public static function take_over_bare_process(int $pid): array
     {
@@ -220,7 +220,7 @@ class BareProcessService
             return ['ok' => false, 'message' => 'Rejected: not a currently running claude process, or its working directory could not be determined'];
         }
 
-        $matchedId = self::bare_process_live_claude_session_id($pid);
+        $matchedId = self::bare_process_live_agent_session_id($pid);
 
         if ($matchedId !== null) {
             $killResult = self::kill_bare_process($pid);
@@ -240,13 +240,13 @@ class BareProcessService
             'pid' => $pid,
             'workdir' => $workdir,
             'candidates' => $resolved['candidates'],
-            'suggested_claude_session_id' => $resolved['suggested_claude_session_id'],
+            'suggested_agent_session_id' => $resolved['suggested_agent_session_id'],
         ];
     }
 
     /**
      * The confirm step after take_over_bare_process() came back
-     * needs_choice=true and a human picked a specific claude_session_id
+     * needs_choice=true and a human picked a specific agent_session_id
      * from the candidates. Kills $pid only if it's still actually
      * running - it may have exited on its own in the time it took to
      * choose, and that's fine, the resume below still makes sense either
@@ -254,7 +254,7 @@ class BareProcessService
      *
      * @return array{ok:bool, message:string, name?:string}
      */
-    public static function take_over_bare_process_with_id(int $pid, string $workdir, string $claudeSessionId): array
+    public static function take_over_bare_process_with_id(int $pid, string $workdir, string $agentSessionId): array
     {
         foreach (ProcessInspector::find_claude_processes() as $proc) {
             if ($proc['pid'] === $pid) {
@@ -268,6 +268,6 @@ class BareProcessService
             }
         }
 
-        return SessionLifecycleService::resume_agent_session($workdir, $claudeSessionId);
+        return SessionLifecycleService::resume_agent_session($workdir, $agentSessionId);
     }
 }

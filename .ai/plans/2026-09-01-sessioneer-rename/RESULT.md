@@ -1,5 +1,77 @@
 # RESULT.md
 
+## 2026-09-01 — Task 3 complete: column rename + a serious gitignored-file incident found and fixed
+
+**The rename itself** (`claude_session_id`->`agent_session_id`, `spawned_by_csm`->
+`spawned_by_app`): done directly by the orchestrator (not delegated — unlike Task 2,
+this had zero Bucket A/B ambiguity, every occurrence needed the same substitution,
+a good fit for a plain literal-string replace across the 51 files that referenced
+either identifier in any casing). Confirmed via `SqliteDb.php`'s own docblock that
+the `sidecars` table lives on tmpfs (`/run/user/<uid>/...`, wiped on reboot by
+design) — meaningfully lower risk than initially scoped in PLAN.md's Task 3 notes,
+since there's no permanent data to protect, only the current boot's session
+tracking. Used this codebase's own established retrofit pattern
+(`SqliteDb::add_column_if_missing()`, already used for the `agent`/`runtime`/`title`
+columns when multi-agent support landed) to add the two new columns to the live
+table without a heavier migrate-in-place approach — old columns left in place,
+unused, matching existing convention of not bothering to drop deprecated columns.
+Full test suite re-run clean (31 files, zero failures) after the rename.
+
+**Then a real incident, found via live smoke test, not by the test suite**: after
+declaring Task 2 "done" last session, a live check of the actual dashboard
+(`sessions_list.php`) showed 0 sessions and "Cannot reach host agent" — the app
+was genuinely broken. Root cause, in two parts:
+
+1. Docker's `environment:` block is baked into a container at creation, not
+   hot-reloaded the way this app's bind-mounted PHP source is — the running
+   container still had the OLD `CSM_AGENT_SOCKET` env var baked in from before
+   Task 2's docker-compose.yml rename, while the (hot-reloaded) PHP code now
+   read `SESSIONEER_AGENT_SOCKET`. Fixed by adding a clearly-labeled TEMPORARY
+   bridge value (`SESSIONEER_AGENT_SOCKET_HOST` pointing at the still-real,
+   not-yet-renamed host socket path) to the real `.env`, then recreating the
+   container (`docker rm -f` + `docker compose up -d` — a plain `up -d` alone
+   left the port binding in a broken half-applied state after an earlier
+   port-conflict-caused failed attempt, needed a clean recreation).
+2. **More serious**: the Task 2 opencode worker's "accidental bulk-rename pass"
+   (already known from Task 2's own RESULT.md to have touched
+   `.claude/settings.local.json`/`.playwright-mcp/*.yml`) had ALSO renamed
+   `SIDECAR_DIR` inside `host-agent/.env` — a gitignored file neither the
+   worker's own re-check nor the orchestrator's git-diff-based Task 2 review
+   could have caught, since gitignored files are invisible to both. This
+   silently redirected all NEW host-agent connections to a brand-new, empty
+   session-tracking directory while the real one (with this session's own
+   history and five other real tracked sessions) sat untouched and orphaned.
+   Confirmed via directory inspection (`/run/user/1000/csm-sessions/` had real
+   `.resume-lock` files and history; `/run/user/1000/sessioneer-sessions/` had
+   only a fresh, mostly-empty `sessions.sqlite` created today) before fixing by
+   reverting `SIDECAR_DIR` (and the same-cause `QUOTA_CACHE_FILE`) back to the
+   old path in `host-agent/.env`. No restart needed — host-agent spawns a fresh
+   PHP process per connection, so the fix took effect on the next request.
+
+**Full gitignored-file audit** run afterward (`git status --ignored -s`, then
+grepped each real file/dir for the rename pattern) to make sure nothing else was
+missed: `docker-compose.override.yml` was also touched (Traefik labels for the
+local-dev-only `*.dev.local.test` hostname) — decided to leave as-is rather than
+revert, since it doesn't touch any data (unlike `SIDECAR_DIR`) and is actually
+internally consistent with Task 2's already-completed container/service rename;
+reverting would have created a worse old-hostname/new-service-name mismatch for
+zero benefit, since nothing is currently depending on that dev-only hostname
+during this remote session. Six old `.playwright-mcp/*.yml` debug snapshots
+(dated Aug 4-24, rewritten today) also have stray "sessioneer" text — harmless,
+gitignored historical debug artifacts, not worth further cleanup effort.
+
+**Verified after all fixes**: live `sessions_list.php` returns `ok:true` with all
+7 real sessions (including this one, `cc-20260901-011220`) plus the Task 2 worker's
+own opencode session, `spawned_by_app` correctly populated end-to-end against the
+live tmpfs DB, zero errors/warnings in container logs, dashboard page shows
+"7 active tracked sessions" correctly.
+
+Durable lesson written to `.ai/lessons/verify-worker-output-includes-gitignored-files.md`
+— this class of gap (git-based review missing gitignored files after a worker's
+broad edit pass) is general, not specific to this project.
+
+**Task 3 marked done.**
+
 ## 2026-09-01 — Task 2 orchestrator review: gap found + fixed, now verified done
 
 Independent review (per Code Review — don't trust a worker's claim without

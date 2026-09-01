@@ -141,7 +141,7 @@ function replay_load_scenario(string $name): array
 /**
  * @return array{
  *   session_name:string,
- *   claude_session_id:string,
+ *   agent_session_id:string,
  *   fixture_home:string,
  *   transcript_path:string,
  *   scenario:array,
@@ -153,13 +153,13 @@ function replay_setup(string $scenarioName, string $workdir): array
     $scenario = replay_load_scenario($scenarioName);
 
     $sessionName = 'cc-test-replay-' . getmypid();
-    $claudeSessionId = '66666666-6666-4666-8666-' . str_pad((string)getmypid(), 12, '0', STR_PAD_LEFT);
+    $agentSessionId = '66666666-6666-4666-8666-' . str_pad((string)getmypid(), 12, '0', STR_PAD_LEFT);
 
     $fixtureHome = sys_get_temp_dir() . '/sessioneer-test-replay-home-' . getmypid();
     $projectDir = $fixtureHome . '/.claude/projects/-replay-project';
     @mkdir($projectDir, 0700, true);
 
-    $transcriptPath = "{$projectDir}/{$claudeSessionId}.jsonl";
+    $transcriptPath = "{$projectDir}/{$agentSessionId}.jsonl";
     file_put_contents($transcriptPath, $scenario['seed_line'] . "\n");
 
     // Must happen before any subprocess (php -S / socket_harness) that
@@ -190,11 +190,11 @@ function replay_setup(string $scenarioName, string $workdir): array
         @mkdir($sidecarDir, 0700, true);
     }
 
-    replay_write_sidecar($sessionName, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true]);
+    replay_write_sidecar($sessionName, ['workdir' => $workdir, 'spawned_at' => time(), 'agent_session_id' => $agentSessionId, 'spawned_by_app' => true]);
 
     return [
         'session_name' => $sessionName,
-        'claude_session_id' => $claudeSessionId,
+        'agent_session_id' => $agentSessionId,
         'fixture_home' => $fixtureHome,
         'transcript_path' => $transcriptPath,
         'scenario' => $scenario,
@@ -290,7 +290,7 @@ function replay_sessions_db(): PDO
  * session's identity now has to land straight in the same table
  * SidecarStore::read_sidecar() actually reads.
  *
- * @param array{workdir:string, spawned_at:int, claude_session_id:string, spawned_by_csm:bool} $data
+ * @param array{workdir:string, spawned_at:int, agent_session_id:string, spawned_by_app:bool} $data
  */
 function replay_write_sidecar(string $sessionName, array $data): void
 {
@@ -300,27 +300,27 @@ function replay_write_sidecar(string $sessionName, array $data): void
             session_name TEXT PRIMARY KEY,
             workdir TEXT,
             spawned_at INTEGER,
-            claude_session_id TEXT,
-            spawned_by_csm INTEGER
+            agent_session_id TEXT,
+            spawned_by_app INTEGER
         )'
     );
 
     $stmt = $pdo->prepare(
-        'INSERT INTO sidecars (session_name, workdir, spawned_at, claude_session_id, spawned_by_csm)
-         VALUES (:session_name, :workdir, :spawned_at, :claude_session_id, :spawned_by_csm)
+        'INSERT INTO sidecars (session_name, workdir, spawned_at, agent_session_id, spawned_by_app)
+         VALUES (:session_name, :workdir, :spawned_at, :agent_session_id, :spawned_by_app)
          ON CONFLICT(session_name) DO UPDATE SET
             workdir = excluded.workdir,
             spawned_at = excluded.spawned_at,
-            claude_session_id = excluded.claude_session_id,
-            spawned_by_csm = excluded.spawned_by_csm'
+            agent_session_id = excluded.agent_session_id,
+            spawned_by_app = excluded.spawned_by_app'
     );
 
     $stmt->execute([
         ':session_name' => $sessionName,
         ':workdir' => $data['workdir'],
         ':spawned_at' => $data['spawned_at'],
-        ':claude_session_id' => $data['claude_session_id'],
-        ':spawned_by_csm' => !empty($data['spawned_by_csm']) ? 1 : 0,
+        ':agent_session_id' => $data['agent_session_id'],
+        ':spawned_by_app' => !empty($data['spawned_by_app']) ? 1 : 0,
     ]);
 }
 

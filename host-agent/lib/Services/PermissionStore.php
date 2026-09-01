@@ -87,7 +87,7 @@ class PermissionStore
      */
     public static function find_by_session_id(string $sessionId): ?string
     {
-        return SidecarStore::find_by_claude_session_id($sessionId);
+        return SidecarStore::find_by_agent_session_id($sessionId);
     }
 
     /** Writes the answer intent for the plugin to consume on its next fire. */

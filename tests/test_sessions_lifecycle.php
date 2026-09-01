@@ -566,14 +566,14 @@ try {
     $session = $name !== null ? find_session($name) : null;
     assert_true($session !== null, 'list: created session appears');
     assert_equal(Config::www_root() . '/project-a', $session['workdir'] ?? null, 'list: workdir recorded via sidecar');
-    assert_true($session['spawned_by_csm'] ?? false, 'list: spawned_by_csm is true');
+    assert_true($session['spawned_by_app'] ?? false, 'list: spawned_by_app is true');
     assert_true(($session['pid'] ?? null) !== null, 'list: pane process pid matched via argv[0]');
     // fake_claude (behaves like /bin/cat) never sets a terminal title like the
     // real claude CLI does, so its content isn't asserted here - only that
     // SessionService::list_all_sessions() always includes the key. The stripping behavior
     // itself is covered deterministically by the PromptParser::clean_pane_title() checks above.
     assert_true(array_key_exists('title', $session ?? []), 'list: title key present');
-    assert_true(preg_match($uuidPattern, (string)($session['claude_session_id'] ?? '')) === 1, 'list: claude_session_id recorded via sidecar, uuid-shaped');
+    assert_true(preg_match($uuidPattern, (string)($session['agent_session_id'] ?? '')) === 1, 'list: agent_session_id recorded via sidecar, uuid-shaped');
 
     // --- create: $enableTaskTools appends --allowedTools naming the
     // TaskCreate/TaskGet/TaskList/TaskUpdate family (Andres's own ask,
@@ -699,34 +699,34 @@ try {
     // false here (see test_transcript.php for the file-found path) ---
     $detail = $name !== null ? SessionDetailService::session_detail($name) : ['ok' => false];
     assert_true($detail['ok'] ?? false, 'session_detail: ok=true for a live session');
-    assert_equal($session['claude_session_id'] ?? null, $detail['claude_session_id'] ?? null, 'session_detail: same claude_session_id as list()');
+    assert_equal($session['agent_session_id'] ?? null, $detail['agent_session_id'] ?? null, 'session_detail: same agent_session_id as list()');
     assert_equal(false, $detail['has_transcript'] ?? null, 'session_detail: has_transcript=false (no real transcript file exists for this fixture)');
 
     $missingDetail = SessionDetailService::session_detail('cc-not-a-real-session');
     assert_equal(false, $missingDetail['ok'] ?? null, 'session_detail: rejects a name that is not currently live');
 
-    // --- SessionDetailService::session_history(): a claude_session_id is recorded, but with no
+    // --- SessionDetailService::session_history(): a agent_session_id is recorded, but with no
     // real transcript file behind it (fake_claude doesn't write one) this
     // must fail gracefully, not error out ---
     $history = $name !== null ? SessionDetailService::session_history($name, null, 10) : ['ok' => true];
-    assert_equal(false, $history['ok'] ?? null, 'session_history: ok=false when no transcript file exists for a recorded claude_session_id');
+    assert_equal(false, $history['ok'] ?? null, 'session_history: ok=false when no transcript file exists for a recorded agent_session_id');
 
     $noSidecarHistory = SessionDetailService::session_history('cc-not-a-real-session', null, 10);
     assert_equal(false, $noSidecarHistory['ok'] ?? null, 'session_history: ok=false for a session with no sidecar at all');
 
     // --- ArchivedSessionService::list_archived_dashboard(): excludes whatever's
-    // currently tracked (this live session's own claude_session_id),
+    // currently tracked (this live session's own agent_session_id),
     // leaving only genuinely dormant transcripts. Real transcript files
     // are needed for this (fake_claude never writes one), so HOME_ROOT is
     // pointed at an isolated fixture dir just for this block - same
     // pattern as test_transcript.php's fakeHome, restored right after. ---
     $archivedFakeHome = sys_get_temp_dir() . '/sessioneer-test-archived-dashboard-home-' . getmypid();
-    $liveClaudeSessionId = $session['claude_session_id'] ?? null;
+    $liveAgentSessionId = $session['agent_session_id'] ?? null;
     $archivedUuid = '33333333-3333-4333-8333-333333333333';
     @mkdir($archivedFakeHome . '/.claude/projects/-tracked-project', 0700, true);
     @mkdir($archivedFakeHome . '/.claude/projects/-archived-project', 0700, true);
     file_put_contents(
-        $archivedFakeHome . '/.claude/projects/-tracked-project/' . $liveClaudeSessionId . '.jsonl',
+        $archivedFakeHome . '/.claude/projects/-tracked-project/' . $liveAgentSessionId . '.jsonl',
         '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"cwd":"/some/tracked/path"}' . "\n"
     );
     file_put_contents(
@@ -736,11 +736,11 @@ try {
     putenv("HOME_ROOT={$archivedFakeHome}");
 
     $dashboardArchived = ArchivedSessionService::list_archived_dashboard()['archived'] ?? [];
-    $archivedIds = array_column($dashboardArchived, 'claude_session_id');
-    assert_true(!in_array($liveClaudeSessionId, $archivedIds, true), 'list_archived_dashboard: the currently-tracked (live) session is excluded');
+    $archivedIds = array_column($dashboardArchived, 'agent_session_id');
+    assert_true(!in_array($liveAgentSessionId, $archivedIds, true), 'list_archived_dashboard: the currently-tracked (live) session is excluded');
     assert_true(in_array($archivedUuid, $archivedIds, true), 'list_archived_dashboard: a genuinely dormant transcript is included');
 
-    @unlink($archivedFakeHome . '/.claude/projects/-tracked-project/' . $liveClaudeSessionId . '.jsonl');
+    @unlink($archivedFakeHome . '/.claude/projects/-tracked-project/' . $liveAgentSessionId . '.jsonl');
     @unlink($archivedFakeHome . '/.claude/projects/-archived-project/' . $archivedUuid . '.jsonl');
     @rmdir($archivedFakeHome . '/.claude/projects/-tracked-project');
     @rmdir($archivedFakeHome . '/.claude/projects/-archived-project');
@@ -768,17 +768,17 @@ try {
     assert_equal(false, $result['ok'] ?? null, 'resume: rejects a relative workdir');
 
     $result = SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', '');
-    assert_equal(false, $result['ok'] ?? null, 'resume: rejects an empty claude_session_id');
+    assert_equal(false, $result['ok'] ?? null, 'resume: rejects an empty agent_session_id');
 
-    // --- resume: happy path, reusing the claude_session_id freed up by the
+    // --- resume: happy path, reusing the agent_session_id freed up by the
     // kill just above. fake_claude ignores every arg (see its own header
     // comment) so this exercises the real tmux-spawn + sidecar-write path
     // without needing a real claude binary to actually honor --resume. ---
-    $resumeId = $session['claude_session_id'] ?? null;
-    assert_true($resumeId !== null, 'resume setup: have a claude_session_id to resume (from the killed session above)');
+    $resumeId = $session['agent_session_id'] ?? null;
+    assert_true($resumeId !== null, 'resume setup: have a agent_session_id to resume (from the killed session above)');
 
     $resumed = $resumeId !== null ? SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => false];
-    assert_true($resumed['ok'] ?? false, 'resume: ok=true for a dormant claude_session_id');
+    assert_true($resumed['ok'] ?? false, 'resume: ok=true for a dormant agent_session_id');
     $resumedName = $resumed['name'] ?? null;
     assert_true(is_string($resumedName) && str_starts_with($resumedName, 'cc-'), 'resume: returns the new pane name');
 
@@ -788,21 +788,21 @@ try {
 
     $resumedEntry = is_string($resumedName) ? find_session($resumedName) : null;
     assert_true($resumedEntry !== null, 'resume: the new session appears in list_all_sessions()');
-    assert_equal($resumeId, $resumedEntry['claude_session_id'] ?? null, 'resume: sidecar records the resumed claude_session_id, not a freshly generated one');
+    assert_equal($resumeId, $resumedEntry['agent_session_id'] ?? null, 'resume: sidecar records the resumed agent_session_id, not a freshly generated one');
     assert_equal(Config::www_root() . '/project-a', $resumedEntry['workdir'] ?? null, 'resume: sidecar records the requested workdir');
 
-    // --- resume: refuses a claude_session_id that already has a live pane
+    // --- resume: refuses a agent_session_id that already has a live pane
     // (the one just resumed above) - the guard against two panes fighting
     // over the same transcript. ---
     $dupResume = $resumeId !== null ? SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', (string)$resumeId) : ['ok' => true];
-    assert_equal(false, $dupResume['ok'] ?? null, 'resume: refuses a claude_session_id that already has a live pane');
+    assert_equal(false, $dupResume['ok'] ?? null, 'resume: refuses a agent_session_id that already has a live pane');
 
     if (is_string($resumedName)) {
         SessionLifecycleService::kill_agent_session($resumedName);
         $createdSessions = array_values(array_diff($createdSessions, [$resumedName]));
     }
 
-    // --- resume: a concurrent resume attempt for the SAME claude_session_id
+    // --- resume: a concurrent resume attempt for the SAME agent_session_id
     // is rejected via flock() (not just the post-spawn sidecar check above)
     // - found live 2026-08-22 (codebase audit): the sidecar-only check left
     // a TOCTOU window between the check and the sidecar write (tmux spawn +
@@ -828,16 +828,16 @@ try {
     assert_true(flock($heldLock, LOCK_EX | LOCK_NB), 'resume lock test setup: lock acquired (simulating an in-flight resume)');
 
     $blockedResume = SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', $lockContentionId);
-    assert_equal(false, $blockedResume['ok'] ?? null, 'resume: a second resume for the SAME claude_session_id is rejected while another is holding the lock, even before any sidecar exists for it yet');
+    assert_equal(false, $blockedResume['ok'] ?? null, 'resume: a second resume for the SAME agent_session_id is rejected while another is holding the lock, even before any sidecar exists for it yet');
     assert_equal('This session already has a live pane - refusing to open a second one on the same transcript', $blockedResume['message'] ?? null, 'resume: lock contention gives the SAME rejection message as the post-spawn sidecar check - one consistent user-facing reason regardless of which guard actually caught it');
 
     flock($heldLock, LOCK_UN);
     fclose($heldLock);
 
-    // Lock released - the same claude_session_id now resumes normally,
+    // Lock released - the same agent_session_id now resumes normally,
     // proving the lock isn't stuck held/leaked from the contention test above.
     $afterLockReleased = SessionLifecycleService::resume_agent_session(Config::www_root() . '/project-a', $lockContentionId);
-    assert_true($afterLockReleased['ok'] ?? false, 'resume: once the lock is released, the same claude_session_id resumes normally - the lock does not leak across requests');
+    assert_true($afterLockReleased['ok'] ?? false, 'resume: once the lock is released, the same agent_session_id resumes normally - the lock does not leak across requests');
 
     $afterLockReleasedName = $afterLockReleased['name'] ?? null;
 
@@ -922,7 +922,7 @@ try {
     if ($agName !== null) {
         $agSidecar = SidecarStore::read_sidecar($agName);
         assert_equal('antigravity', $agSidecar['agent'] ?? null, 'create(agent: antigravity): the sidecar records agent=antigravity');
-        assert_equal(null, $agSidecar['claude_session_id'], 'create(agent: antigravity): claude_session_id is null - no pre-assignable id exists for a fresh interactive Antigravity session (see AntigravityAdapter::build_spawn_argv())');
+        assert_equal(null, $agSidecar['agent_session_id'], 'create(agent: antigravity): agent_session_id is null - no pre-assignable id exists for a fresh interactive Antigravity session (see AntigravityAdapter::build_spawn_argv())');
 
         $agListed = find_session($agName);
         assert_true($agListed !== null, 'create(agent: antigravity): the new session shows up in list_all_sessions() like any other tracked session');
@@ -1091,8 +1091,8 @@ try {
     assert_true($resolved['ok'] ?? false, 'take_over_bare_process: ok=true when no confident marker match exists');
     assert_true($resolved['needs_choice'] ?? false, 'take_over_bare_process: needs_choice=true for a no-tmux bare process (no pane to read a marker from)');
     assert_equal($takeOverCwd, $resolved['workdir'] ?? null, 'take_over_bare_process: workdir read via /proc, matches the process\'s real cwd');
-    assert_equal([$dormantUuid], array_column($resolved['candidates'] ?? [], 'claude_session_id'), 'take_over_bare_process: candidates scoped to exactly this cwd');
-    assert_equal($dormantUuid, $resolved['suggested_claude_session_id'] ?? null, 'take_over_bare_process: suggests the sole candidate for this cwd');
+    assert_equal([$dormantUuid], array_column($resolved['candidates'] ?? [], 'agent_session_id'), 'take_over_bare_process: candidates scoped to exactly this cwd');
+    assert_equal($dormantUuid, $resolved['suggested_agent_session_id'] ?? null, 'take_over_bare_process: suggests the sole candidate for this cwd');
 
     $stillRunningAfterResolve = false;
     foreach (ProcessInspector::find_claude_processes() as $p) {
@@ -1122,7 +1122,7 @@ try {
 
     $takeOverEntry = is_string($takeOverName) ? find_session($takeOverName) : null;
     assert_true($takeOverEntry !== null, 'take_over_bare_process_with_id: the new session appears in list_all_sessions()');
-    assert_equal($dormantUuid, $takeOverEntry['claude_session_id'] ?? null, 'take_over_bare_process_with_id: sidecar records the chosen claude_session_id');
+    assert_equal($dormantUuid, $takeOverEntry['agent_session_id'] ?? null, 'take_over_bare_process_with_id: sidecar records the chosen agent_session_id');
     assert_equal($takeOverCwd, $takeOverEntry['workdir'] ?? null, 'take_over_bare_process_with_id: sidecar records the chosen workdir');
 
     if (is_string($takeOverName)) {
@@ -1157,7 +1157,7 @@ try {
 
     // --- take_over_bare_process(): the confident, one-click path - a
     // statusline marker (StatuslineMarkerService::parse_marker_from_pane())
-    // in the bare process's own tmux pane names an exact claude_session_id
+    // in the bare process's own tmux pane names an exact agent_session_id
     // backed by a real transcript, so nothing needs to be shown to a human
     // at all: kill + resume happen inside this one call. Uses project-b
     // (not project-a, already exercised above) to keep this fixture's cwd
@@ -1201,7 +1201,7 @@ try {
 
     $markerEntry = is_string($markerTakeOverName) ? find_session($markerTakeOverName) : null;
     assert_true($markerEntry !== null, 'take_over_bare_process: the new session appears in list_all_sessions()');
-    assert_equal($markerUuid, $markerEntry['claude_session_id'] ?? null, 'take_over_bare_process: sidecar records the exact claude_session_id read from the statusline marker, not a guess');
+    assert_equal($markerUuid, $markerEntry['agent_session_id'] ?? null, 'take_over_bare_process: sidecar records the exact agent_session_id read from the statusline marker, not a guess');
 
     if (is_string($markerTakeOverName)) {
         SessionLifecycleService::kill_agent_session($markerTakeOverName);
@@ -1260,7 +1260,7 @@ try {
 
     $dualBareResolved = BareProcessService::take_over_bare_process((int)$dualBareEntries[$targetAdhocName]['pid']);
     assert_true($dualBareResolved['needs_choice'] ?? false, 'take_over_bare_process: target pid (no marker of its own) falls to the picker path');
-    $dualBareCandidateIds = array_column($dualBareResolved['candidates'] ?? [], 'claude_session_id');
+    $dualBareCandidateIds = array_column($dualBareResolved['candidates'] ?? [], 'agent_session_id');
     assert_true(in_array($targetUuid, $dualBareCandidateIds, true), 'bare_process_take_over_candidates: includes the target pid\'s own (dormant, since it has no marker) transcript');
     assert_true(in_array($genuinelyDormantUuid, $dualBareCandidateIds, true), 'bare_process_take_over_candidates: includes a genuinely dormant transcript with no live process at all');
     assert_true(!in_array($otherLiveUuid, $dualBareCandidateIds, true), 'bare_process_take_over_candidates: excludes another BARE process\'s own live session (marker-matched), even though nothing tracks it via a sidecar');
@@ -1830,14 +1830,14 @@ try {
     // list_tracked_tmux_sessions()), so a session session_start.php adopted
     // - real tmux session, real sidecar, name never touched - must show up
     // in list_all_sessions()'s main sessions[] (not bare[]), report
-    // spawned_by_csm=false, and accept the exact same actions (send_message,
+    // spawned_by_app=false, and accept the exact same actions (send_message,
     // kill_agent_session) as an app-spawned cc-* one. Simulates the hook's own
     // sidecar write directly rather than re-running session_start.php here -
     // that hook's own behavior is covered separately in test_session_hook.php. ---
     $adoptedTestSession = 'user-manual-' . getmypid();
     $adoptedSetup = TmuxService::tmux_run(['new-session', '-d', '-s', $adoptedTestSession, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $adoptedSetup['exit'], 'adopted session setup: created a live non-cc-* tmux session');
-    SidecarStore::write_sidecar($adoptedTestSession, ['workdir' => Config::www_root(), 'spawned_at' => time(), 'spawned_by_csm' => false]);
+    SidecarStore::write_sidecar($adoptedTestSession, ['workdir' => Config::www_root(), 'spawned_at' => time(), 'spawned_by_app' => false]);
     usleep(300000);
 
     $listed = SessionService::list_all_sessions();
@@ -1851,7 +1851,7 @@ try {
     }
 
     assert_true($adoptedEntry !== null, 'list: an adopted (non-cc-*) session with a sidecar appears in sessions[], not just bare[]');
-    assert_equal(false, $adoptedEntry['spawned_by_csm'] ?? null, 'list: an adopted session reports spawned_by_csm=false');
+    assert_equal(false, $adoptedEntry['spawned_by_app'] ?? null, 'list: an adopted session reports spawned_by_app=false');
     assert_true(
         !in_array($adoptedTestSession, array_column($listed['bare'], 'tmux_session'), true),
         'list: an adopted, now-tracked session is not double-counted in bare[]'

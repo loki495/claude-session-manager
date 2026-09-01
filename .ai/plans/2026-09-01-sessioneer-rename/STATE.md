@@ -2,10 +2,9 @@
 
 - **Current objective:** Rename "Claude Session Manager" → "Sessioneer" across the
   repo, GitHub, and external infra (see PLAN.md).
-- **Current step:** Task 2 done (code-only renames), independently verified by the
-  orchestrator, committed locally (not pushed). Next: Task 3 (DB migration —
-  `spawned_by_csm`/`claude_session_id`), rehearsed against a copy before touching
-  the live `sessions.sqlite`.
+- **Current step:** Task 3 done (DB column rename) and a real live-app incident
+  found+fixed along the way (see RESULT.md) — live app fully verified healthy.
+  Not yet committed (about to). Next: Task 4 (GitHub repo + directory rename).
 - **Worker status:** Task 2 delegated to opencode (`opencode-go/kimi-k2.7-code`),
   completed the bulk (129 files) correctly per the established Bucket A/B mapping,
   but missed `CONTRIBUTING.md` + 5 `docs/*.md` planning files (~56 lines) — orchestrator
@@ -19,13 +18,20 @@
   safety net regardless of which model executed it. Justification held up:
   worker did the bulk correctly, gap was a coverage miss (some doc files not
   reached) not a correctness miss (no incorrect Bucket A/B judgment calls found).
-- **Process note:** hit a real tooling mistake mid-task — nested a `nohup ... &`
-  inside a `run_in_background: true` Bash call when launching the worker, which
-  made the harness report completion the instant the wrapper shell exited rather
-  than when the actual `opencode run` process finished. Caught via `ps aux`,
-  recovered by polling the real PID via Monitor instead. Written up in
-  `.ai/lessons/nested-background-defeats-harness-tracking.md` since it's a
-  general mistake, not specific to this project.
+- **Process note:** hit a real tooling mistake mid-task (twice — once launching
+  the Task 2 worker, once restarting a test run) — bare `&`/`nohup` backgrounding
+  defeats completion tracking regardless of whether `run_in_background` wraps it.
+  Written up in `.ai/lessons/nested-background-defeats-harness-tracking.md`.
+- **Process note (more serious):** Task 2's worker touched several gitignored
+  files during its "accidental bulk-rename pass" that neither its own re-check
+  nor the orchestrator's git-diff-based Task 2 review caught, since gitignored
+  files are invisible to git-based review. One of them (`host-agent/.env`'s
+  `SIDECAR_DIR`) silently orphaned live session-tracking data — only found via
+  an actual live smoke test during Task 3, not by the test suite or by trusting
+  Task 2's "done" status. Fixed; full incident + fix in RESULT.md. Durable lesson
+  in `.ai/lessons/verify-worker-output-includes-gitignored-files.md` — after any
+  worker's broad edit pass, explicitly check `git status --ignored -s` too, and
+  smoke-test live config-driven behavior, not just run the test suite.
 - **Worker model:** N/A so far. The audit fork ran on the orchestrator's own model
   (forks always do, per Model Tiering) — chosen over a fresh cross-tool worker
   because it needed the full conversation context already established (naming

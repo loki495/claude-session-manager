@@ -59,14 +59,14 @@ class SessionService
     }
 
     /**
-     * build_session_entry()'s title field: resolves $claudeSessionId to its
+     * build_session_entry()'s title field: resolves $agentSessionId to its
      * transcript's ai-title (if any), then applies title_cascade() with
      * today's live-pane-title scrape as the next fallback - the one part of
      * the cascade that's only ever available for a currently-live session.
      */
-    public static function session_title(?string $claudeSessionId, ?string $livePaneTitle, ?string $workdir, string $name): string
+    public static function session_title(?string $agentSessionId, ?string $livePaneTitle, ?string $workdir, string $name): string
     {
-        $transcriptPath = $claudeSessionId !== null ? TranscriptRouter::find_transcript_path($claudeSessionId) : null;
+        $transcriptPath = $agentSessionId !== null ? TranscriptRouter::find_transcript_path($agentSessionId) : null;
         // find_latest_ai_title() is Claude-Code-specific (Antigravity and
         // OpenCode have no ai-title-equivalent transcript entry) - harmlessly
         // finds nothing for those paths, falling through the cascade below to
@@ -78,7 +78,7 @@ class SessionService
         if ($transcriptPath !== null && !TranscriptRouter::is_antigravity_path($transcriptPath) && !TranscriptRouter::is_opencode_path($transcriptPath)) {
             $aiTitle = TranscriptService::find_latest_ai_title($transcriptPath);
         } elseif ($transcriptPath !== null && TranscriptRouter::is_opencode_path($transcriptPath)) {
-            $aiTitle = OpenCodeTranscriptService::find_session_title($claudeSessionId);
+            $aiTitle = OpenCodeTranscriptService::find_session_title($agentSessionId);
         }
 
         return self::title_cascade($aiTitle, $livePaneTitle, $workdir, $name);
@@ -135,7 +135,7 @@ class SessionService
      * @param array{name:string, activity:int, attached:bool} $tmuxSession
      * @param array<int, array{pid:int, cwd:?string, started_at:?int}> $claudeProcs
      * @param array<int, int> $ppidMap
-     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_csm:bool, kind:string, parent_session_id:?string, title:string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, prompt_questions:?array, current_mode:?string, current_model:?string, current_antigravity_model:?string, last_turn_error:?string, claude_session_id:?string, last_message:?array}
+     * @return array{name:string, activity:int, attached:bool, pid:?int, workdir:?string, spawned_by_app:bool, kind:string, parent_session_id:?string, title:string, working:bool, blocked_reason:?string, resume_hint:?string, prompt_context:?string, prompt_options:array<int, array{number:int, label:string}>, prompt_multi_question:bool, prompt_is_folder_trust:bool, prompt_tool_name:?string, prompt_tool_input:?array, prompt_questions:?array, current_mode:?string, current_model:?string, current_antigravity_model:?string, last_turn_error:?string, agent_session_id:?string, last_message:?array}
      */
     public static function build_session_entry(array $tmuxSession, array $claudeProcs, array $ppidMap): array
     {
@@ -157,21 +157,21 @@ class SessionService
         // Opencode creates no DB row at spawn time, only after the first
         // prompt (reactive binding, like Antigravity's pre_invocation.php
         // — see .ai/QUESTIONS.md Q1.1). Self-heal the sidecar's
-        // claude_session_id on the next poll so transcript reads start
+        // agent_session_id on the next poll so transcript reads start
         // working once the ses_* row appears. Best-effort, no extra tmux
         // capture needed — just a DB lookup by workdir+spawn time.
-        if ($agentId === 'opencode' && empty($sidecar['claude_session_id'] ?? null) && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
+        if ($agentId === 'opencode' && empty($sidecar['agent_session_id'] ?? null) && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
             $healedId = OpenCodeTranscriptService::find_session_for_workdir($sidecar['workdir'], $sidecar['spawned_at']);
 
-            if ($healedId !== null && !SessionLifecycleService::claude_session_id_already_live($healedId, $tmuxSession['name'])) {
+            if ($healedId !== null && !SessionLifecycleService::agent_session_id_already_live($healedId, $tmuxSession['name'])) {
                 SidecarStore::write_sidecar($tmuxSession['name'], [
                     'workdir' => $sidecar['workdir'],
                     'spawned_at' => $sidecar['spawned_at'],
-                    'claude_session_id' => $healedId,
-                    'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? true,
+                    'agent_session_id' => $healedId,
+                    'spawned_by_app' => $sidecar['spawned_by_app'] ?? true,
                     'agent' => $agentId,
                 ]);
-                $sidecar['claude_session_id'] = $healedId;
+                $sidecar['agent_session_id'] = $healedId;
             }
         }
 
@@ -192,7 +192,7 @@ class SessionService
         // PermissionRequest — this DB poll is the interim that makes the
         // blocked card appear without the plugin installed).
         if ($agentId === 'opencode') {
-            $claudeSessionIdForOc = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
+            $agentSessionIdForOc = is_string($sidecar['agent_session_id'] ?? null) ? $sidecar['agent_session_id'] : null;
 
             // Pending PERMISSION. The PANE is the only trustworthy "is a
             // permission actually on screen" signal in opencode 1.18.21: the
@@ -216,8 +216,8 @@ class SessionService
                 // live QuestionRequest, [] when nothing is pending or the modal
                 // is orphaned). Fall back to the DB question-tool poll, then the
                 // pane - each only if the stronger source found nothing.
-                $ocPending = $claudeSessionIdForOc !== null
-                    ? OpenCodeQuestionService::pending_question($claudeSessionIdForOc)
+                $ocPending = $agentSessionIdForOc !== null
+                    ? OpenCodeQuestionService::pending_question($agentSessionIdForOc)
                     : null;
 
                 if ($ocPending !== null) {
@@ -227,7 +227,7 @@ class SessionService
                     // less-trusted fallback; the pane reflects what's on screen).
                     $prompt = $ocPanePrompt;
                 } else {
-                    $ocQuestion = $claudeSessionIdForOc !== null ? OpenCodeTranscriptService::find_pending_question($claudeSessionIdForOc) : null;
+                    $ocQuestion = $agentSessionIdForOc !== null ? OpenCodeTranscriptService::find_pending_question($agentSessionIdForOc) : null;
 
                     if ($ocQuestion !== null) {
                         $prompt = [
@@ -289,10 +289,10 @@ class SessionService
             $promptQuestions = ($rawQuestions !== null && count($rawQuestions) >= 2) ? $rawQuestions : null;
         }
 
-        $claudeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
+        $agentSessionId = is_string($sidecar['agent_session_id'] ?? null) ? $sidecar['agent_session_id'] : null;
         $workdir = is_string($sidecar['workdir'] ?? null) ? $sidecar['workdir'] : null;
         $liveMarker = StatuslineMarkerService::parse_marker_from_pane($paneContent);
-        $claudeSessionId = self::self_heal_claude_session_id($tmuxSession['name'], $sidecar, $claudeSessionId, $liveMarker['session_id']);
+        $agentSessionId = self::self_heal_agent_session_id($tmuxSession['name'], $sidecar, $agentSessionId, $liveMarker['session_id']);
 
         // Same "hooks fully own this, no pane-scraping fallback" reasoning
         // as $prompt above - working/current_mode are simply unknown
@@ -320,7 +320,7 @@ class SessionService
         // the session page doesn't work"). host-agent/hooks/stop.php clears
         // the override once that next turn finishes, so this can never
         // permanently shadow the real transcript-derived value.
-        $transcriptPathForModel = $claudeSessionId !== null ? TranscriptService::find_transcript_path($claudeSessionId) : null;
+        $transcriptPathForModel = $agentSessionId !== null ? TranscriptService::find_transcript_path($agentSessionId) : null;
         $rawModel = $transcriptPathForModel !== null ? TranscriptService::find_latest_model($transcriptPathForModel) : null;
         $modelOverride = is_string($hookStatus['model'] ?? null) ? $hookStatus['model'] : null;
         $currentModel = $modelOverride ?? ($rawModel !== null ? SelectableModel::family_from_raw_model($rawModel) : null);
@@ -351,7 +351,7 @@ class SessionService
             'attached' => $tmuxSession['attached'],
             'pid' => $matchedPid,
             'workdir' => $workdir,
-            'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
+            'spawned_by_app' => $sidecar['spawned_by_app'] ?? false,
             // Fixed 'user'/null here, not run through parse_worker_tag() -
             // a tmux (cc-*/oc-*) session is always either something a human
             // started, or something Sessioneer's own UI spawned; no code path today
@@ -362,7 +362,7 @@ class SessionService
             'parent_session_id' => null,
             'agent' => $agentId,
             'agent_label' => $agentLabel,
-            'title' => self::session_title($claudeSessionId, $panes['title'], $workdir, $tmuxSession['name']),
+            'title' => self::session_title($agentSessionId, $panes['title'], $workdir, $tmuxSession['name']),
             'working' => $working,
             'blocked_reason' => $prompt['question'] ?? null,
             'resume_hint' => $prompt !== null ? TmuxService::tmux_attach_hint($tmuxSession['name']) : null,
@@ -377,8 +377,8 @@ class SessionService
             'current_model' => $currentModel,
             'current_antigravity_model' => $currentAntigravityModel,
             'last_turn_error' => $lastTurnError,
-            'claude_session_id' => $claudeSessionId,
-            'last_message' => self::session_last_message($claudeSessionId),
+            'agent_session_id' => $agentSessionId,
+            'last_message' => self::session_last_message($agentSessionId),
             // Both sourced from StatuslineMarkerService's live-pane marker,
             // same mechanism as the self-heal cross-check above - null
             // whenever the marker isn't installed yet, the pane hasn't
@@ -390,7 +390,7 @@ class SessionService
     }
 
     /**
-     * Cross-checks the sidecar's claude_session_id against
+     * Cross-checks the sidecar's agent_session_id against
      * StatuslineMarkerService's live-pane signal and self-heals a
      * stale/wrong one - $liveSessionId is whatever build_session_entry()
      * already parsed out of the pane content it captured for prompt
@@ -407,25 +407,25 @@ class SessionService
      *
      * @param array<string, mixed>|null $sidecar
      */
-    public static function self_heal_claude_session_id(string $sessionName, ?array $sidecar, ?string $claudeSessionId, ?string $liveId): ?string
+    public static function self_heal_agent_session_id(string $sessionName, ?array $sidecar, ?string $agentSessionId, ?string $liveId): ?string
     {
         if ($sidecar === null) {
-            return $claudeSessionId;
+            return $agentSessionId;
         }
 
-        if ($liveId === null || $liveId === $claudeSessionId) {
-            return $claudeSessionId;
+        if ($liveId === null || $liveId === $agentSessionId) {
+            return $agentSessionId;
         }
 
         if (TranscriptService::find_transcript_path($liveId) === null) {
-            return $claudeSessionId;
+            return $agentSessionId;
         }
 
         SidecarStore::write_sidecar($sessionName, [
             'workdir' => $sidecar['workdir'] ?? null,
             'spawned_at' => $sidecar['spawned_at'] ?? time(),
-            'claude_session_id' => $liveId,
-            'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? false,
+            'agent_session_id' => $liveId,
+            'spawned_by_app' => $sidecar['spawned_by_app'] ?? false,
             'agent' => $sidecar['agent'] ?? 'claude',
         ]);
 
@@ -444,13 +444,13 @@ class SessionService
      *
      * @return array{role:?string, timestamp:?string, blocks:array<int, array{kind:string, text:string}>}|null
      */
-    public static function session_last_message(?string $claudeSessionId): ?array
+    public static function session_last_message(?string $agentSessionId): ?array
     {
-        if ($claudeSessionId === null) {
+        if ($agentSessionId === null) {
             return null;
         }
 
-        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($agentSessionId);
 
         if ($path === null) {
             return null;

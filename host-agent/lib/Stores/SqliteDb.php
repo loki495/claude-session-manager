@@ -119,8 +119,8 @@ class SqliteDb
                 session_name TEXT PRIMARY KEY,
                 workdir TEXT,
                 spawned_at INTEGER,
-                claude_session_id TEXT,
-                spawned_by_csm INTEGER,
+                agent_session_id TEXT,
+                spawned_by_app INTEGER,
                 agent TEXT
             );
             CREATE TABLE IF NOT EXISTS session_status (

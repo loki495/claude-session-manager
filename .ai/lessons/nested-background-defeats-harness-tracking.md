@@ -29,3 +29,16 @@ harness reported the Bash call "completed" in seconds, but `ps aux` showed the r
 `opencode run` process still consuming real CPU minutes later. Recovered by
 polling `until ! kill -0 <pid>; do sleep 5; done` as the actual backgrounded
 command instead.
+
+**Repeated the same mistake same day, different shape**: after the incident above,
+still typed `nohup bash tests/run.sh ... & disown` directly in a plain Bash call
+(no `run_in_background` involved at all this time) when a prior `run_in_background`
+attempt had hit a timeout mid-run and needed a plain restart. The specific
+mechanism doesn't matter — bare `&`/`nohup`/`disown` in ANY Bash call on this
+machine, regardless of whether `run_in_background` is set, throws away the ability
+to know when the real work finishes. **Rule, no exceptions: never type `&` at the
+end of a command that starts real work I need to wait on.** If it needs to run
+detached, immediately follow in the same turn with a `Monitor` (or
+`run_in_background`) call that polls the actual PID or a sentinel file — never
+leave a bare-backgrounded process unmonitored, even for a moment, even as a
+"quick restart."

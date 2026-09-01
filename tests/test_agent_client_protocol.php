@@ -72,11 +72,11 @@ try {
     assert_true($result['ok'] ?? false, 'list_archived: ok=true');
     assert_equal([], $result['archived'] ?? null, 'list_archived: no archived transcripts under the isolated fixture HOME_ROOT');
 
-    $result = AgentClient::agent_call(['action' => 'archived_session_detail', 'claude_session_id' => '00000000-0000-4000-8000-000000000000']);
-    assert_equal(false, $result['ok'] ?? null, 'archived_session_detail: ok=false for an unknown (but well-formed) claude_session_id');
+    $result = AgentClient::agent_call(['action' => 'archived_session_detail', 'agent_session_id' => '00000000-0000-4000-8000-000000000000']);
+    assert_equal(false, $result['ok'] ?? null, 'archived_session_detail: ok=false for an unknown (but well-formed) agent_session_id');
 
-    $result = AgentClient::agent_call(['action' => 'archived_session_history', 'claude_session_id' => '00000000-0000-4000-8000-000000000000', 'before' => null, 'limit' => 10]);
-    assert_equal(false, $result['ok'] ?? null, 'archived_session_history: ok=false for an unknown (but well-formed) claude_session_id');
+    $result = AgentClient::agent_call(['action' => 'archived_session_history', 'agent_session_id' => '00000000-0000-4000-8000-000000000000', 'before' => null, 'limit' => 10]);
+    assert_equal(false, $result['ok'] ?? null, 'archived_session_history: ok=false for an unknown (but well-formed) agent_session_id');
 
     // --- malformed request (raw socket, bypassing AgentClient::agent_call()'s own encoding) ---
     $conn = stream_socket_client('unix://' . $socketPath, $errno, $errstr, 5);

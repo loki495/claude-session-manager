@@ -115,7 +115,7 @@ test.describe('live Codex browser lifecycle', () => {
           // archive endpoint discovers that durable catalog entry and the
           // browser renders a usable archived-session link for it.
           await page.locator('#show-archived-btn').click();
-          const archivedLink = page.locator(`a[href="/archived_session.php?claude_session_id=${createdSession}"]`).first();
+          const archivedLink = page.locator(`a[href="/archived_session.php?agent_session_id=${createdSession}"]`).first();
           await expect(archivedLink).toBeVisible({ timeout: 30_000 });
           await archivedLink.click();
           await expect(page.getByRole('heading', { name: 'History (read-only)' })).toBeVisible();

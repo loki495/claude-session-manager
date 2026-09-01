@@ -68,7 +68,7 @@ function spawn_fake_picker_session(string $sessionName, string $fakePickerPath, 
     // reaching the top row, timing-dependent on how fast PHP started up.
     usleep(300000);
 
-    SidecarStore::write_sidecar($sessionName, ['workdir' => '/fixture', 'spawned_at' => time(), 'claude_session_id' => 'conv-' . $sessionName, 'spawned_by_csm' => true, 'agent' => 'antigravity']);
+    SidecarStore::write_sidecar($sessionName, ['workdir' => '/fixture', 'spawned_at' => time(), 'agent_session_id' => 'conv-' . $sessionName, 'spawned_by_app' => true, 'agent' => 'antigravity']);
     SessionStatusStore::update_status($sessionName, ['status' => 'idle']);
 }
 

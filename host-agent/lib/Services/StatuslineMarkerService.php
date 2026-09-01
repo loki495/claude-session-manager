@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace HostAgent\Services;
 
 /**
- * Cross-checks/self-heals SidecarStore's claude_session_id against a live,
+ * Cross-checks/self-heals SidecarStore's agent_session_id against a live,
  * on-screen signal - Claude Code's own statusLine feature includes
  * session_id in the JSON it feeds a configured statusline script, and that
  * script's rendered output is real terminal content, capturable the same
@@ -72,11 +72,11 @@ class StatuslineMarkerService
      *
      * Takes the LAST match, not the first (found live 2026-08-23: with a
      * tall pane - TMUX_PANE_HEIGHT=150 by default - and a session that
-     * rotated its claude_session_id mid-conversation (/clear, /compact,
+     * rotated its agent_session_id mid-conversation (/clear, /compact,
      * --resume), an OLDER statusline render from before the rotation can
      * still be visible higher up in the SAME captured viewport alongside
      * the current one. Matching the first occurrence fed SessionService::
-     * self_heal_claude_session_id() a stale id, which then overwrote a
+     * self_heal_agent_session_id() a stale id, which then overwrote a
      * correct sidecar with a wrong one - repeatedly, every poll, since
      * nothing about the stale line ever scrolls out of view until enough
      * new output pushes it out.

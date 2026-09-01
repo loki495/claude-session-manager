@@ -18,13 +18,13 @@
   }
 
   btn.addEventListener('click', function () {
-    var claudeSessionId = btn.dataset.claudeSessionId;
+    var agentSessionId = btn.dataset.agentSessionId;
     var before = btn.dataset.before;
 
     btn.disabled = true;
     btn.textContent = 'Loading…';
 
-    var url = '/archived_session_history_fragment.php?claude_session_id=' + encodeURIComponent(claudeSessionId) + '&limit=30'
+    var url = '/archived_session_history_fragment.php?agent_session_id=' + encodeURIComponent(agentSessionId) + '&limit=30'
       + (before ? '&before=' + encodeURIComponent(before) : '');
 
     fetch(url, { credentials: 'same-origin' })
@@ -97,7 +97,7 @@
 
 // --- search this (read-only) transcript - same server-side full-text
 // search as session.js's own sidebar box (see SessionController::
-// archivedSearch()'s doc comment), just keyed by claude_session_id
+// archivedSearch()'s doc comment), just keyed by agent_session_id
 // instead of a live tmux name, and with no sidebar to live in here - this
 // view has none. ---
 (function () {
@@ -105,7 +105,7 @@
   var input = document.getElementById('session-search-input');
   var results = document.getElementById('session-search-results');
 
-  if (!input || !results || !bootstrap.claudeSessionId) {
+  if (!input || !results || !bootstrap.agentSessionId) {
     return;
   }
 
@@ -121,7 +121,7 @@
     results.innerHTML = matches.map(function (m) {
       var roleLabel = m.role === 'user' ? 'User' : (m.role === 'assistant' ? 'Claude Code' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
       var timeHtml = typeof m.timestamp === 'number' ? '<span class="text-slate-600"> &middot; ' + escapeHtml(relativeTimeLabel(m.timestamp)) + '</span>' : '';
-      return '<a href="/archived_session.php?claude_session_id=' + encodeURIComponent(bootstrap.claudeSessionId) + '&jump_line=' + encodeURIComponent(m.line) + '"'
+      return '<a href="/archived_session.php?agent_session_id=' + encodeURIComponent(bootstrap.agentSessionId) + '&jump_line=' + encodeURIComponent(m.line) + '"'
         + ' class="block rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 px-2 py-1.5">'
         + '<div class="text-[11px] text-slate-500 mb-0.5">' + escapeHtml(roleLabel) + timeHtml + '</div>'
         + '<div class="text-xs text-slate-300 break-words">' + highlightSnippet(m.snippet, query) + '</div>'
@@ -148,7 +148,7 @@
     debounceTimer = setTimeout(function () {
       abortController = new AbortController();
 
-      fetch('/archived_session_search.php?claude_session_id=' + encodeURIComponent(bootstrap.claudeSessionId) + '&q=' + encodeURIComponent(query), {
+      fetch('/archived_session_search.php?agent_session_id=' + encodeURIComponent(bootstrap.agentSessionId) + '&q=' + encodeURIComponent(query), {
         credentials: 'same-origin',
         signal: abortController.signal
       })

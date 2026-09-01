@@ -62,7 +62,7 @@ function renderGlobalSearchResults(results, query) {
   sessionSearchResults.innerHTML = results.map(function (r) {
     var url = r.session_name
       ? '/session.php?session=' + encodeURIComponent(r.session_name) + '&jump_line=' + encodeURIComponent(r.matches[0].line)
-      : '/archived_session.php?claude_session_id=' + encodeURIComponent(r.claude_session_id) + '&jump_line=' + encodeURIComponent(r.matches[0].line);
+      : '/archived_session.php?agent_session_id=' + encodeURIComponent(r.agent_session_id) + '&jump_line=' + encodeURIComponent(r.matches[0].line);
     var cwdHtml = r.cwd ? '<div class="text-[11px] text-slate-600 truncate mt-0.5">' + escapeHtml(r.cwd) + '</div>' : '';
     var matchesHtml = r.matches.map(function (m) {
       var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));

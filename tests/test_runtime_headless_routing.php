@@ -46,8 +46,8 @@ $headlessRef = 'ses_RouteAaaa';
 SidecarStore::write_sidecar($headlessRef, [
     'workdir' => '/tmp',
     'spawned_at' => time(),
-    'claude_session_id' => $headlessRef,
-    'spawned_by_csm' => true,
+    'agent_session_id' => $headlessRef,
+    'spawned_by_app' => true,
     'agent' => 'opencode',
     'runtime' => RuntimeType::HEADLESS,
 ]);
@@ -58,8 +58,8 @@ assert_equal(RuntimeType::HEADLESS, SidecarStore::read_sidecar($headlessRef)['ru
 SidecarStore::write_sidecar('oc-tmux-route', [
     'workdir' => '/tmp',
     'spawned_at' => time(),
-    'claude_session_id' => 'ses_RouteBbbb',
-    'spawned_by_csm' => true,
+    'agent_session_id' => 'ses_RouteBbbb',
+    'spawned_by_app' => true,
     'agent' => 'opencode',
     'runtime' => RuntimeType::TMUX,
 ]);

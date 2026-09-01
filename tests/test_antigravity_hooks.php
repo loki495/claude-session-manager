@@ -147,12 +147,12 @@ try {
     // --- pre_invocation.php: first firing binds the sidecar, marks working ---
 
     $piName = 'ag-test-' . bin2hex(random_bytes(3));
-    SidecarStore::write_sidecar($piName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => null, 'spawned_by_csm' => true, 'agent' => 'antigravity']);
+    SidecarStore::write_sidecar($piName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'agent_session_id' => null, 'spawned_by_app' => true, 'agent' => 'antigravity']);
 
     $piOut = run_antigravity_hook_script("{$hooksDir}/pre_invocation.php", $piName, ['conversationId' => 'conv-first', 'workspacePaths' => ['/fixture/workdir']]);
     assert_equal('{}', trim($piOut), 'pre_invocation.php: outputs {}');
     $piSidecar = SidecarStore::read_sidecar($piName);
-    assert_equal('conv-first', $piSidecar['claude_session_id'] ?? null, 'pre_invocation.php: binds the sidecar to the real conversationId on first firing');
+    assert_equal('conv-first', $piSidecar['agent_session_id'] ?? null, 'pre_invocation.php: binds the sidecar to the real conversationId on first firing');
     assert_equal('/fixture/workdir', $piSidecar['workdir'] ?? null, 'pre_invocation.php: preserves the existing workdir across the bind');
     assert_equal(1000, $piSidecar['spawned_at'] ?? null, 'pre_invocation.php: preserves the existing spawned_at across the bind');
     assert_equal('antigravity', $piSidecar['agent'] ?? null, 'pre_invocation.php: preserves the existing agent across the bind');
@@ -161,19 +161,19 @@ try {
     // --- pre_invocation.php: a later firing with the SAME conversationId is a no-op rebind ---
 
     run_antigravity_hook_script("{$hooksDir}/pre_invocation.php", $piName, ['conversationId' => 'conv-first', 'workspacePaths' => ['/fixture/workdir']]);
-    assert_equal('conv-first', SidecarStore::read_sidecar($piName)['claude_session_id'] ?? null, 'pre_invocation.php: a repeat firing with the same conversationId leaves the binding unchanged');
+    assert_equal('conv-first', SidecarStore::read_sidecar($piName)['agent_session_id'] ?? null, 'pre_invocation.php: a repeat firing with the same conversationId leaves the binding unchanged');
 
     // --- pre_invocation.php: refuses to rebind onto an id already live on a DIFFERENT tracked session ---
-    // claude_session_id_already_live() checks REAL tracked tmux sessions
+    // agent_session_id_already_live() checks REAL tracked tmux sessions
     // (a live tmux pane + a sidecar - see TmuxService::list_tracked_tmux_sessions()),
     // not just a sidecar row in isolation, so this needs a real fixture pane.
 
     $piOtherName = 'ag-test-other-' . bin2hex(random_bytes(3));
     $piOtherCreate = TmuxService::tmux_run(['new-session', '-d', '-s', $piOtherName, '-c', sys_get_temp_dir(), 'bash', '-c', 'stty -echo; exec cat']);
     assert_equal(0, $piOtherCreate['exit'], 'already-live test setup: created a live fixture tmux pane');
-    SidecarStore::write_sidecar($piOtherName, ['workdir' => '/x', 'spawned_at' => time(), 'claude_session_id' => 'conv-taken', 'spawned_by_csm' => true, 'agent' => 'antigravity']);
+    SidecarStore::write_sidecar($piOtherName, ['workdir' => '/x', 'spawned_at' => time(), 'agent_session_id' => 'conv-taken', 'spawned_by_app' => true, 'agent' => 'antigravity']);
     run_antigravity_hook_script("{$hooksDir}/pre_invocation.php", $piName, ['conversationId' => 'conv-taken', 'workspacePaths' => ['/fixture/workdir']]);
-    assert_equal('conv-first', SidecarStore::read_sidecar($piName)['claude_session_id'] ?? null, 'pre_invocation.php: never rebinds onto a conversationId already live on a different tracked session');
+    assert_equal('conv-first', SidecarStore::read_sidecar($piName)['agent_session_id'] ?? null, 'pre_invocation.php: never rebinds onto a conversationId already live on a different tracked session');
     TmuxService::tmux_run(['kill-session', '-t', $piOtherName]);
     SidecarStore::delete_sidecar($piOtherName);
     SidecarStore::delete_sidecar($piName);
@@ -181,7 +181,7 @@ try {
     // --- pre_invocation.php: workspacePaths[0] used as a fallback workdir when the sidecar has none ---
 
     $piFallbackName = 'ag-test-fallback-' . bin2hex(random_bytes(3));
-    SidecarStore::write_sidecar($piFallbackName, ['workdir' => null, 'spawned_at' => time(), 'claude_session_id' => null, 'spawned_by_csm' => true, 'agent' => 'antigravity']);
+    SidecarStore::write_sidecar($piFallbackName, ['workdir' => null, 'spawned_at' => time(), 'agent_session_id' => null, 'spawned_by_app' => true, 'agent' => 'antigravity']);
     run_antigravity_hook_script("{$hooksDir}/pre_invocation.php", $piFallbackName, ['conversationId' => 'conv-fallback', 'workspacePaths' => ['/from/workspace/paths']]);
     assert_equal('/from/workspace/paths', SidecarStore::read_sidecar($piFallbackName)['workdir'] ?? null, 'pre_invocation.php: falls back to workspacePaths[0] as workdir when the sidecar has none');
     SidecarStore::delete_sidecar($piFallbackName);

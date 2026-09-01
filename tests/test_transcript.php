@@ -461,7 +461,7 @@ assert_equal(2, count($allTranscripts), 'list_all_transcripts: finds one entry p
 
 $byId = [];
 foreach ($allTranscripts as $t) {
-    $byId[$t['claude_session_id']] = $t;
+    $byId[$t['agent_session_id']] = $t;
 }
 
 assert_equal('/home/user/www/some-project', $byId[$uuid]['cwd'] ?? null, 'list_all_transcripts: cwd read via find_first_cwd()');
@@ -474,8 +474,8 @@ assert_true(($byId[$uuid2]['last_activity'] ?? 0) > 0, 'list_all_transcripts: la
 // currently tracked (already shown in the main list), applies the same
 // title cascade as a live session, sorted most-recently-active first ---
 $archived = ArchivedSessionService::list_archived_sessions([$uuid2]);
-assert_equal(1, count($archived), 'list_archived_sessions: excludes the given claude_session_id, leaving just the other one');
-assert_equal($uuid, $archived[0]['claude_session_id'] ?? null, 'list_archived_sessions: the non-excluded transcript is the one returned');
+assert_equal(1, count($archived), 'list_archived_sessions: excludes the given agent_session_id, leaving just the other one');
+assert_equal($uuid, $archived[0]['agent_session_id'] ?? null, 'list_archived_sessions: the non-excluded transcript is the one returned');
 assert_equal('/home/user/www/some-project', $archived[0]['cwd'] ?? null, 'list_archived_sessions: cwd carried through');
 assert_equal('some-project', $archived[0]['title'] ?? null, 'list_archived_sessions: no ai-title -> falls back to the workdir basename, via the same title_cascade() a live session uses');
 
@@ -483,7 +483,7 @@ $archivedNoExclusions = ArchivedSessionService::list_archived_sessions([]);
 assert_equal(2, count($archivedNoExclusions), 'list_archived_sessions: an empty exclude list returns every known transcript');
 $withAiTitle = null;
 foreach ($archivedNoExclusions as $a) {
-    if ($a['claude_session_id'] === $uuid2) {
+    if ($a['agent_session_id'] === $uuid2) {
         $withAiTitle = $a;
     }
 }
@@ -492,7 +492,7 @@ assert_equal('Fix the widget', $withAiTitle['title'] ?? null, 'list_archived_ses
 touch($fakeHome . '/.claude/projects/-some-project/' . $uuid . '.jsonl', time() - 1000);
 touch($fakeHome . '/.claude/projects/-another-project/' . $uuid2 . '.jsonl', time());
 $sortedArchived = ArchivedSessionService::list_archived_sessions([]);
-assert_equal([$uuid2, $uuid], array_column($sortedArchived, 'claude_session_id'), 'list_archived_sessions: sorted most-recently-active (mtime) first');
+assert_equal([$uuid2, $uuid], array_column($sortedArchived, 'agent_session_id'), 'list_archived_sessions: sorted most-recently-active (mtime) first');
 
 // --- TranscriptService::search_transcript_file(): full-text search across
 // a transcript's real message content, newest match first. Line 1 is a
@@ -535,7 +535,7 @@ assert_equal([], TranscriptService::search_transcript_file('/does/not/exist.json
 assert_equal([], TranscriptService::search_transcript_file($searchFile, 'mango', 10), 'search_transcript_file: a query with no matches anywhere returns an empty array');
 
 // --- ArchivedSessionService::archived_session_transcript_search(): the archived-
-// view search box's own data source - keyed straight by claude_session_id,
+// view search box's own data source - keyed straight by agent_session_id,
 // same as archived_session_detail()/archived_session_history() above. ---
 $archivedSearch = ArchivedSessionService::archived_session_transcript_search($searchUuid, 'pineapple', 20);
 assert_true($archivedSearch['ok'] ?? false, 'archived_session_transcript_search: ok=true for a known transcript');
@@ -546,7 +546,7 @@ assert_true($archivedSearchNoMatch['ok'] ?? false, 'archived_session_transcript_
 assert_equal([], $archivedSearchNoMatch['matches'] ?? null, 'archived_session_transcript_search: empty matches array for a query that hits nothing');
 
 $archivedSearchMissing = ArchivedSessionService::archived_session_transcript_search('00000000-0000-4000-8000-000000000000', 'pineapple', 20);
-assert_equal(false, $archivedSearchMissing['ok'] ?? null, 'archived_session_transcript_search: ok=false for a well-formed but unknown claude_session_id, not a crash');
+assert_equal(false, $archivedSearchMissing['ok'] ?? null, 'archived_session_transcript_search: ok=false for a well-formed but unknown agent_session_id, not a crash');
 
 // --- ArchivedSessionService::search_transcripts(): the dashboard-wide search box's
 // data source - every known transcript, live or archived. Uses the same
@@ -560,10 +560,10 @@ assert_equal(false, $archivedSearchMissing['ok'] ?? null, 'archived_session_tran
 $dashboardSearch = ArchivedSessionService::search_transcripts('pineapple', 30, 3);
 assert_true($dashboardSearch['ok'] ?? false, 'search_transcripts: ok=true');
 assert_equal(1, count($dashboardSearch['results'] ?? []), 'search_transcripts: only the transcript that actually matches is included - $uuid/$uuid2 have no "pineapple" in them');
-assert_equal($searchUuid, $dashboardSearch['results'][0]['claude_session_id'] ?? null, 'search_transcripts: the matching transcript is identified by claude_session_id');
+assert_equal($searchUuid, $dashboardSearch['results'][0]['agent_session_id'] ?? null, 'search_transcripts: the matching transcript is identified by agent_session_id');
 assert_true(
     array_key_exists('session_name', $dashboardSearch['results'][0]) && $dashboardSearch['results'][0]['session_name'] === null,
-    'search_transcripts: session_name is null when nothing currently tracks this claude_session_id live'
+    'search_transcripts: session_name is null when nothing currently tracks this agent_session_id live'
 );
 assert_equal(3, count($dashboardSearch['results'][0]['matches'] ?? []), 'search_transcripts: per-session matches capped at max_matches_per_session (3 requested, 3 real matches exist)');
 
@@ -578,11 +578,11 @@ assert_equal([], $dashboardSearchNoMatch['results'] ?? null, 'search_transcripts
 
 // --- SessionDetailService::archived_session_detail()/archived_session_history():
 // the read-only archived-session view's own data sources - keyed straight
-// by claude_session_id, no sidecar/tmux-name lookup at all (a dormant
+// by agent_session_id, no sidecar/tmux-name lookup at all (a dormant
 // session has neither). ---
 $archivedDetail = SessionDetailService::archived_session_detail($uuid2);
 assert_true($archivedDetail['ok'] ?? false, 'archived_session_detail: ok=true for a known transcript');
-assert_equal($uuid2, $archivedDetail['claude_session_id'] ?? null, 'archived_session_detail: echoes the claude_session_id back');
+assert_equal($uuid2, $archivedDetail['agent_session_id'] ?? null, 'archived_session_detail: echoes the agent_session_id back');
 assert_equal('/home/user/www/another-project', $archivedDetail['cwd'] ?? null, 'archived_session_detail: cwd via find_first_cwd()');
 assert_equal('Fix the widget', $archivedDetail['title'] ?? null, 'archived_session_detail: title via the ai-title, same cascade as a live session');
 assert_true(($archivedDetail['last_activity'] ?? null) !== null, 'archived_session_detail: last_activity is the file\'s own mtime');
@@ -1256,7 +1256,7 @@ assert_equal(
 assert_equal(
     'workdir',
     SessionService::session_title(null, null, '/some/path/workdir', 'cc-20260101-1200'),
-    'session_title: falls back to the workdir basename when there\'s no claude_session_id or live pane title'
+    'session_title: falls back to the workdir basename when there\'s no agent_session_id or live pane title'
 );
 assert_equal(
     'cc-20260101-1200',

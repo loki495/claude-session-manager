@@ -248,8 +248,8 @@ try {
     assert_contains('Refactor the old widget', $archivedFragmentBody['archived_html'] ?? '', 'GET /archived_sessions_fragment.php: archived_html carries the canned archived session\'s title');
     assert_contains('/home/user/www/old-project', $archivedFragmentBody['archived_html'] ?? '', 'GET /archived_sessions_fragment.php: archived_html carries the canned archived session\'s cwd');
     assert_true(
-        preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="resume">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="claude_session_id" value="' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '">\s*<input type="hidden" name="workdir" value="/home/user/www/old-project">\s*<button type="submit"[^>]*>\s*Resume#', $archivedFragmentBody['archived_html'] ?? '') === 1,
-        'GET /archived_sessions_fragment.php: archived_html carries a Resume form with the row\'s claude_session_id and cwd (phase 5, known-id resume)'
+        preg_match('#<form method="post" action="/"[^>]*>\s*<input type="hidden" name="action" value="resume">\s*<input type="hidden" name="csrf_token"[^>]*>\s*<input type="hidden" name="agent_session_id" value="' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '">\s*<input type="hidden" name="workdir" value="/home/user/www/old-project">\s*<button type="submit"[^>]*>\s*Resume#', $archivedFragmentBody['archived_html'] ?? '') === 1,
+        'GET /archived_sessions_fragment.php: archived_html carries a Resume form with the row\'s agent_session_id and cwd (phase 5, known-id resume)'
     );
     assert_contains('id="archived-load-more-btn"', $archivedFragmentBody['archived_html'] ?? '', 'GET /archived_sessions_fragment.php: archived_html ships the Load-more button that paginates the (potentially long) row list client-side');
 
@@ -580,7 +580,7 @@ try {
     assert_contains('headerTitle.title = title', $sessionJs['body'], 'GET /js/session.js: renderStaticInfo() keeps the header title\'s tooltip (title attribute) in sync too, not just its visible text');
     assert_contains("class=\"copy-block\" data-line=\"' + line + '\"><div class=\"markdown-body", $sessionJs['body'], 'GET /js/session.js: renderBlock() mirrors the PHP-side copy-to-clipboard button (and data-line, for search-result jump/highlight) on plain text entries');
     assert_contains("closestEventTarget(e, 'summary, .expand-fullscreen-btn, .copy-btn')", $sessionJs['body'], 'GET /js/session.js: the delegated details-toggle handler safely excludes .copy-btn too, so tapping Copy inside an expanded block does not also collapse it');
-    assert_contains('"claudeSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real claude_session_id is embedded in SESSIONEER_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
+    assert_contains('"agentSessionId":"11111111-2222-4333-8444-555555555555"', $result['body'], 'GET /session.php: the real agent_session_id is embedded in SESSIONEER_BOOTSTRAP, so a poll-detected change can be told apart from "not known yet"');
     // --- standalone tool-call entries (TranscriptView::render_transcript_
     // entries_html()/render_tool_call_entry_html() - bundling under a
     // shared "N tool calls" toggle removed 2026-08-22 in favor of each
@@ -1158,15 +1158,15 @@ try {
     assert_equal(false, $sessionSearchUnknownBody['ok'] ?? null, 'GET /session_search.php: ok=false for an unrecognized session, not a crash');
 
     // --- archived_session_search.php: per-(archived)session content search ---
-    $archivedSearchResult = curl_request('GET', "{$baseUrl}/archived_session_search.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&q=widget");
+    $archivedSearchResult = curl_request('GET', "{$baseUrl}/archived_session_search.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&q=widget");
     assert_equal(200, $archivedSearchResult['status'], 'GET /archived_session_search.php: 200');
     $archivedSearchBody = json_decode($archivedSearchResult['body'], true);
     assert_true(is_array($archivedSearchBody) && ($archivedSearchBody['ok'] ?? false), 'GET /archived_session_search.php: response decodes as ok=true JSON');
     assert_equal(1, count($archivedSearchBody['matches'] ?? []), 'GET /archived_session_search.php: canned match passed through');
 
-    $archivedSearchUnknownResult = curl_request('GET', "{$baseUrl}/archived_session_search.php?claude_session_id=00000000-0000-4000-8000-000000000000&q=widget");
+    $archivedSearchUnknownResult = curl_request('GET', "{$baseUrl}/archived_session_search.php?agent_session_id=00000000-0000-4000-8000-000000000000&q=widget");
     $archivedSearchUnknownBody = json_decode($archivedSearchUnknownResult['body'], true);
-    assert_equal(false, $archivedSearchUnknownBody['ok'] ?? null, 'GET /archived_session_search.php: ok=false for an unrecognized claude_session_id, not a crash');
+    assert_equal(false, $archivedSearchUnknownBody['ok'] ?? null, 'GET /archived_session_search.php: ok=false for an unrecognized agent_session_id, not a crash');
 
     // --- session.php/archived_session.php: jump_line renders the "showing a
     // search result" banner and loads history ending at that line (see
@@ -1181,11 +1181,11 @@ try {
     assert_true(!str_contains($noJumpResult['body'], 'Showing a search result'), 'GET /session.php (no jump_line): the jump banner is NOT shown on an ordinary visit');
     assert_contains('"jumpLine":null', $noJumpResult['body'], 'GET /session.php (no jump_line): jumpLine is null in SESSIONEER_BOOTSTRAP when not jumping');
 
-    $archivedJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&jump_line=3");
+    $archivedJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&jump_line=3");
     assert_equal(200, $archivedJumpResult['status'], 'GET /archived_session.php?jump_line=3: 200');
     assert_contains('Showing a search result', $archivedJumpResult['body'], 'GET /archived_session.php?jump_line=3: renders the jump banner');
 
-    $archivedNoJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+    $archivedNoJumpResult = curl_request('GET', "{$baseUrl}/archived_session.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
     assert_true(!str_contains($archivedNoJumpResult['body'], 'Showing a search result'), 'GET /archived_session.php (no jump_line): the jump banner is NOT shown on an ordinary visit');
 
     // --- create_folder.php: GET not allowed, CSRF enforced, canned agent accepts/rejects by name ---
@@ -1255,7 +1255,7 @@ try {
     assert_equal(403, $result['status'], 'POST with mismatched Origin: 403');
 
     // --- archived_session.php: the read-only dormant-session view - no
-    // ?claude_session_id -> redirects home, same as session.php's own
+    // ?agent_session_id -> redirects home, same as session.php's own
     // no-?session case. Uses its own $archived*-prefixed variables
     // throughout (not $result) - unlike most of this file's tests, which
     // run in one long sequential block reusing $result freely, several
@@ -1266,13 +1266,13 @@ try {
     // curl-only tier for that reason, after nothing else depends on $result
     // anymore. ---
     $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php");
-    assert_equal(303, $archivedResult['status'], 'GET /archived_session.php with no claude_session_id param: 303 redirect');
-    assert_equal('/', $archivedResult['headers']['location'] ?? '', 'GET /archived_session.php with no claude_session_id param: redirects to /');
+    assert_equal(303, $archivedResult['status'], 'GET /archived_session.php with no agent_session_id param: 303 redirect');
+    assert_equal('/', $archivedResult['headers']['location'] ?? '', 'GET /archived_session.php with no agent_session_id param: redirects to /');
 
     // --- archived_session.php: renders the canned archived session's
     // detail + history, reusing the exact same TranscriptView rendering
     // session.php itself uses ---
-    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
     assert_equal(200, $archivedResult['status'], 'GET /archived_session.php: 200');
     assert_contains('Refactor the old widget', $archivedResult['body'], 'GET /archived_session.php: canned title shown');
     assert_contains('old-project', $archivedResult['body'], 'GET /archived_session.php: canned cwd shown');
@@ -1282,17 +1282,17 @@ try {
     assert_contains('<html lang="en" class="">', $archivedResult['body'], 'GET /archived_session.php: not a fixed-shell page, so <html> gets no h-full/overflow-hidden - normal document scrolling is correct here (no compose bar, no keyboard interaction to guard against)');
     assert_contains('Load older messages', $archivedResult['body'], 'GET /archived_session.php: load-more button shown when has_more=true');
 
-    // --- archived_session.php: an unknown (but well-formed) claude_session_id
+    // --- archived_session.php: an unknown (but well-formed) agent_session_id
     // -> the page still renders (200), just with a "not found" state, same
     // as session.php's own not-found handling ---
-    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php?claude_session_id=00000000-0000-4000-8000-000000000000");
-    assert_equal(200, $archivedResult['status'], 'GET /archived_session.php: 200 even for an unknown claude_session_id');
-    assert_contains('Session not found', $archivedResult['body'], 'GET /archived_session.php: shows a not-found message for an unknown claude_session_id');
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session.php?agent_session_id=00000000-0000-4000-8000-000000000000");
+    assert_equal(200, $archivedResult['status'], 'GET /archived_session.php: 200 even for an unknown agent_session_id');
+    assert_contains('Session not found', $archivedResult['body'], 'GET /archived_session.php: shows a not-found message for an unknown agent_session_id');
 
     // --- archived_session_history_fragment.php: "Load older messages" -
     // pre-rendered HTML (not raw JSON entries, unlike session_history.php -
     // see SessionController::archivedHistoryFragment()'s own doc comment) ---
-    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session_history_fragment.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session_history_fragment.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
     assert_equal(200, $archivedResult['status'], 'GET /archived_session_history_fragment.php: 200');
     $archivedHistoryFragmentBody = json_decode($archivedResult['body'], true);
     assert_true(is_array($archivedHistoryFragmentBody) && ($archivedHistoryFragmentBody['ok'] ?? false), 'GET /archived_session_history_fragment.php: response decodes as ok=true JSON');
@@ -1302,19 +1302,19 @@ try {
         'GET /archived_session_history_fragment.php: this server-rendered fragment also renders standalone tool-call entries (render_transcript_entries_html(), not the single-entry render_transcript_entry()) - same as session.php\'s initial render and archived_session.php\'s own'
     );
 
-    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session_history_fragment.php?claude_session_id=00000000-0000-4000-8000-000000000000");
+    $archivedResult = curl_request('GET', "{$baseUrl}/archived_session_history_fragment.php?agent_session_id=00000000-0000-4000-8000-000000000000");
     $archivedHistoryFragmentMissingBody = json_decode($archivedResult['body'], true);
-    assert_equal(false, $archivedHistoryFragmentMissingBody['ok'] ?? null, 'GET /archived_session_history_fragment.php: ok=false for an unknown claude_session_id, not a crash');
+    assert_equal(false, $archivedHistoryFragmentMissingBody['ok'] ?? null, 'GET /archived_session_history_fragment.php: ok=false for an unknown agent_session_id, not a crash');
 
     // --- archived_session_attachment.php: same binary-endpoint contract as
-    // session_attachment.php, just keyed by claude_session_id ---
-    $archivedAttachmentUrl = "/archived_session_attachment.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&line=8&file_uuid=canned-file-uuid-1";
+    // session_attachment.php, just keyed by agent_session_id ---
+    $archivedAttachmentUrl = "/archived_session_attachment.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&line=8&file_uuid=canned-file-uuid-1";
     $archivedAttachmentResult = curl_request('GET', "{$baseUrl}{$archivedAttachmentUrl}");
-    assert_equal(200, $archivedAttachmentResult['status'], 'GET /archived_session_attachment.php: 200 for a real, matching claude_session_id/line/file_uuid');
+    assert_equal(200, $archivedAttachmentResult['status'], 'GET /archived_session_attachment.php: 200 for a real, matching agent_session_id/line/file_uuid');
     assert_equal('canned attachment bytes', $archivedAttachmentResult['body'], 'GET /archived_session_attachment.php: streams the real (canned) file bytes');
     assert_contains('notes.txt', $archivedAttachmentResult['headers']['content-disposition'] ?? '', 'GET /archived_session_attachment.php: Content-Disposition carries the real filename');
 
-    $wrongArchivedAttachmentResult = curl_request('GET', "{$baseUrl}/archived_session_attachment.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&line=8&file_uuid=not-the-real-uuid");
+    $wrongArchivedAttachmentResult = curl_request('GET', "{$baseUrl}/archived_session_attachment.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID . "&line=8&file_uuid=not-the-real-uuid");
     assert_equal(404, $wrongArchivedAttachmentResult['status'], 'GET /archived_session_attachment.php: an unrecognized file_uuid -> 404, not a silent empty body');
 
     // --- POST resume: unlike every other dashboard action, a successful
@@ -1329,7 +1329,7 @@ try {
 
     $archivedResumeResult = curl_request('POST', "{$baseUrl}/", [
         '-d', 'action=resume&csrf_token=' . urlencode((string)$archivedResumeCsrfToken)
-            . '&claude_session_id=' . urlencode(CANNED_ARCHIVED_CLAUDE_SESSION_ID)
+            . '&agent_session_id=' . urlencode(CANNED_ARCHIVED_CLAUDE_SESSION_ID)
             . '&workdir=' . urlencode('/home/user/www/old-project'),
     ], $cookieJar);
     assert_equal(303, $archivedResumeResult['status'], 'POST resume: 303 redirect');
@@ -1339,7 +1339,7 @@ try {
         'POST resume: redirects straight to the now-live session view, not back to / with a flash'
     );
 
-    // --- POST resume: canned agent rejects an unrecognized claude_session_id
+    // --- POST resume: canned agent rejects an unrecognized agent_session_id
     // - falls back to the classic flash-to-/ behavior, same as every other
     // action here, since there is no new session name to redirect to. ---
     $archivedResumeRejectFrontPage = curl_request('GET', "{$baseUrl}/", [], $cookieJar);
@@ -1347,7 +1347,7 @@ try {
 
     $archivedResumeRejectResult = curl_request('POST', "{$baseUrl}/", [
         '-d', 'action=resume&csrf_token=' . urlencode((string)$archivedResumeRejectCsrfToken)
-            . '&claude_session_id=00000000-0000-4000-8000-000000000000'
+            . '&agent_session_id=00000000-0000-4000-8000-000000000000'
             . '&workdir=' . urlencode('/home/user/www/old-project'),
     ], $cookieJar);
     assert_equal(303, $archivedResumeRejectResult['status'], 'POST resume (unrecognized id): 303 redirect');
@@ -1381,8 +1381,8 @@ try {
     assert_true(is_array($takeOverBody) && ($takeOverBody['ok'] ?? false), 'POST /take_over_bare.php: canned agent accepts the pid, response decodes as ok=true JSON');
     assert_true($takeOverBody['needs_choice'] ?? false, 'POST /take_over_bare.php: canned agent returns needs_choice (no marker match), nothing killed yet');
     assert_equal('/home/user/www/some-other-project', $takeOverBody['workdir'] ?? null, 'POST /take_over_bare.php: canned workdir passed through');
-    assert_equal([CANNED_ARCHIVED_CLAUDE_SESSION_ID], array_column($takeOverBody['candidates'] ?? [], 'claude_session_id'), 'POST /take_over_bare.php: canned candidate list passed through');
-    assert_equal(CANNED_ARCHIVED_CLAUDE_SESSION_ID, $takeOverBody['suggested_claude_session_id'] ?? null, 'POST /take_over_bare.php: canned suggested_claude_session_id passed through');
+    assert_equal([CANNED_ARCHIVED_CLAUDE_SESSION_ID], array_column($takeOverBody['candidates'] ?? [], 'agent_session_id'), 'POST /take_over_bare.php: canned candidate list passed through');
+    assert_equal(CANNED_ARCHIVED_CLAUDE_SESSION_ID, $takeOverBody['suggested_agent_session_id'] ?? null, 'POST /take_over_bare.php: canned suggested_agent_session_id passed through');
 
     $takeOverRejectResult = curl_request('POST', "{$baseUrl}/take_over_bare.php", [
         '-d', 'pid=99999&csrf_token=' . urlencode((string)$takeOverCsrfToken),
@@ -1394,12 +1394,12 @@ try {
     assert_equal(405, $takeOverConfirmMethodResult['status'], 'GET /take_over_bare_confirm.php: 405 (POST required)');
 
     $takeOverConfirmCsrfRejectResult = curl_request('POST', "{$baseUrl}/take_over_bare_confirm.php", [
-        '-d', 'pid=54321&workdir=' . urlencode('/home/user/www/some-other-project') . '&claude_session_id=' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '&csrf_token=not-the-real-token',
+        '-d', 'pid=54321&workdir=' . urlencode('/home/user/www/some-other-project') . '&agent_session_id=' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '&csrf_token=not-the-real-token',
     ], $cookieJar);
     assert_equal(403, $takeOverConfirmCsrfRejectResult['status'], 'POST /take_over_bare_confirm.php with a wrong csrf_token: 403');
 
     $takeOverConfirmResult = curl_request('POST', "{$baseUrl}/take_over_bare_confirm.php", [
-        '-d', 'pid=54321&workdir=' . urlencode('/home/user/www/some-other-project') . '&claude_session_id=' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '&csrf_token=' . urlencode((string)$takeOverCsrfToken),
+        '-d', 'pid=54321&workdir=' . urlencode('/home/user/www/some-other-project') . '&agent_session_id=' . CANNED_ARCHIVED_CLAUDE_SESSION_ID . '&csrf_token=' . urlencode((string)$takeOverCsrfToken),
     ], $cookieJar);
     assert_equal(200, $takeOverConfirmResult['status'], 'POST /take_over_bare_confirm.php with valid CSRF: 200 (JSON, not a redirect)');
     $takeOverConfirmBody = json_decode($takeOverConfirmResult['body'], true);
@@ -1407,10 +1407,10 @@ try {
     assert_equal(CANNED_TAKEN_OVER_SESSION_NAME, $takeOverConfirmBody['name'] ?? null, 'POST /take_over_bare_confirm.php: canned new session name passed through, for the client to redirect to');
 
     $takeOverConfirmRejectResult = curl_request('POST', "{$baseUrl}/take_over_bare_confirm.php", [
-        '-d', 'pid=54321&workdir=' . urlencode('/home/user/www/some-other-project') . '&claude_session_id=00000000-0000-4000-8000-000000000000&csrf_token=' . urlencode((string)$takeOverCsrfToken),
+        '-d', 'pid=54321&workdir=' . urlencode('/home/user/www/some-other-project') . '&agent_session_id=00000000-0000-4000-8000-000000000000&csrf_token=' . urlencode((string)$takeOverCsrfToken),
     ], $cookieJar);
     $takeOverConfirmRejectBody = json_decode($takeOverConfirmRejectResult['body'], true);
-    assert_equal(false, $takeOverConfirmRejectBody['ok'] ?? null, 'POST /take_over_bare_confirm.php: canned agent rejects a claude_session_id that does not match the resolved candidate');
+    assert_equal(false, $takeOverConfirmRejectBody['ok'] ?? null, 'POST /take_over_bare_confirm.php: canned agent rejects a agent_session_id that does not match the resolved candidate');
 
     // --- sessions_fragment.php's bare_html: proves the Take over form
     // (SessionRowView::bare_process_row_html() -> bare-process-row.php)
@@ -1524,7 +1524,7 @@ function run_headless_browser_checks(string $browser, int $port): void
     assert_contains('id="go-to-top-btn"', $detail['dom'], 'headless browser: session.php renders the floating go-to-top button');
     assert_true(!str_contains($detail['stderr'], 'Uncaught'), 'headless browser: no uncaught JS errors on session.php');
 
-    $archivedDetail = headless_dump_dom($browser, "{$base}/archived_session.php?claude_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
+    $archivedDetail = headless_dump_dom($browser, "{$base}/archived_session.php?agent_session_id=" . CANNED_ARCHIVED_CLAUDE_SESSION_ID);
 
     if ($archivedDetail === null) {
         return;

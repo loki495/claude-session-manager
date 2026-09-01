@@ -75,7 +75,7 @@ try {
     assert_equal(0, $create['exit'], 'answer_prompt end-to-end test setup: created a live fixture tmux pane');
     TmuxService::tmux_run(['send-keys', '-t', $sessionName, '-l', $realPane]);
 
-    SidecarStore::write_sidecar($sessionName, ['workdir' => '/fixture', 'spawned_at' => time(), 'claude_session_id' => 'conv-x', 'spawned_by_csm' => true, 'agent' => 'antigravity']);
+    SidecarStore::write_sidecar($sessionName, ['workdir' => '/fixture', 'spawned_at' => time(), 'agent_session_id' => 'conv-x', 'spawned_by_app' => true, 'agent' => 'antigravity']);
     SessionStatusStore::update_status($sessionName, ['status' => 'idle']);
 
     $answerResult = PromptInteractionService::answer_prompt($sessionName, 1);

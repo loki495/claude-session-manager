@@ -115,8 +115,8 @@ class DashboardController extends Controller
 
             case 'resume':
                 $workdir = trim((string)($_POST['workdir'] ?? ''));
-                $claudeSessionId = trim((string)($_POST['claude_session_id'] ?? ''));
-                $result = AgentClient::agent_call(['action' => 'resume', 'workdir' => $workdir, 'claude_session_id' => $claudeSessionId]);
+                $agentSessionId = trim((string)($_POST['agent_session_id'] ?? ''));
+                $result = AgentClient::agent_call(['action' => 'resume', 'workdir' => $workdir, 'agent_session_id' => $agentSessionId]);
                 $ok = (bool)($result['ok'] ?? false);
                 $message = (string)($result['message'] ?? 'Unknown error');
 
@@ -346,7 +346,7 @@ class DashboardController extends Controller
     /**
      * POST-only JSON endpoint for the take-over picker's confirm step -
      * only ever reached after takeOverBare() above came back
-     * needs_choice=true and a human picked a specific claude_session_id.
+     * needs_choice=true and a human picked a specific agent_session_id.
      */
     public function takeOverBareConfirm(): void
     {
@@ -354,13 +354,13 @@ class DashboardController extends Controller
 
         $pid = (int)($_POST['pid'] ?? 0);
         $workdir = trim((string)($_POST['workdir'] ?? ''));
-        $claudeSessionId = trim((string)($_POST['claude_session_id'] ?? ''));
+        $agentSessionId = trim((string)($_POST['agent_session_id'] ?? ''));
 
         echo json_encode(AgentClient::agent_call([
             'action' => 'take_over_bare_with_id',
             'pid' => $pid,
             'workdir' => $workdir,
-            'claude_session_id' => $claudeSessionId,
+            'agent_session_id' => $agentSessionId,
         ]));
     }
 }

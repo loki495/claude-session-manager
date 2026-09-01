@@ -500,11 +500,11 @@ class OpenCodeTranscriptService
      * equivalent of Antigravity's pre_invocation.php reactive bind (see
      * .ai/QUESTIONS.md Q1.1) — opencode creates no DB row at spawn time,
      * only after the first prompt, so the sidecar starts with
-     * claude_session_id=null and learns the real ses_* on the next poll.
+     * agent_session_id=null and learns the real ses_* on the next poll.
      *
      * Skips ids already bound to another live oc-* sidecar to avoid two
      * tmux sessions fighting over the same transcript (same guard as
-     * SessionLifecycleService::claude_session_id_already_live()).
+     * SessionLifecycleService::agent_session_id_already_live()).
      */
     public static function find_session_for_workdir(string $workdir, int $spawnedAt): ?string
     {
@@ -518,7 +518,7 @@ class OpenCodeTranscriptService
         $boundIds = [];
         try {
             $sidecarPdo = \HostAgent\Stores\SqliteDb::connect(Config::sessions_sqlite_path(), \HostAgent\Stores\SqliteDb::sessions_schema());
-            $rows = $sidecarPdo->query("SELECT claude_session_id FROM sidecars WHERE agent = 'opencode' AND claude_session_id IS NOT NULL AND claude_session_id != ''")->fetchAll(\PDO::FETCH_COLUMN);
+            $rows = $sidecarPdo->query("SELECT agent_session_id FROM sidecars WHERE agent = 'opencode' AND agent_session_id IS NOT NULL AND agent_session_id != ''")->fetchAll(\PDO::FETCH_COLUMN);
             foreach ($rows as $id) {
                 if (is_string($id) && self::is_opencode_id($id)) {
                     $boundIds[$id] = true;

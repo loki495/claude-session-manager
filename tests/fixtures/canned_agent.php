@@ -132,7 +132,7 @@ $response = match ($action) {
             'attached' => false,
             'pid' => 12345,
             'workdir' => '/home/user/www/demo-project',
-            'spawned_by_csm' => true,
+            'spawned_by_app' => true,
             'title' => 'Fix the login redirect bug',
             'working' => true,
             'blocked_reason' => null,
@@ -145,7 +145,7 @@ $response = match ($action) {
             'attached' => false,
             'pid' => 12346,
             'workdir' => '/home/user/www/other-project',
-            'spawned_by_csm' => true,
+            'spawned_by_app' => true,
             'title' => 'Clean up temp files',
             'working' => true,
             'blocked_reason' => 'Do you want to proceed?',
@@ -166,22 +166,22 @@ $response = match ($action) {
     'list_archived' => [
         'ok' => true,
         'archived' => [[
-            'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+            'agent_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
             'cwd' => '/home/user/www/old-project',
             'title' => 'Refactor the old widget',
             'last_activity' => time() - 3 * 86400,
         ]],
     ],
-    'archived_session_detail' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+    'archived_session_detail' => ($request['agent_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
         ? [
             'ok' => true,
-            'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+            'agent_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
             'cwd' => '/home/user/www/old-project',
             'title' => 'Refactor the old widget',
             'last_activity' => time() - 3 * 86400,
         ]
         : ['ok' => false, 'message' => 'Session not found'],
-    'archived_session_history' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+    'archived_session_history' => ($request['agent_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
         ? ['ok' => true, 'entries' => canned_session_history_entries(), 'next_before' => 1, 'has_more' => true]
         : ['ok' => false, 'message' => 'Transcript file not found'],
     'session_detail' => ($request['session'] ?? null) === CANNED_SESSION_NAME
@@ -192,7 +192,7 @@ $response = match ($action) {
             'attached' => false,
             'pid' => 12345,
             'workdir' => '/home/user/www/demo-project',
-            'spawned_by_csm' => true,
+            'spawned_by_app' => true,
             'title' => 'Fix the login redirect bug',
             'working' => false,
             'blocked_reason' => 'Do you want to proceed?',
@@ -200,7 +200,7 @@ $response = match ($action) {
             'prompt_context' => "Bash command\n\n  rm -rf /tmp/canned-example\n  Clean up the canned example directory",
             'prompt_options' => [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => 'No'], ['number' => 3, 'label' => 'Type something.']],
             'current_mode' => null,
-            'claude_session_id' => CANNED_CLAUDE_SESSION_ID,
+            'agent_session_id' => CANNED_CLAUDE_SESSION_ID,
             'has_transcript' => true,
             'todos' => [
                 ['content' => 'Find the redirect bug', 'activeForm' => 'Finding the redirect bug', 'status' => 'completed'],
@@ -224,12 +224,12 @@ $response = match ($action) {
                 'attached' => false,
                 'pid' => 12347,
                 'workdir' => '/home/user/www/new-project',
-                'spawned_by_csm' => true,
+                'spawned_by_app' => true,
                 'title' => null,
                 'working' => false,
                 'blocked_reason' => null,
                 'current_mode' => 'manual',
-                'claude_session_id' => null,
+                'agent_session_id' => null,
                 'has_transcript' => false,
             ]
             : ['ok' => false, 'message' => 'Session not found']),
@@ -256,7 +256,7 @@ $response = match ($action) {
             default => ['ok' => false, 'message' => 'Attachment not found'],
         }
         : ['ok' => false, 'message' => 'Attachment not found'],
-    'archived_session_attachment' => (string)($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+    'archived_session_attachment' => (string)($request['agent_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
         ? match ($request['file_uuid'] ?? null) {
             CANNED_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => base64_encode(CANNED_ATTACHMENT_BYTES), 'media_type' => 'text/plain', 'filename' => 'notes.txt', 'size' => strlen(CANNED_ATTACHMENT_BYTES)],
             CANNED_IMAGE_ATTACHMENT_FILE_UUID => ['ok' => true, 'data' => CANNED_TEST_IMAGE_BASE64, 'media_type' => 'image/png', 'filename' => 'screenshot.png', 'size' => strlen(base64_decode(CANNED_TEST_IMAGE_BASE64, true))],
@@ -273,9 +273,9 @@ $response = match ($action) {
         ? ['ok' => true, 'path' => '/home/user/www/new-folder', 'parent' => '/home/user/www', 'dirs' => []]
         : ['ok' => false, 'message' => 'Invalid folder name'],
     'create' => ['ok' => true, 'message' => 'Created session cc-20260101-1300 in /home/user/www/demo-project'],
-    'resume' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID && (string)($request['workdir'] ?? '') === '/home/user/www/old-project'
+    'resume' => ($request['agent_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID && (string)($request['workdir'] ?? '') === '/home/user/www/old-project'
         ? ['ok' => true, 'message' => 'Resumed session ' . CANNED_RESUMED_SESSION_NAME . ' in /home/user/www/old-project', 'name' => CANNED_RESUMED_SESSION_NAME]
-        : ['ok' => false, 'message' => 'Rejected: unknown claude_session_id or workdir'],
+        : ['ok' => false, 'message' => 'Rejected: unknown agent_session_id or workdir'],
     'kill' => ($request['session'] ?? null) === CANNED_SESSION_NAME
         ? ['ok' => true, 'message' => 'Killed ' . CANNED_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: not a currently active managed session'],
@@ -293,16 +293,16 @@ $response = match ($action) {
             'pid' => CANNED_BARE_PID,
             'workdir' => '/home/user/www/some-other-project',
             'candidates' => [[
-                'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+                'agent_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
                 'cwd' => '/home/user/www/some-other-project',
                 'title' => 'Refactor the old widget',
                 'last_activity' => time() - 3 * 86400,
             ]],
-            'suggested_claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+            'suggested_agent_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
         ]
         : ['ok' => false, 'message' => 'Rejected: not a currently running claude process'],
     'take_over_bare_with_id' => ($request['pid'] ?? null) === CANNED_BARE_PID
-        && (string)($request['claude_session_id'] ?? '') === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+        && (string)($request['agent_session_id'] ?? '') === CANNED_ARCHIVED_CLAUDE_SESSION_ID
         && (string)($request['workdir'] ?? '') === '/home/user/www/some-other-project'
         ? ['ok' => true, 'message' => 'Resumed session ' . CANNED_TAKEN_OVER_SESSION_NAME . ' in /home/user/www/some-other-project', 'name' => CANNED_TAKEN_OVER_SESSION_NAME]
         : ['ok' => false, 'message' => 'Rejected: could not take over this process'],
@@ -410,14 +410,14 @@ $response = match ($action) {
     // this test process.
     'search_transcripts' => trim((string)($request['query'] ?? '')) === 'redirect'
         ? ['ok' => true, 'results' => [[
-            'claude_session_id' => CANNED_CLAUDE_SESSION_ID,
+            'agent_session_id' => CANNED_CLAUDE_SESSION_ID,
             'session_name' => CANNED_SESSION_NAME,
             'title' => 'Fix the login redirect bug',
             'cwd' => '/home/user/www/demo-project',
             'last_activity' => time() - 120,
             'matches' => [['line' => 2, 'snippet' => 'Fix the login redirect bug', 'role' => 'user', 'kind' => 'text']],
         ], [
-            'claude_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
+            'agent_session_id' => CANNED_ARCHIVED_CLAUDE_SESSION_ID,
             'session_name' => null,
             'title' => 'Refactor the old widget',
             'cwd' => '/home/user/www/old-project',
@@ -430,7 +430,7 @@ $response = match ($action) {
             ? ['ok' => true, 'matches' => [['line' => 2, 'snippet' => 'Fix the login redirect bug', 'role' => 'user', 'kind' => 'text']]]
             : ['ok' => true, 'matches' => []])
         : ['ok' => false, 'message' => 'No transcript recorded for this session'],
-    'archived_session_transcript_search' => ($request['claude_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
+    'archived_session_transcript_search' => ($request['agent_session_id'] ?? null) === CANNED_ARCHIVED_CLAUDE_SESSION_ID
         ? (trim((string)($request['query'] ?? '')) === 'widget'
             ? ['ok' => true, 'matches' => [['line' => 3, 'snippet' => 'Refactor the old widget', 'role' => 'assistant', 'kind' => 'text']]]
             : ['ok' => true, 'matches' => []])

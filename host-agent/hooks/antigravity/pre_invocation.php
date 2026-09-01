@@ -18,7 +18,7 @@ declare(strict_types=1);
  * exists for a fresh interactive session - confirmed live, see the plan
  * doc's "CLI flags" section). The FIRST hook to fire after spawn is what
  * actually learns this session's real conversationId, so this is where
- * the sidecar's claude_session_id gets bound for the first time. Only
+ * the sidecar's agent_session_id gets bound for the first time. Only
  * writes when the id actually needs to change (first binding, or a
  * genuine mismatch) - every OTHER turn's firing is a cheap read-and-skip,
  * not a write on every single turn.
@@ -62,21 +62,21 @@ $conversationId = is_string($payload['conversationId'] ?? null) ? $payload['conv
 if ($conversationId !== null) {
     $existingSidecar = SidecarStore::read_sidecar($sessionName);
 
-    if (($existingSidecar['claude_session_id'] ?? null) !== $conversationId) {
+    if (($existingSidecar['agent_session_id'] ?? null) !== $conversationId) {
         // Same duplicate-binding guard Claude Code's session_start.php
         // uses - refuse to bind onto an id already live on a DIFFERENT
-        // tracked session (agent-agnostic - SidecarStore's claude_session_id
+        // tracked session (agent-agnostic - SidecarStore's agent_session_id
         // column is just "the agent's own conversation id", whichever
         // agent that is).
-        if (!SessionLifecycleService::claude_session_id_already_live($conversationId, $sessionName)) {
+        if (!SessionLifecycleService::agent_session_id_already_live($conversationId, $sessionName)) {
             $workspacePaths = is_array($payload['workspacePaths'] ?? null) ? $payload['workspacePaths'] : [];
             $fallbackWorkdir = is_string($workspacePaths[0] ?? null) ? $workspacePaths[0] : null;
 
             SidecarStore::write_sidecar($sessionName, [
                 'workdir' => $existingSidecar['workdir'] ?? $fallbackWorkdir,
                 'spawned_at' => $existingSidecar['spawned_at'] ?? time(),
-                'claude_session_id' => $conversationId,
-                'spawned_by_csm' => $existingSidecar['spawned_by_csm'] ?? true,
+                'agent_session_id' => $conversationId,
+                'spawned_by_app' => $existingSidecar['spawned_by_app'] ?? true,
                 'agent' => $existingSidecar['agent'] ?? 'antigravity',
             ]);
         }

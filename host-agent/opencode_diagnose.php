@@ -46,7 +46,7 @@ function http_get(string $url): mixed
 }
 
 $sidecar = SidecarStore::read_sidecar($sessionName) ?? [];
-$sessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
+$sessionId = is_string($sidecar['agent_session_id'] ?? null) ? $sidecar['agent_session_id'] : null;
 
 $paneContent = TmuxService::tmux_capture_pane($sessionName);
 $paneParsed = OpenCodePromptParser::parse_blocking_prompt($paneContent);

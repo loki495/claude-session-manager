@@ -42,7 +42,7 @@ class SessionDetailService
         }
 
         $entry = SessionService::build_session_entry($tmuxSession, ProcessInspector::find_claude_processes(), ProcessInspector::build_ppid_map());
-        $transcriptPath = $entry['claude_session_id'] !== null ? TranscriptRouter::find_transcript_path($entry['claude_session_id']) : null;
+        $transcriptPath = $entry['agent_session_id'] !== null ? TranscriptRouter::find_transcript_path($entry['agent_session_id']) : null;
 
         // Scoped to session_detail() (the sidebar's own poll), not
         // build_session_entry() itself - that function also backs the
@@ -82,35 +82,35 @@ class SessionDetailService
     public static function session_history(string $name, ?int $before, int $limit, ?int $after = null, bool $untilRealUserMessage = false): array
     {
         $sidecar = SidecarStore::read_sidecar($name);
-        $claudeSessionId = $sidecar['claude_session_id'] ?? null;
+        $agentSessionId = $sidecar['agent_session_id'] ?? null;
 
         // Opencode reactive binding: sidecar starts with null, learns ses_* on next poll
-        if (!is_string($claudeSessionId) && is_string($sidecar['agent'] ?? null) && $sidecar['agent'] === 'opencode' && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
+        if (!is_string($agentSessionId) && is_string($sidecar['agent'] ?? null) && $sidecar['agent'] === 'opencode' && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
             $healed = OpenCodeTranscriptService::find_session_for_workdir($sidecar['workdir'], $sidecar['spawned_at']);
-            if ($healed !== null && !SessionLifecycleService::claude_session_id_already_live($healed, $name)) {
+            if ($healed !== null && !SessionLifecycleService::agent_session_id_already_live($healed, $name)) {
                 SidecarStore::write_sidecar($name, [
                     'workdir' => $sidecar['workdir'],
                     'spawned_at' => $sidecar['spawned_at'],
-                    'claude_session_id' => $healed,
-                    'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? true,
+                    'agent_session_id' => $healed,
+                    'spawned_by_app' => $sidecar['spawned_by_app'] ?? true,
                     'agent' => 'opencode',
                 ]);
-                $claudeSessionId = $healed;
+                $agentSessionId = $healed;
             }
         }
 
-        if (!is_string($claudeSessionId)) {
+        if (!is_string($agentSessionId)) {
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];
         }
 
-        return self::transcript_page_for_claude_session($claudeSessionId, $before, $limit, $after, $untilRealUserMessage);
+        return self::transcript_page_for_claude_session($agentSessionId, $before, $limit, $after, $untilRealUserMessage);
     }
 
     /**
      * The archived-session-view counterpart to session_history() - same
-     * paging behavior, but reads straight from $claudeSessionId with no
+     * paging behavior, but reads straight from $agentSessionId with no
      * sidecar/tmux-name lookup at all, since a dormant session has neither.
-     * A tracked (live) session's own $claudeSessionId is never accepted
+     * A tracked (live) session's own $agentSessionId is never accepted
      * here for this reason on its own - see the note on
      * archived_session_detail() below, which is what session.php actually
      * calls first and is where that distinction is enforced.
@@ -123,23 +123,23 @@ class SessionDetailService
      *
      * @return array{ok:bool, entries?:array<int, array>, next_before?:?int, has_more?:bool, message?:string, cwd?:?string}
      */
-    public static function archived_session_history(string $claudeSessionId, ?int $before, int $limit, ?int $after = null): array
+    public static function archived_session_history(string $agentSessionId, ?int $before, int $limit, ?int $after = null): array
     {
-        $result = self::transcript_page_for_claude_session($claudeSessionId, $before, $limit, $after);
+        $result = self::transcript_page_for_claude_session($agentSessionId, $before, $limit, $after);
 
         if (!($result['ok'] ?? false)) {
             return $result;
         }
 
-        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($agentSessionId);
         $cwd = null;
 
         if ($path !== null) {
             if (TranscriptRouter::is_codex_path($path)) {
-                $thread = CodexTranscriptService::thread_metadata($claudeSessionId);
+                $thread = CodexTranscriptService::thread_metadata($agentSessionId);
                 $cwd = is_array($thread) && is_string($thread['cwd'] ?? null) && $thread['cwd'] !== '' ? $thread['cwd'] : null;
             } elseif (TranscriptRouter::is_opencode_path($path)) {
-                $cwd = OpenCodeTranscriptService::find_session_cwd($claudeSessionId);
+                $cwd = OpenCodeTranscriptService::find_session_cwd($agentSessionId);
             } else {
                 $cwd = TranscriptService::find_first_cwd($path);
             }
@@ -149,15 +149,15 @@ class SessionDetailService
     }
 
     /**
-     * Shared by session_history() (resolves $claudeSessionId via a live
+     * Shared by session_history() (resolves $agentSessionId via a live
      * session's sidecar first) and archived_session_history() (already has
      * it) - both just want a page of a transcript once they know which one.
      *
      * @return array{ok:bool, entries?:array<int, array>, next_before?:?int, has_more?:bool, message?:string}
      */
-    private static function transcript_page_for_claude_session(string $claudeSessionId, ?int $before, int $limit, ?int $after, bool $untilRealUserMessage = false): array
+    private static function transcript_page_for_claude_session(string $agentSessionId, ?int $before, int $limit, ?int $after, bool $untilRealUserMessage = false): array
     {
-        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($agentSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];
@@ -173,7 +173,7 @@ class SessionDetailService
     /**
      * The archived-session-view counterpart to session_detail() - the
      * header data (title/cwd/last_activity) for a dormant session's
-     * read-only view, keyed by $claudeSessionId (a dormant session has no
+     * read-only view, keyed by $agentSessionId (a dormant session has no
      * tmux name to look up by). Deliberately does NOT check whether this
      * id also belongs to a currently-tracked (live) session - the
      * read-only archived view rendering something for a live session's id
@@ -182,18 +182,18 @@ class SessionDetailService
      * one tracked" here would mean re-running list_all_sessions() on every
      * single archived-view page load for no real benefit.
      *
-     * @return array{ok:bool, message?:string, claude_session_id?:string, cwd?:?string, title?:string, last_activity?:?int}
+     * @return array{ok:bool, message?:string, agent_session_id?:string, cwd?:?string, title?:string, last_activity?:?int}
      */
-    public static function archived_session_detail(string $claudeSessionId): array
+    public static function archived_session_detail(string $agentSessionId): array
     {
-        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($agentSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Session not found'];
         }
 
         if (TranscriptRouter::is_codex_path($path)) {
-            $thread = CodexTranscriptService::thread_metadata($claudeSessionId);
+            $thread = CodexTranscriptService::thread_metadata($agentSessionId);
             if ($thread === null) return ['ok' => false, 'message' => 'Session not found'];
             $cwd = is_string($thread['cwd'] ?? null) ? $thread['cwd'] : null;
             $nativeTitle = is_string($thread['name'] ?? null) && trim($thread['name']) !== ''
@@ -201,33 +201,33 @@ class SessionDetailService
                 : (is_string($thread['preview'] ?? null) ? $thread['preview'] : null);
             return [
                 'ok' => true,
-                'claude_session_id' => $claudeSessionId,
+                'agent_session_id' => $agentSessionId,
                 'cwd' => $cwd,
-                'title' => SessionService::title_cascade($nativeTitle, null, $cwd, $claudeSessionId),
+                'title' => SessionService::title_cascade($nativeTitle, null, $cwd, $agentSessionId),
                 'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
             ];
         }
 
         $isOpenCodePath = TranscriptRouter::is_opencode_path($path);
         $cwd = $isOpenCodePath
-            ? OpenCodeTranscriptService::find_session_cwd($claudeSessionId)
+            ? OpenCodeTranscriptService::find_session_cwd($agentSessionId)
             : TranscriptService::find_first_cwd($path);
         $aiTitle = $isOpenCodePath
-            ? OpenCodeTranscriptService::find_session_title($claudeSessionId)
+            ? OpenCodeTranscriptService::find_session_title($agentSessionId)
             : TranscriptService::find_latest_ai_title($path);
         $mtime = @filemtime($path);
 
         return [
             'ok' => true,
-            'claude_session_id' => $claudeSessionId,
+            'agent_session_id' => $agentSessionId,
             'cwd' => $cwd,
-            'title' => SessionService::title_cascade($aiTitle, null, $cwd, $claudeSessionId),
+            'title' => SessionService::title_cascade($aiTitle, null, $cwd, $agentSessionId),
             'last_activity' => $mtime !== false ? $mtime : null,
         ];
     }
 
     /**
-     * Same claude_session_id -> transcript path resolution as
+     * Same agent_session_id -> transcript path resolution as
      * session_history() above, then delegates to
      * TranscriptService::read_attachment() to fetch one attachment's real
      * bytes for session_attachment.php.
@@ -237,27 +237,27 @@ class SessionDetailService
     public static function session_attachment(string $name, int $line, string $fileUuid): array
     {
         $sidecar = SidecarStore::read_sidecar($name);
-        $claudeSessionId = $sidecar['claude_session_id'] ?? null;
+        $agentSessionId = $sidecar['agent_session_id'] ?? null;
 
-        if (!is_string($claudeSessionId) && is_string($sidecar['agent'] ?? null) && $sidecar['agent'] === 'opencode' && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
+        if (!is_string($agentSessionId) && is_string($sidecar['agent'] ?? null) && $sidecar['agent'] === 'opencode' && is_string($sidecar['workdir'] ?? null) && $sidecar['workdir'] !== '' && isset($sidecar['spawned_at']) && is_int($sidecar['spawned_at'])) {
             $healed = OpenCodeTranscriptService::find_session_for_workdir($sidecar['workdir'], $sidecar['spawned_at']);
-            if ($healed !== null && !SessionLifecycleService::claude_session_id_already_live($healed, $name)) {
+            if ($healed !== null && !SessionLifecycleService::agent_session_id_already_live($healed, $name)) {
                 SidecarStore::write_sidecar($name, [
                     'workdir' => $sidecar['workdir'],
                     'spawned_at' => $sidecar['spawned_at'],
-                    'claude_session_id' => $healed,
-                    'spawned_by_csm' => $sidecar['spawned_by_csm'] ?? true,
+                    'agent_session_id' => $healed,
+                    'spawned_by_app' => $sidecar['spawned_by_app'] ?? true,
                     'agent' => 'opencode',
                 ]);
-                $claudeSessionId = $healed;
+                $agentSessionId = $healed;
             }
         }
 
-        if (!is_string($claudeSessionId)) {
+        if (!is_string($agentSessionId)) {
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];
         }
 
-        return self::read_attachment_for_claude_session($claudeSessionId, $line, $fileUuid);
+        return self::read_attachment_for_claude_session($agentSessionId, $line, $fileUuid);
     }
 
     /**
@@ -266,21 +266,21 @@ class SessionDetailService
      *
      * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string, size?:int}
      */
-    public static function archived_session_attachment(string $claudeSessionId, int $line, string $fileUuid): array
+    public static function archived_session_attachment(string $agentSessionId, int $line, string $fileUuid): array
     {
-        return self::read_attachment_for_claude_session($claudeSessionId, $line, $fileUuid);
+        return self::read_attachment_for_claude_session($agentSessionId, $line, $fileUuid);
     }
 
     /**
-     * Shared by session_attachment() (resolves $claudeSessionId via a live
+     * Shared by session_attachment() (resolves $agentSessionId via a live
      * session's sidecar first) and archived_session_attachment() (already
      * has it).
      *
      * @return array{ok:bool, message?:string, data?:string, media_type?:string, filename?:string, size?:int}
      */
-    private static function read_attachment_for_claude_session(string $claudeSessionId, int $line, string $fileUuid): array
+    private static function read_attachment_for_claude_session(string $agentSessionId, int $line, string $fileUuid): array
     {
-        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($agentSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];

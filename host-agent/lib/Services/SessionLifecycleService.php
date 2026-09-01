@@ -83,7 +83,7 @@ class SessionLifecycleService
         $name = $agent->session_name_prefix() . '-' . date('Ymd-His');
         $spawn = $agent->build_spawn_argv(['enable_task_tools' => $enableTaskTools, 'starting_mode' => $startingMode, 'model' => $model]);
         $agentArgv = $spawn['argv'];
-        $claudeSessionId = $spawn['assigned_id'];
+        $agentSessionId = $spawn['assigned_id'];
 
         $result = TmuxService::tmux_run(array_merge([
             // SESSIONEER_SESSION_NAME is how the SessionStart hook (see
@@ -120,18 +120,18 @@ class SessionLifecycleService
             ];
         }
 
-        // spawned_by_csm is set here too, not left for the SessionStart hook
+        // spawned_by_app is set here too, not left for the SessionStart hook
         // to backfill - the hook only rebinds/confirms it on its own first
         // fire moments later, and a dashboard poll landing in that gap would
         // otherwise see this brand-new, definitely-app-spawned session
-        // reported as spawned_by_csm=false.
-        SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true, 'agent' => $agent->id()]);
+        // reported as spawned_by_app=false.
+        SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'agent_session_id' => $agentSessionId, 'spawned_by_app' => true, 'agent' => $agent->id()]);
 
         return ['ok' => true, 'message' => "Created session {$name} in {$workdir}"];
     }
 
     /**
-     * True if $claudeSessionId is already the id bound to some currently
+     * True if $agentSessionId is already the id bound to some currently
      * live/tracked pane OTHER than $excludeSessionName - guards
      * resume_agent_session() against two panes fighting over the same
      * transcript file, and session_start.php's hook against rebinding a
@@ -147,7 +147,7 @@ class SessionLifecycleService
      * hook re-confirm its own already-bound id without tripping over
      * itself.
      */
-    public static function claude_session_id_already_live(string $claudeSessionId, string $excludeSessionName = ''): bool
+    public static function agent_session_id_already_live(string $agentSessionId, string $excludeSessionName = ''): bool
     {
         foreach (TmuxService::list_tracked_tmux_sessions() as $tmuxSession) {
             if ($tmuxSession['name'] === $excludeSessionName) {
@@ -156,7 +156,7 @@ class SessionLifecycleService
 
             $sidecar = SidecarStore::read_sidecar($tmuxSession['name']);
 
-            if (is_string($sidecar['claude_session_id'] ?? null) && $sidecar['claude_session_id'] === $claudeSessionId) {
+            if (is_string($sidecar['agent_session_id'] ?? null) && $sidecar['agent_session_id'] === $agentSessionId) {
                 return true;
             }
         }
@@ -165,7 +165,7 @@ class SessionLifecycleService
     }
 
     /**
-     * A per-claude_session_id lock file path for resume_agent_session()'s own
+     * A per-agent_session_id lock file path for resume_agent_session()'s own
      * flock() below - sha1() rather than the id itself so this never has
      * to assume/validate a UUID shape (resume_agent_session() doesn't
      * currently enforce one), and can't be abused as a path-traversal
@@ -181,13 +181,13 @@ class SessionLifecycleService
      * lock into two independent ones that never actually conflict. Always
      * flock()ing the same persistent path avoids that entirely.
      */
-    private static function resume_lock_path(string $claudeSessionId): string
+    private static function resume_lock_path(string $agentSessionId): string
     {
-        return Config::sidecar_dir() . '/' . sha1($claudeSessionId) . '.resume-lock';
+        return Config::sidecar_dir() . '/' . sha1($agentSessionId) . '.resume-lock';
     }
 
     /**
-     * Resumes a known, dormant `claude_session_id` (an archived-list row,
+     * Resumes a known, dormant `agent_session_id` (an archived-list row,
      * per the unify-claude-sessions plan's phase 5) in a fresh, app-managed
      * tmux pane - the exact same spawn shape as create_agent_session(), just
      * `--resume <id>` instead of `--session-id <new-uuid>`. Verified live
@@ -197,11 +197,11 @@ class SessionLifecycleService
      * resumed conversation, no picker, so this needs no extra
      * picker-handling step the way a future bare-process Take-over will.
      *
-     * Found live 2026-08-22 (codebase audit): claude_session_id_already_live()
+     * Found live 2026-08-22 (codebase audit): agent_session_id_already_live()
      * only checked the sidecar store BEFORE spawning, but no sidecar exists
      * for an in-flight resume until AFTER the tmux pane is up and the
      * 300ms settle sleep below elapses - a real TOCTOU window. Two
-     * near-simultaneous resume requests for the SAME claude_session_id
+     * near-simultaneous resume requests for the SAME agent_session_id
      * (two tabs, a flaky double-tap) could both pass the check and spawn
      * two `claude --resume <id>` processes fighting over one transcript
      * file - silent corruption, not a crash. An flock() held across the
@@ -209,7 +209,7 @@ class SessionLifecycleService
      * request for the same id fails to acquire the lock immediately and
      * gets the same rejection message a fraction of a second later,
      * instead of racing past the check. Scoped to one lock file PER
-     * claude_session_id (not a single global lock) so unrelated resumes
+     * agent_session_id (not a single global lock) so unrelated resumes
      * never contend with each other. flock()'s lock is released by the
      * OS the instant this process exits for ANY reason (normal return,
      * crash, kill -9) - host-agent is a fresh, single-request process per
@@ -218,39 +218,39 @@ class SessionLifecycleService
      *
      * @return array{ok:bool, message:string, name?:string}
      */
-    public static function resume_agent_session(string $workdir, string $claudeSessionId): array
+    public static function resume_agent_session(string $workdir, string $agentSessionId): array
     {
         if ($workdir === '' || $workdir[0] !== '/') {
             return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
         }
 
-        if ($claudeSessionId === '') {
-            return ['ok' => false, 'message' => 'Missing claude_session_id'];
+        if ($agentSessionId === '') {
+            return ['ok' => false, 'message' => 'Missing agent_session_id'];
         }
 
         if (!is_dir(Config::sidecar_dir())) {
             @mkdir(Config::sidecar_dir(), 0700, true);
         }
 
-        $lockHandle = @fopen(self::resume_lock_path($claudeSessionId), 'c');
+        $lockHandle = @fopen(self::resume_lock_path($agentSessionId), 'c');
 
         if ($lockHandle === false || !flock($lockHandle, LOCK_EX | LOCK_NB)) {
             return ['ok' => false, 'message' => 'This session already has a live pane - refusing to open a second one on the same transcript'];
         }
 
         try {
-            if (self::claude_session_id_already_live($claudeSessionId)) {
+            if (self::agent_session_id_already_live($agentSessionId)) {
                 return ['ok' => false, 'message' => 'This session already has a live pane - refusing to open a second one on the same transcript'];
             }
 
-            $isOpencodeResume = OpenCodeTranscriptService::is_opencode_id($claudeSessionId);
+            $isOpencodeResume = OpenCodeTranscriptService::is_opencode_id($agentSessionId);
             $resumeAgentId = $isOpencodeResume ? 'opencode' : 'claude';
             $resumeAgent = AgentRegistry::get($resumeAgentId);
             $name = $resumeAgent->session_name_prefix() . '-' . date('Ymd-His');
 
             $resumeArgv = $isOpencodeResume
-                ? [Config::opencode_bin(), '--session', $claudeSessionId]
-                : [Config::claude_bin(), '--resume', $claudeSessionId];
+                ? [Config::opencode_bin(), '--session', $agentSessionId]
+                : [Config::claude_bin(), '--resume', $agentSessionId];
 
             $result = TmuxService::tmux_run(array_merge([
                 'new-session', '-d', '-s', $name,
@@ -275,7 +275,7 @@ class SessionLifecycleService
                 ];
             }
 
-            SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'claude_session_id' => $claudeSessionId, 'spawned_by_csm' => true, 'agent' => $resumeAgentId]);
+            SidecarStore::write_sidecar($name, ['workdir' => $workdir, 'spawned_at' => time(), 'agent_session_id' => $agentSessionId, 'spawned_by_app' => true, 'agent' => $resumeAgentId]);
 
             return ['ok' => true, 'message' => "Resumed session {$name} in {$workdir}", 'name' => $name];
         } finally {

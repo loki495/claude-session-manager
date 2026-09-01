@@ -6,7 +6,7 @@
   };
 ?>
 <li class="relative rounded-xl border px-4 py-3 flex items-start justify-between gap-3" style="<?= $agentCardStyle ?>" data-archived-row data-agent="<?= $this->e($agentId ?? 'claude') ?>">
-  <a href="/archived_session.php?claude_session_id=<?= urlencode($claudeSessionId) ?>" class="absolute inset-0 rounded-xl" aria-label="View archived transcript for <?= $this->e($title) ?>"></a>
+  <a href="/archived_session.php?agent_session_id=<?= urlencode($agentSessionId) ?>" class="absolute inset-0 rounded-xl" aria-label="View archived transcript for <?= $this->e($title) ?>"></a>
   <div class="min-w-0 flex-1">
     <div class="select-none text-sm leading-tight truncate"><?= $this->e($title) ?></div>
     <?php if (!empty($agentLabel)): ?>
@@ -29,7 +29,7 @@
   <form method="post" action="/" class="relative">
     <input type="hidden" name="action" value="resume">
     <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
-    <input type="hidden" name="claude_session_id" value="<?= $this->e($claudeSessionId) ?>">
+    <input type="hidden" name="agent_session_id" value="<?= $this->e($agentSessionId) ?>">
     <input type="hidden" name="workdir" value="<?= $this->e((string)$cwd) ?>">
     <button type="submit" class="select-none min-h-[2.75rem] shrink-0 rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-200 font-medium text-sm px-4 py-2">Resume</button>
   </form>

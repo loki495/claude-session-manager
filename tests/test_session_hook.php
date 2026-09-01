@@ -507,24 +507,24 @@ try {
     $newId = '22222222-2222-4222-8222-222222222222';
     write_fixture_transcript($oldId);
     write_fixture_transcript($newId);
-    SidecarStore::write_sidecar($sidecarName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => $oldId]);
+    SidecarStore::write_sidecar($sidecarName, ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'agent_session_id' => $oldId]);
 
     run_session_start_hook(null, ['session_id' => $newId]);
-    assert_equal($oldId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when SESSIONEER_SESSION_NAME is unset');
+    assert_equal($oldId, SidecarStore::read_sidecar($sidecarName)['agent_session_id'] ?? null, 'session_start.php: no-op (sidecar untouched) when SESSIONEER_SESSION_NAME is unset');
 
     // --- SESSIONEER_SESSION_NAME set, but no matching sidecar (already killed/never tracked) -> no-op, no crash ---
 
     run_session_start_hook('cc-does-not-exist', ['session_id' => $newId]);
     assert_equal(null, SidecarStore::read_sidecar('cc-does-not-exist'), 'session_start.php: no-op when SESSIONEER_SESSION_NAME has no sidecar file');
 
-    // --- SESSIONEER_SESSION_NAME set + real sidecar + valid payload with a REAL matching transcript -> rebinds claude_session_id, keeps the rest ---
+    // --- SESSIONEER_SESSION_NAME set + real sidecar + valid payload with a REAL matching transcript -> rebinds agent_session_id, keeps the rest ---
 
     run_session_start_hook($sidecarName, ['session_id' => $newId]);
     $rebound = SidecarStore::read_sidecar($sidecarName);
-    assert_equal($newId, $rebound['claude_session_id'] ?? null, 'session_start.php: rebinds claude_session_id to the new session-id from stdin when a real transcript for it exists');
+    assert_equal($newId, $rebound['agent_session_id'] ?? null, 'session_start.php: rebinds agent_session_id to the new session-id from stdin when a real transcript for it exists');
     assert_equal('/fixture/workdir', $rebound['workdir'] ?? null, 'session_start.php: preserves workdir across the rebind');
     assert_equal(1000, $rebound['spawned_at'] ?? null, 'session_start.php: preserves spawned_at across the rebind');
-    assert_equal(true, $rebound['spawned_by_csm'] ?? null, 'session_start.php: a SESSIONEER_SESSION_NAME session is recorded as spawned_by_csm=true');
+    assert_equal(true, $rebound['spawned_by_app'] ?? null, 'session_start.php: a SESSIONEER_SESSION_NAME session is recorded as spawned_by_app=true');
 
     // --- SESSIONEER_SESSION_NAME set + real sidecar + payload reports a session-id
     // with NO matching transcript anywhere -> the rebind is refused, the
@@ -538,7 +538,7 @@ try {
 
     $phantomId = '99999999-9999-4999-8999-999999999999';
     run_session_start_hook($sidecarName, ['session_id' => $phantomId]);
-    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: a session-id with no matching transcript file anywhere is never trusted enough to rebind an existing, working sidecar');
+    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['agent_session_id'] ?? null, 'session_start.php: a session-id with no matching transcript file anywhere is never trusted enough to rebind an existing, working sidecar');
 
     // --- SESSIONEER_SESSION_NAME set + real sidecar + payload reports a session-id
     // that's real (has a transcript) but is ALREADY the live id of a
@@ -554,16 +554,16 @@ try {
     $otherLiveId = '44444444-4444-4444-8444-444444444444';
     write_fixture_transcript($otherLiveId);
     TmuxService::tmux_run(['new-session', '-d', '-s', $otherTrackedName, '-c', Config::www_root(), 'bash', '-c', 'stty -echo; exec cat']);
-    SidecarStore::write_sidecar($otherTrackedName, ['workdir' => '/fixture/other', 'spawned_at' => 1000, 'claude_session_id' => $otherLiveId]);
+    SidecarStore::write_sidecar($otherTrackedName, ['workdir' => '/fixture/other', 'spawned_at' => 1000, 'agent_session_id' => $otherLiveId]);
 
     run_session_start_hook($sidecarName, ['session_id' => $otherLiveId]);
-    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: a session-id already live on a DIFFERENT tracked tmux session is never trusted enough to rebind this one\'s sidecar onto it');
+    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['agent_session_id'] ?? null, 'session_start.php: a session-id already live on a DIFFERENT tracked tmux session is never trusted enough to rebind this one\'s sidecar onto it');
 
     // A session re-confirming its OWN already-bound id (the ordinary,
     // frequent case - the hook fires on every rotation, not just the first
     // time) must NOT trip over its own exclusion.
     run_session_start_hook($sidecarName, ['session_id' => $newId]);
-    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: a session re-confirming its own already-bound id is not refused as a false "already live elsewhere" collision');
+    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['agent_session_id'] ?? null, 'session_start.php: a session re-confirming its own already-bound id is not refused as a false "already live elsewhere" collision');
 
     TmuxService::tmux_run(['kill-session', '-t', $otherTrackedName]);
     SidecarStore::delete_sidecar($otherTrackedName);
@@ -571,7 +571,7 @@ try {
     // --- malformed/empty stdin -> no-op, never crashes, sidecar untouched ---
 
     run_session_start_hook($sidecarName, null);
-    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['claude_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
+    assert_equal($newId, SidecarStore::read_sidecar($sidecarName)['agent_session_id'] ?? null, 'session_start.php: no-op on empty/malformed stdin payload');
 
     // --- adopted (non-Sessioneer) sessions: no tmux pane at all -> no-op, no sidecar ever created ---
 
@@ -597,9 +597,9 @@ try {
         'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
     ]);
     $adopted = SidecarStore::read_sidecar($adoptedName);
-    assert_equal($adoptedId1, $adopted['claude_session_id'] ?? null, 'session_start.php: an adopted session (real tmux pane, no SESSIONEER_SESSION_NAME) gets a brand new sidecar, first time seen');
+    assert_equal($adoptedId1, $adopted['agent_session_id'] ?? null, 'session_start.php: an adopted session (real tmux pane, no SESSIONEER_SESSION_NAME) gets a brand new sidecar, first time seen');
     assert_equal('/home/user/www/some-other-project', $adopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir comes from the hook payload\'s own cwd field');
-    assert_equal(false, $adopted['spawned_by_csm'] ?? null, 'session_start.php: an adopted session is recorded as spawned_by_csm=false, distinguishing it from an app-spawned one');
+    assert_equal(false, $adopted['spawned_by_app'] ?? null, 'session_start.php: an adopted session is recorded as spawned_by_app=false, distinguishing it from an app-spawned one');
     assert_true(is_int($adopted['spawned_at'] ?? null), 'session_start.php: an adopted session gets a real spawned_at timestamp on first sight');
 
     // --- adopted sessions: firing again for the SAME pane rebinds (like
@@ -615,7 +615,7 @@ try {
         'PATH' => $fakeTmuxDir . ':' . (getenv('PATH') ?: '/usr/bin:/bin'),
     ]);
     $reboundAdopted = SidecarStore::read_sidecar($adoptedName);
-    assert_equal($adoptedId2, $reboundAdopted['claude_session_id'] ?? null, 'session_start.php: an adopted session rotating (e.g. /clear) rebinds claude_session_id the same as a Sessioneer one would');
+    assert_equal($adoptedId2, $reboundAdopted['agent_session_id'] ?? null, 'session_start.php: an adopted session rotating (e.g. /clear) rebinds agent_session_id the same as a Sessioneer one would');
     assert_equal('/home/user/www/some-other-project', $reboundAdopted['workdir'] ?? null, 'session_start.php: an adopted session\'s workdir is preserved across a rebind, not overwritten from the new payload');
     assert_equal($firstSpawnedAt, $reboundAdopted['spawned_at'] ?? null, 'session_start.php: an adopted session\'s spawned_at is preserved across a rebind');
 

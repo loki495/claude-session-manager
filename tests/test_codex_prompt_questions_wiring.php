@@ -101,8 +101,8 @@ function pqw_write_codex_sidecar(string $ref, string $title): void
     SidecarStore::write_sidecar($ref, [
         'workdir' => '/tmp/project',
         'spawned_at' => time(),
-        'claude_session_id' => $ref,
-        'spawned_by_csm' => true,
+        'agent_session_id' => $ref,
+        'spawned_by_app' => true,
         'agent' => 'codex',
         'runtime' => RuntimeType::HEADLESS,
         'title' => $title,
@@ -132,8 +132,8 @@ pqw_write_codex_sidecar('codex-idle', 'Idle session');
 SidecarStore::write_sidecar('oc-blocked', [
     'workdir' => '/tmp/project',
     'spawned_at' => time(),
-    'claude_session_id' => 'oc-blocked',
-    'spawned_by_csm' => true,
+    'agent_session_id' => 'oc-blocked',
+    'spawned_by_app' => true,
     'agent' => 'opencode',
     'runtime' => RuntimeType::HEADLESS,
     'title' => 'OpenCode session',

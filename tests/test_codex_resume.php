@@ -68,9 +68,9 @@ try {
     assert_true($sidecar !== null, 'codex_resume: sidecar was written');
     assert_equal('codex', $sidecar['agent'] ?? null, 'codex_resume: sidecar has agent=codex');
     assert_equal(RuntimeType::HEADLESS, $sidecar['runtime'] ?? null, 'codex_resume: sidecar has runtime=headless');
-    assert_equal($threadId1, $sidecar['claude_session_id'] ?? null, 'codex_resume: sidecar has correct claude_session_id');
+    assert_equal($threadId1, $sidecar['agent_session_id'] ?? null, 'codex_resume: sidecar has correct agent_session_id');
     assert_equal($testWorkdir, $sidecar['workdir'] ?? null, 'codex_resume: sidecar has correct workdir');
-    assert_equal(true, $sidecar['spawned_by_csm'] ?? null, 'codex_resume: sidecar has spawned_by_csm=true');
+    assert_equal(true, $sidecar['spawned_by_app'] ?? null, 'codex_resume: sidecar has spawned_by_app=true');
     // Title should be null (will be populated on next sync from thread metadata)
     assert_equal(null, $sidecar['title'], 'codex_resume: title is null (populated later by sync)');
 
@@ -113,7 +113,7 @@ try {
     $dispatchResult = dispatch_action([
         'action' => 'resume',
         'workdir' => $testWorkdir,
-        'claude_session_id' => $codexThreadId,
+        'agent_session_id' => $codexThreadId,
     ]);
 
     assert_true($dispatchResult['ok'] ?? false, 'dispatch_action(resume): Codex thread routes correctly, ok=true');
@@ -141,7 +141,7 @@ try {
     $unknownResult = dispatch_action([
         'action' => 'resume',
         'workdir' => $testWorkdir,
-        'claude_session_id' => $unknownId,
+        'agent_session_id' => $unknownId,
     ]);
     // It should NOT be ok=true (since this id resolves nowhere and resume_agent_session will fail it)
     // and it should NOT have a sidecar with headless runtime (proving it didn't route to codex)

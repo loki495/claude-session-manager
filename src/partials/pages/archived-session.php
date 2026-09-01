@@ -1,6 +1,6 @@
 <?php
 $this->layout('layout', [
-    'title' => $found ? (string)($detail['title'] ?? $claudeSessionId) : 'Sessioneer',
+    'title' => $found ? (string)($detail['title'] ?? $agentSessionId) : 'Sessioneer',
     'viewportContent' => 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, viewport-fit=cover',
 ]);
 ?>
@@ -9,7 +9,7 @@ $this->layout('layout', [
   <div class="max-w-2xl lg:max-w-4xl mx-auto px-4 py-2 flex items-center gap-2">
     <a href="/" class="text-sm text-slate-400 hover:underline whitespace-nowrap">&larr; All sessions</a>
     <div class="text-sm font-medium text-slate-200 truncate flex-1 text-center">
-      <?= $found ? $this->e((string)($detail['title'] ?? $claudeSessionId)) : '' ?>
+      <?= $found ? $this->e((string)($detail['title'] ?? $agentSessionId)) : '' ?>
     </div>
     <span class="text-xs text-slate-500 shrink-0 rounded-full border border-slate-700 px-2 py-0.5">Archived</span>
   </div>
@@ -25,7 +25,7 @@ $this->layout('layout', [
   <?php else: ?>
     <div class="select-none mb-4 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 flex items-start justify-between gap-3">
       <div class="min-w-0 flex-1">
-        <div class="text-sm text-slate-200"><?= $this->e((string)($detail['title'] ?? $claudeSessionId)) ?></div>
+        <div class="text-sm text-slate-200"><?= $this->e((string)($detail['title'] ?? $agentSessionId)) ?></div>
         <?php if (!empty($detail['cwd'])): ?><div class="text-xs text-slate-500 truncate mt-0.5"><?= $this->e((string)$detail['cwd']) ?></div><?php endif ?>
         <div class="text-xs text-slate-400 mt-1">Last active <?= $this->e(\App\Views\SessionRowView::relative_time((int)($detail['last_activity'] ?? 0))) ?></div>
       </div>
@@ -33,7 +33,7 @@ $this->layout('layout', [
       <form method="post" action="/" class="shrink-0">
         <input type="hidden" name="action" value="resume">
         <input type="hidden" name="csrf_token" value="<?= $this->e($csrfToken) ?>">
-        <input type="hidden" name="claude_session_id" value="<?= $this->e($claudeSessionId) ?>">
+        <input type="hidden" name="agent_session_id" value="<?= $this->e($agentSessionId) ?>">
         <input type="hidden" name="workdir" value="<?= $this->e((string)$detail['cwd']) ?>">
         <button type="submit" class="select-none min-h-[2.75rem] rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-200 font-medium text-sm px-4 py-2">Unarchive</button>
       </form>
@@ -61,7 +61,7 @@ $this->layout('layout', [
            same idea, minus any live-poll follow-up (there is none here). -->
       <div class="select-none mb-4 rounded-lg border border-sky-800/40 bg-sky-950/20 px-3 py-2 flex items-center justify-between gap-2 text-xs text-sky-300">
         <span>Showing a search result</span>
-        <a href="/archived_session.php?claude_session_id=<?= urlencode($claudeSessionId) ?>" class="text-sky-400 active:text-sky-200 font-medium">Back to latest &rarr;</a>
+        <a href="/archived_session.php?agent_session_id=<?= urlencode($agentSessionId) ?>" class="text-sky-400 active:text-sky-200 font-medium">Back to latest &rarr;</a>
       </div>
     <?php endif; ?>
 
@@ -77,13 +77,13 @@ $this->layout('layout', [
       </div>
     <?php else: ?>
       <button type="button" id="load-more-btn"
-        data-claude-session-id="<?= $this->e($claudeSessionId) ?>"
+        data-claude-session-id="<?= $this->e($agentSessionId) ?>"
         data-before="<?= $nextBefore !== null ? (int)$nextBefore : '' ?>"
         class="select-none w-full mb-2 rounded-lg border border-slate-800 bg-slate-900/50 active:bg-slate-800 text-xs text-slate-400 px-3 py-2 <?= $hasMore ? '' : 'hidden' ?>">
         Load older messages
       </button>
       <div id="history-list" class="flex flex-col gap-2">
-        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $claudeSessionId, true, is_string($detail['cwd'] ?? null) ? $detail['cwd'] : null, 'Claude Code') ?>
+        <?= \App\Views\TranscriptView::render_transcript_entries_html($entries, $agentSessionId, true, is_string($detail['cwd'] ?? null) ? $detail['cwd'] : null, 'Claude Code') ?>
       </div>
     <?php endif; ?>
   <?php endif; ?>
@@ -91,7 +91,7 @@ $this->layout('layout', [
 </div>
 
 <script>
-window.SESSIONEER_ARCHIVED_BOOTSTRAP = <?= json_encode(['claudeSessionId' => $claudeSessionId, 'jumpLine' => $jumpLine]) ?>;
+window.SESSIONEER_ARCHIVED_BOOTSTRAP = <?= json_encode(['agentSessionId' => $agentSessionId, 'jumpLine' => $jumpLine]) ?>;
 </script>
 <script src="<?= \App\Assets::versioned_url('/js/common.js') ?>"></script>
 <script src="<?= \App\Assets::versioned_url('/js/archived-session.js') ?>"></script>

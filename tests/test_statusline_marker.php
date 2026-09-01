@@ -4,9 +4,9 @@ declare(strict_types=1);
 /**
  * Exercises StatuslineMarkerService (parsing a live-pane session-id marker,
  * locating/installing into a statusLine script) and
- * SessionService::self_heal_claude_session_id() (the consuming side - see
+ * SessionService::self_heal_agent_session_id() (the consuming side - see
  * both classes' own docblocks for why this exists: a second, independent
- * cross-check against SidecarStore's claude_session_id, on top of the
+ * cross-check against SidecarStore's agent_session_id, on top of the
  * SessionStart hook's own transcript-existence check added the same day,
  * 2026-08-08). Uses its own fixture HOME_ROOT/SIDECAR_DIR, never the real
  * ~/.claude/settings.json, statusline script, or sidecar dir.
@@ -73,8 +73,8 @@ try {
 
     // Found live 2026-08-23: a tall pane (TMUX_PANE_HEIGHT=150 by default)
     // can still have an OLDER statusline render visible above the current
-    // one after a session rotates its claude_session_id (/clear, /compact,
-    // --resume) - matching the first occurrence fed self_heal_claude_session_id()
+    // one after a session rotates its agent_session_id (/clear, /compact,
+    // --resume) - matching the first occurrence fed self_heal_agent_session_id()
     // a stale id, repeatedly overwriting a correct sidecar with a wrong one.
     $staleId = 'aaaaaaaa-1111-2222-3333-444444444444';
     $freshId = 'bbbbbbbb-5555-6666-7777-888888888888';
@@ -333,7 +333,7 @@ try {
     assert_equal(false, $unrecognized['ok'], 'install_statusline_marker: refuses when statusLine is configured but no script file can be located');
     unlink($settingsPath);
 
-    // --- SessionService::self_heal_claude_session_id(): the consuming side ---
+    // --- SessionService::self_heal_agent_session_id(): the consuming side ---
 
     $projectsDir = "{$fixtureHome}/.claude/projects/fixture-project";
     mkdir($projectsDir, 0700, true);
@@ -342,37 +342,37 @@ try {
     $phantomId = '99999999-9999-4999-8999-999999999999';
     file_put_contents("{$projectsDir}/{$realId}.jsonl", json_encode(['type' => 'user', 'sessionId' => $realId]) . "\n");
 
-    $sidecar = ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'claude_session_id' => 'stale-old-id', 'spawned_by_csm' => true];
+    $sidecar = ['workdir' => '/fixture/workdir', 'spawned_at' => 1000, 'agent_session_id' => 'stale-old-id', 'spawned_by_app' => true];
 
     // Happy path: live marker disagrees and resolves to a real transcript -> heals.
-    $healed = SessionService::self_heal_claude_session_id('cc-selfheal-test', $sidecar, 'stale-old-id', $realId);
-    assert_equal($realId, $healed, 'self_heal_claude_session_id: returns the live id when it resolves to a real transcript');
+    $healed = SessionService::self_heal_agent_session_id('cc-selfheal-test', $sidecar, 'stale-old-id', $realId);
+    assert_equal($realId, $healed, 'self_heal_agent_session_id: returns the live id when it resolves to a real transcript');
     $healedSidecar = SidecarStore::read_sidecar('cc-selfheal-test');
-    assert_equal($realId, $healedSidecar['claude_session_id'] ?? null, 'self_heal_claude_session_id: rewrites the sidecar with the healed id');
-    assert_equal('/fixture/workdir', $healedSidecar['workdir'] ?? null, 'self_heal_claude_session_id: preserves workdir across the heal');
-    assert_equal(1000, $healedSidecar['spawned_at'] ?? null, 'self_heal_claude_session_id: preserves spawned_at across the heal');
-    assert_equal(true, $healedSidecar['spawned_by_csm'] ?? null, 'self_heal_claude_session_id: preserves spawned_by_csm across the heal');
+    assert_equal($realId, $healedSidecar['agent_session_id'] ?? null, 'self_heal_agent_session_id: rewrites the sidecar with the healed id');
+    assert_equal('/fixture/workdir', $healedSidecar['workdir'] ?? null, 'self_heal_agent_session_id: preserves workdir across the heal');
+    assert_equal(1000, $healedSidecar['spawned_at'] ?? null, 'self_heal_agent_session_id: preserves spawned_at across the heal');
+    assert_equal(true, $healedSidecar['spawned_by_app'] ?? null, 'self_heal_agent_session_id: preserves spawned_by_app across the heal');
 
     // Sad path: live marker disagrees but has NO real transcript (phantom, e.g. a nested claude invocation that never wrote one) -> not trusted, no heal.
-    SidecarStore::write_sidecar('cc-selfheal-phantom', ['workdir' => '/x', 'spawned_at' => 500, 'claude_session_id' => 'original-id', 'spawned_by_csm' => true]);
-    $notHealed = SessionService::self_heal_claude_session_id('cc-selfheal-phantom', SidecarStore::read_sidecar('cc-selfheal-phantom'), 'original-id', $phantomId);
-    assert_equal('original-id', $notHealed, 'self_heal_claude_session_id: a live id with no matching transcript is never trusted enough to override a working sidecar');
-    assert_equal('original-id', SidecarStore::read_sidecar('cc-selfheal-phantom')['claude_session_id'] ?? null, 'self_heal_claude_session_id: sidecar is left untouched when the live id is phantom');
+    SidecarStore::write_sidecar('cc-selfheal-phantom', ['workdir' => '/x', 'spawned_at' => 500, 'agent_session_id' => 'original-id', 'spawned_by_app' => true]);
+    $notHealed = SessionService::self_heal_agent_session_id('cc-selfheal-phantom', SidecarStore::read_sidecar('cc-selfheal-phantom'), 'original-id', $phantomId);
+    assert_equal('original-id', $notHealed, 'self_heal_agent_session_id: a live id with no matching transcript is never trusted enough to override a working sidecar');
+    assert_equal('original-id', SidecarStore::read_sidecar('cc-selfheal-phantom')['agent_session_id'] ?? null, 'self_heal_agent_session_id: sidecar is left untouched when the live id is phantom');
 
     // Sad path: no sidecar at all -> no-op, no crash.
-    $noSidecarResult = SessionService::self_heal_claude_session_id('cc-selfheal-nosidecar', null, null, $realId);
-    assert_equal(null, $noSidecarResult, 'self_heal_claude_session_id: no-op (returns the original null) when there is no sidecar to preserve fields from');
-    assert_equal(null, SidecarStore::read_sidecar('cc-selfheal-nosidecar'), 'self_heal_claude_session_id: never creates a sidecar from a live marker alone');
+    $noSidecarResult = SessionService::self_heal_agent_session_id('cc-selfheal-nosidecar', null, null, $realId);
+    assert_equal(null, $noSidecarResult, 'self_heal_agent_session_id: no-op (returns the original null) when there is no sidecar to preserve fields from');
+    assert_equal(null, SidecarStore::read_sidecar('cc-selfheal-nosidecar'), 'self_heal_agent_session_id: never creates a sidecar from a live marker alone');
 
     // Sad path: pane has no marker at all -> parse_marker_from_pane() would
     // hand build_session_entry() a null session_id, so this is what it
     // passes through -> no-op.
-    $noMarkerResult = SessionService::self_heal_claude_session_id('cc-selfheal-nomarker', $sidecar, 'stale-old-id', null);
-    assert_equal('stale-old-id', $noMarkerResult, 'self_heal_claude_session_id: no-op when there is no live id at all (pane carried no marker)');
+    $noMarkerResult = SessionService::self_heal_agent_session_id('cc-selfheal-nomarker', $sidecar, 'stale-old-id', null);
+    assert_equal('stale-old-id', $noMarkerResult, 'self_heal_agent_session_id: no-op when there is no live id at all (pane carried no marker)');
 
     // Sad path: live marker already matches the current id -> no unnecessary write, same value returned.
-    $alreadyMatching = SessionService::self_heal_claude_session_id('cc-selfheal-match', $healedSidecar, $realId, $realId);
-    assert_equal($realId, $alreadyMatching, 'self_heal_claude_session_id: returns the same id unchanged when the live marker already matches');
+    $alreadyMatching = SessionService::self_heal_agent_session_id('cc-selfheal-match', $healedSidecar, $realId, $realId);
+    assert_equal($realId, $alreadyMatching, 'self_heal_agent_session_id: returns the same id unchanged when the live marker already matches');
 } finally {
     @unlink($settingsPath);
     @unlink(Config::statusline_fallback_script_path());

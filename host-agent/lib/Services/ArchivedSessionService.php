@@ -17,30 +17,30 @@ use HostAgent\Runtimes\RuntimeType;
 class ArchivedSessionService
 {
     /**
-     * Every known transcript NOT in $excludeClaudeSessionIds (the
+     * Every known transcript NOT in $excludeAgentSessionIds (the
      * currently-tracked sessions already shown in the main list) - the
      * dormant/archived half of the unify-claude-sessions plan's dashboard
      * segmentation. Sorted most-recently-active first (the file's own
      * mtime - the simplest available proxy for "last touched" without
      * re-parsing a potentially huge transcript).
      *
-     * @param string[] $excludeClaudeSessionIds
-     * @return array<int, array{claude_session_id:string, cwd:?string, title:string, last_activity:int}>
+     * @param string[] $excludeAgentSessionIds
+     * @return array<int, array{agent_session_id:string, cwd:?string, title:string, last_activity:int}>
      */
-    public static function list_archived_sessions(array $excludeClaudeSessionIds): array
+    public static function list_archived_sessions(array $excludeAgentSessionIds): array
     {
-        $exclude = array_flip($excludeClaudeSessionIds);
+        $exclude = array_flip($excludeAgentSessionIds);
         $archived = [];
 
         foreach (TranscriptService::list_all_transcripts() as $t) {
-            if (isset($exclude[$t['claude_session_id']])) {
+            if (isset($exclude[$t['agent_session_id']])) {
                 continue;
             }
 
             $archived[] = [
-                'claude_session_id' => $t['claude_session_id'],
+                'agent_session_id' => $t['agent_session_id'],
                 'cwd' => $t['cwd'],
-                'title' => SessionService::title_cascade($t['ai_title'], null, $t['cwd'], $t['claude_session_id']),
+                'title' => SessionService::title_cascade($t['ai_title'], null, $t['cwd'], $t['agent_session_id']),
                 'last_activity' => $t['last_activity'],
                 'agent' => 'claude',
                 'agent_label' => 'Claude Code',
@@ -48,14 +48,14 @@ class ArchivedSessionService
         }
 
         foreach (AntigravityTranscriptService::list_all_transcripts() as $t) {
-            if (isset($exclude[$t['claude_session_id']])) {
+            if (isset($exclude[$t['agent_session_id']])) {
                 continue;
             }
 
             $archived[] = [
-                'claude_session_id' => $t['claude_session_id'],
+                'agent_session_id' => $t['agent_session_id'],
                 'cwd' => $t['cwd'],
-                'title' => SessionService::title_cascade(null, null, $t['cwd'], $t['claude_session_id']),
+                'title' => SessionService::title_cascade(null, null, $t['cwd'], $t['agent_session_id']),
                 'last_activity' => $t['last_activity'],
                 'agent' => $t['agent'] ?? 'antigravity',
                 'agent_label' => 'Antigravity',
@@ -88,7 +88,7 @@ class ArchivedSessionService
                     $cwd = is_string($row['directory'] ?? null) && $row['directory'] !== '' ? $row['directory'] : null;
                     $title = is_string($row['title'] ?? null) && trim($row['title']) !== '' ? $row['title'] : $id;
                     $archived[] = [
-                        'claude_session_id' => $id,
+                        'agent_session_id' => $id,
                         'cwd' => $cwd,
                         'title' => $title,
                         'last_activity' => is_numeric($row['time_updated'] ?? null) ? (int)($row['time_updated'] / 1000) : 0,
@@ -118,7 +118,7 @@ class ArchivedSessionService
                     ? $thread['name']
                     : (is_string($thread['preview'] ?? null) ? $thread['preview'] : null);
                 $archived[] = [
-                    'claude_session_id' => $id,
+                    'agent_session_id' => $id,
                     'cwd' => $cwd,
                     'title' => SessionService::title_cascade($nativeTitle, null, $cwd, $id),
                     'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
@@ -131,13 +131,13 @@ class ArchivedSessionService
         // app-server may omit a freshly thread/archive'd rollout from both
         // list partitions. Merge Codex's durable archive directory as the
         // authoritative fallback, de-duplicating catalog rows by thread id.
-        $knownIds = array_flip(array_column($archived, 'claude_session_id'));
+        $knownIds = array_flip(array_column($archived, 'agent_session_id'));
         foreach (CodexTranscriptService::list_archived_rollouts() as $thread) {
             $id = $thread['id'];
             if (isset($exclude[$id]) || isset($knownIds[$id])) continue;
             $cwd = is_string($thread['cwd'] ?? null) && $thread['cwd'] !== '' ? $thread['cwd'] : null;
             $archived[] = [
-                'claude_session_id' => $id,
+                'agent_session_id' => $id,
                 'cwd' => $cwd,
                 'title' => SessionService::title_cascade(null, null, $cwd, $id),
                 'last_activity' => (int)($thread['updatedAt'] ?? $thread['createdAt'] ?? 0),
@@ -171,8 +171,8 @@ class ArchivedSessionService
         $trackedIds = [];
 
         foreach (SessionService::list_all_sessions()['sessions'] as $s) {
-            if (is_string($s['claude_session_id'] ?? null)) {
-                $trackedIds[] = $s['claude_session_id'];
+            if (is_string($s['agent_session_id'] ?? null)) {
+                $trackedIds[] = $s['agent_session_id'];
             }
         }
 
@@ -189,13 +189,13 @@ class ArchivedSessionService
      * same "expensive, user-triggered, not periodic" reasoning as
      * list_archived_dashboard() above.
      *
-     * A result's own claude_session_id doubling as a currently-live tmux
+     * A result's own agent_session_id doubling as a currently-live tmux
      * session name is what tells the caller which page to link to
      * (session.php vs archived_session.php) - same live-vs-archived
      * reconciliation list_archived_dashboard() already does, reused here
      * rather than a second tracked-session scan.
      *
-     * @return array{ok:bool, results:array<int, array{claude_session_id:string, session_name:?string, title:string, cwd:?string, last_activity:int, matches:array<int, array{line:int, snippet:string, role:?string, kind:string}>}>}
+     * @return array{ok:bool, results:array<int, array{agent_session_id:string, session_name:?string, title:string, cwd:?string, last_activity:int, matches:array<int, array{line:int, snippet:string, role:?string, kind:string}>}>}
      */
     public static function search_transcripts(string $query, int $maxSessions, int $maxMatchesPerSession): array
     {
@@ -206,8 +206,8 @@ class ArchivedSessionService
         $liveNamesByClaudeId = [];
 
         foreach (SessionService::list_all_sessions()['sessions'] as $s) {
-            if (is_string($s['claude_session_id'] ?? null)) {
-                $liveNamesByClaudeId[$s['claude_session_id']] = $s['name'];
+            if (is_string($s['agent_session_id'] ?? null)) {
+                $liveNamesByClaudeId[$s['agent_session_id']] = $s['name'];
             }
         }
 
@@ -232,9 +232,9 @@ class ArchivedSessionService
             }
 
             $results[] = [
-                'claude_session_id' => $t['claude_session_id'],
-                'session_name' => $liveNamesByClaudeId[$t['claude_session_id']] ?? null,
-                'title' => SessionService::title_cascade($t['ai_title'], null, $t['cwd'], $t['claude_session_id']),
+                'agent_session_id' => $t['agent_session_id'],
+                'session_name' => $liveNamesByClaudeId[$t['agent_session_id']] ?? null,
+                'title' => SessionService::title_cascade($t['ai_title'], null, $t['cwd'], $t['agent_session_id']),
                 'cwd' => $t['cwd'],
                 'last_activity' => $t['last_activity'],
                 'matches' => $matches,
@@ -257,7 +257,7 @@ class ArchivedSessionService
                 }
 
                 $results[] = [
-                    'claude_session_id' => $t['session_id'],
+                    'agent_session_id' => $t['session_id'],
                     'session_name' => $liveNamesByClaudeId[$t['session_id']] ?? null,
                     'title' => SessionService::title_cascade($t['title'], null, $t['cwd'], $t['session_id']),
                     'cwd' => $t['cwd'],
@@ -276,7 +276,7 @@ class ArchivedSessionService
 
     /**
      * Per-session content search for a currently-live (tracked) session -
-     * resolves $name to its claude_session_id via the sidecar, same
+     * resolves $name to its agent_session_id via the sidecar, same
      * lookup session_history() already does, then defers to
      * transcript_search_for_claude_session() below.
      *
@@ -285,45 +285,45 @@ class ArchivedSessionService
     public static function session_transcript_search(string $name, string $query, int $maxMatches): array
     {
         $sidecar = SidecarStore::read_sidecar($name);
-        $claudeSessionId = $sidecar['claude_session_id'] ?? null;
+        $agentSessionId = $sidecar['agent_session_id'] ?? null;
 
-        if (!is_string($claudeSessionId)) {
+        if (!is_string($agentSessionId)) {
             return ['ok' => false, 'message' => 'No transcript recorded for this session'];
         }
 
-        return self::transcript_search_for_claude_session($claudeSessionId, $query, $maxMatches);
+        return self::transcript_search_for_claude_session($agentSessionId, $query, $maxMatches);
     }
 
     /**
      * The archived-session-view counterpart to session_transcript_search()
-     * above - same search, keyed straight by $claudeSessionId with no
+     * above - same search, keyed straight by $agentSessionId with no
      * sidecar/tmux-name lookup, same reasoning as archived_session_history().
      *
      * @return array{ok:bool, matches?:array<int, array>, message?:string}
      */
-    public static function archived_session_transcript_search(string $claudeSessionId, string $query, int $maxMatches): array
+    public static function archived_session_transcript_search(string $agentSessionId, string $query, int $maxMatches): array
     {
-        return self::transcript_search_for_claude_session($claudeSessionId, $query, $maxMatches);
+        return self::transcript_search_for_claude_session($agentSessionId, $query, $maxMatches);
     }
 
     /**
      * Shared by session_transcript_search()/archived_session_transcript_search() -
-     * both just want transcript matches once they know which claude_session_id
+     * both just want transcript matches once they know which agent_session_id
      * to search, same split as SessionDetailService::
      * transcript_page_for_claude_session() uses for paging.
      *
      * @return array{ok:bool, matches?:array<int, array>, message?:string}
      */
-    private static function transcript_search_for_claude_session(string $claudeSessionId, string $query, int $maxMatches): array
+    private static function transcript_search_for_claude_session(string $agentSessionId, string $query, int $maxMatches): array
     {
-        $path = TranscriptRouter::find_transcript_path($claudeSessionId);
+        $path = TranscriptRouter::find_transcript_path($agentSessionId);
 
         if ($path === null) {
             return ['ok' => false, 'message' => 'Transcript file not found'];
         }
 
         if (TranscriptRouter::is_opencode_path($path)) {
-            return ['ok' => true, 'matches' => OpenCodeTranscriptService::search_transcript($claudeSessionId, $query, max(1, min($maxMatches, 100)))];
+            return ['ok' => true, 'matches' => OpenCodeTranscriptService::search_transcript($agentSessionId, $query, max(1, min($maxMatches, 100)))];
         }
 
         return ['ok' => true, 'matches' => TranscriptService::search_transcript_file($path, $query, max(1, min($maxMatches, 100)))];

@@ -357,7 +357,7 @@ window.SESSIONEER_BOOTSTRAP = <?= json_encode([
     'session' => $sessionName,
     'csrfToken' => $csrfToken,
     'newestLine' => $newestLine,
-    'claudeSessionId' => $detail['claude_session_id'] ?? null,
+    'agentSessionId' => $detail['agent_session_id'] ?? null,
     'jumpLine' => $jumpLine,
     'workdir' => is_string($detail['workdir'] ?? null) ? $detail['workdir'] : null,
     'agent' => $detail['agent'] ?? 'claude',

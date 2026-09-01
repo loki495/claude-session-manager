@@ -7,7 +7,7 @@ namespace HostAgent\Stores;
 use HostAgent\Services\Config;
 
 /**
- * Per-session metadata (workdir, spawned_at, claude_session_id) that
+ * Per-session metadata (workdir, spawned_at, agent_session_id) that
  * doesn't live anywhere tmux itself tracks - one row per app-spawned
  * session in the `sidecars` table of Config::sessions_sqlite_path()
  * (tmpfs, wiped on reboot - see that method's own docblock). Only ever
@@ -32,16 +32,24 @@ class SidecarStore
         SqliteDb::add_column_if_missing($pdo, 'sidecars', 'agent', 'TEXT');
         SqliteDb::add_column_if_missing($pdo, 'sidecars', 'runtime', 'TEXT');
         SqliteDb::add_column_if_missing($pdo, 'sidecars', 'title', 'TEXT');
+        // Transitional: renamed from claude_session_id/spawned_by_csm (Sessioneer
+        // rename, 2026-09-01) - CREATE TABLE IF NOT EXISTS alone never retroactively
+        // renames a column on a table already created under the old schema. Same
+        // add-alongside-not-migrate-in-place approach as the agent/runtime/title
+        // columns above; the old columns are left in place, unused, on the live
+        // (tmpfs, reboot-wiped) table rather than dropped.
+        SqliteDb::add_column_if_missing($pdo, 'sidecars', 'agent_session_id', 'TEXT');
+        SqliteDb::add_column_if_missing($pdo, 'sidecars', 'spawned_by_app', 'INTEGER');
 
         return $pdo;
     }
 
     /**
-     * @return array{workdir:?string, spawned_at:?int, claude_session_id?:?string, spawned_by_csm?:bool, agent?:?string, runtime?:?string, title?:?string}|null
+     * @return array{workdir:?string, spawned_at:?int, agent_session_id?:?string, spawned_by_app?:bool, agent?:?string, runtime?:?string, title?:?string}|null
      */
     public static function read_sidecar(string $sessionName): ?array
     {
-        $stmt = self::db()->prepare('SELECT workdir, spawned_at, claude_session_id, spawned_by_csm, agent, runtime, title FROM sidecars WHERE session_name = ?');
+        $stmt = self::db()->prepare('SELECT workdir, spawned_at, agent_session_id, spawned_by_app, agent, runtime, title FROM sidecars WHERE session_name = ?');
         $stmt->execute([$sessionName]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -49,15 +57,15 @@ class SidecarStore
             return [
                 'workdir' => $row['workdir'],
                 'spawned_at' => $row['spawned_at'] !== null ? (int)$row['spawned_at'] : null,
-                'claude_session_id' => $row['claude_session_id'],
+                'agent_session_id' => $row['agent_session_id'],
                 // Genuinely null (key absent), not coerced to false, when
                 // never written - callers like session_start.php's hook
-                // rely on `$existingSidecar['spawned_by_csm'] ?? <default>`
+                // rely on `$existingSidecar['spawned_by_app'] ?? <default>`
                 // falling through when a sidecar was written without this
                 // key at all (found live 2026-08-24: coercing to false here
                 // made that ?? see an already-"set" value and never fall
                 // through to the hook's own SESSIONEER_SESSION_NAME-based default).
-                'spawned_by_csm' => $row['spawned_by_csm'] !== null ? (bool)$row['spawned_by_csm'] : null,
+                'spawned_by_app' => $row['spawned_by_app'] !== null ? (bool)$row['spawned_by_app'] : null,
                 // Added 2026-08-24 (docs/antigravity-adapter-plan.md Phase
                 // 0) for multi-agent support - a row written before this
                 // column existed reads back null here (add_column_if_missing()
@@ -85,11 +93,11 @@ class SidecarStore
 
     /**
      * $data['agent'] defaults to 'claude' when omitted entirely (not
-     * array_key_exists-preserved the way spawned_by_csm is) - every real
+     * array_key_exists-preserved the way spawned_by_app is) - every real
      * caller as of this column's introduction either knows its own agent
      * explicitly (SessionLifecycleService) or reads-and-re-passes the
      * existing sidecar's own agent field to preserve it across a partial
-     * update (session_start.php, self_heal_claude_session_id() - same
+     * update (session_start.php, self_heal_agent_session_id() - same
      * established pattern those already use for workdir/spawned_at). This
      * default only matters for a caller that genuinely never mentions
      * agent at all, which today means "it's a Claude Code sidecar" - the
@@ -98,13 +106,13 @@ class SidecarStore
     public static function write_sidecar(string $sessionName, array $data): void
     {
         $stmt = self::db()->prepare(
-            'INSERT INTO sidecars (session_name, workdir, spawned_at, claude_session_id, spawned_by_csm, agent, runtime, title)
-             VALUES (:session_name, :workdir, :spawned_at, :claude_session_id, :spawned_by_csm, :agent, :runtime, :title)
+            'INSERT INTO sidecars (session_name, workdir, spawned_at, agent_session_id, spawned_by_app, agent, runtime, title)
+             VALUES (:session_name, :workdir, :spawned_at, :agent_session_id, :spawned_by_app, :agent, :runtime, :title)
              ON CONFLICT(session_name) DO UPDATE SET
                 workdir = excluded.workdir,
                 spawned_at = excluded.spawned_at,
-                claude_session_id = excluded.claude_session_id,
-                spawned_by_csm = excluded.spawned_by_csm,
+                agent_session_id = excluded.agent_session_id,
+                spawned_by_app = excluded.spawned_by_app,
                 agent = excluded.agent,
                 runtime = excluded.runtime,
                 title = excluded.title'
@@ -114,11 +122,11 @@ class SidecarStore
             ':session_name' => $sessionName,
             ':workdir' => $data['workdir'] ?? null,
             ':spawned_at' => $data['spawned_at'] ?? null,
-            ':claude_session_id' => $data['claude_session_id'] ?? null,
+            ':agent_session_id' => $data['agent_session_id'] ?? null,
             // NULL, not 0, when the key is genuinely absent - see
             // read_sidecar()'s own comment on why this three-state
             // (true/false/absent) distinction matters to callers.
-            ':spawned_by_csm' => array_key_exists('spawned_by_csm', $data) ? (!empty($data['spawned_by_csm']) ? 1 : 0) : null,
+            ':spawned_by_app' => array_key_exists('spawned_by_app', $data) ? (!empty($data['spawned_by_app']) ? 1 : 0) : null,
             ':agent' => $data['agent'] ?? 'claude',
             // Bare NULL when the key is absent - callers reading it back as
             // null (see read_sidecar()) treat that as "tmux", which is the
@@ -169,11 +177,11 @@ class SidecarStore
      * Every sidecar row with a given runtime - the headless listing / prune
      * reads from here rather than re-hitting `opencode serve` on each poll.
      *
-     * @return array<int, array{session_name:string, workdir:?string, spawned_at:?int, claude_session_id:?string, agent:?string, runtime:?string, title:?string}>
+     * @return array<int, array{session_name:string, workdir:?string, spawned_at:?int, agent_session_id:?string, agent:?string, runtime:?string, title:?string}>
      */
     public static function list_runtime_sidecars(string $runtime): array
     {
-        $stmt = self::db()->prepare('SELECT session_name, workdir, spawned_at, claude_session_id, agent, runtime, title FROM sidecars WHERE runtime = ?');
+        $stmt = self::db()->prepare('SELECT session_name, workdir, spawned_at, agent_session_id, agent, runtime, title FROM sidecars WHERE runtime = ?');
         $stmt->execute([$runtime]);
         $rows = [];
 
@@ -182,7 +190,7 @@ class SidecarStore
                 'session_name' => (string)$row['session_name'],
                 'workdir' => $row['workdir'],
                 'spawned_at' => $row['spawned_at'] !== null ? (int)$row['spawned_at'] : null,
-                'claude_session_id' => $row['claude_session_id'],
+                'agent_session_id' => $row['agent_session_id'],
                 'agent' => $row['agent'],
                 'runtime' => $row['runtime'],
                 'title' => $row['title'],
@@ -193,20 +201,20 @@ class SidecarStore
     }
 
     /**
-     * Finds the tmux session NAME bound to a given claude_session_id (the
+     * Finds the tmux session NAME bound to a given agent_session_id (the
      * agent-generated ses_* id). OpenCode's plugin reports permissions keyed
      * by ses_*; Sessioneer tracks them under oc-* tmux names, so this reverses that
      * join. Returns null for an id no sidecar is bound to (not a Sessioneer-tracked
      * session, or the id is the harness's own claude id).
      */
-    public static function find_by_claude_session_id(string $claudeSessionId): ?string
+    public static function find_by_agent_session_id(string $agentSessionId): ?string
     {
-        if ($claudeSessionId === '') {
+        if ($agentSessionId === '') {
             return null;
         }
 
-        $stmt = self::db()->prepare('SELECT session_name FROM sidecars WHERE claude_session_id = ? LIMIT 1');
-        $stmt->execute([$claudeSessionId]);
+        $stmt = self::db()->prepare('SELECT session_name FROM sidecars WHERE agent_session_id = ? LIMIT 1');
+        $stmt->execute([$agentSessionId]);
         $row = $stmt->fetch(\PDO::FETCH_NUM);
 
         return $row !== false ? (string)$row[0] : null;

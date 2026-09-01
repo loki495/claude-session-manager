@@ -8,7 +8,7 @@ declare(strict_types=1);
  * including /clear, /compact, --resume, and --fork-session, each of which
  * rotates Claude Code's own transcript to a brand new session-id file
  * while staying in the same tmux pane/process. Without this, a session's
- * sidecar (which records claude_session_id exactly once, at spawn) goes
+ * sidecar (which records agent_session_id exactly once, at spawn) goes
  * stale the moment any of those happen, and the app silently keeps
  * reading an abandoned, no-longer-growing transcript forever after.
  *
@@ -50,17 +50,17 @@ use HostAgent\Stores\SidecarStore;
 
 $input = stream_get_contents(STDIN);
 $payload = json_decode((string)$input, true);
-$claudeSessionId = is_array($payload) ? ($payload['session_id'] ?? null) : null;
+$agentSessionId = is_array($payload) ? ($payload['session_id'] ?? null) : null;
 
-if (!is_string($claudeSessionId) || $claudeSessionId === '') {
+if (!is_string($agentSessionId) || $agentSessionId === '') {
     exit(0);
 }
 
-$spawnedByCsm = getenv('SESSIONEER_SESSION_NAME');
+$spawnedByApp = getenv('SESSIONEER_SESSION_NAME');
 $createIfMissing = false;
 
-if (is_string($spawnedByCsm) && $spawnedByCsm !== '') {
-    $sessionName = $spawnedByCsm;
+if (is_string($spawnedByApp) && $spawnedByApp !== '') {
+    $sessionName = $spawnedByApp;
 } else {
     if (getenv('TMUX') === false) {
         exit(0); // no tmux pane at all - nothing to key an adopted sidecar by
@@ -104,7 +104,7 @@ if ($existingSidecar === null && !$createIfMissing) {
 // already found for the Stop hook, see tests/README/todo notes on that).
 $transcriptConfirmed = false;
 for ($attempt = 0; $attempt < 4; $attempt++) {
-    if (TranscriptService::find_transcript_path($claudeSessionId) !== null) {
+    if (TranscriptService::find_transcript_path($agentSessionId) !== null) {
         $transcriptConfirmed = true;
         break;
     }
@@ -115,7 +115,7 @@ if (!$transcriptConfirmed) {
     exit(0);
 }
 
-// Found live 2026-08-23: a real transcript existing for $claudeSessionId
+// Found live 2026-08-23: a real transcript existing for $agentSessionId
 // isn't enough - it may be a DIFFERENT pane's own real, currently-live
 // session (e.g. a nested `claude` child process spawned from this pane's
 // Bash tool, inheriting SESSIONEER_SESSION_NAME from the parent pane's env,
@@ -125,7 +125,7 @@ if (!$transcriptConfirmed) {
 // duplicates of each other. Refuse the rebind when the id is already
 // live on a DIFFERENT tracked session; excludeSessionName lets this
 // pane's own already-bound id re-confirm without tripping over itself.
-if (SessionLifecycleService::claude_session_id_already_live($claudeSessionId, $sessionName)) {
+if (SessionLifecycleService::agent_session_id_already_live($agentSessionId, $sessionName)) {
     exit(0);
 }
 
@@ -139,12 +139,12 @@ $cwd = is_array($payload) && is_string($payload['cwd'] ?? null) && $payload['cwd
 SidecarStore::write_sidecar($sessionName, [
     'workdir' => $existingSidecar['workdir'] ?? $cwd,
     'spawned_at' => $existingSidecar['spawned_at'] ?? time(),
-    'claude_session_id' => $claudeSessionId,
+    'agent_session_id' => $agentSessionId,
     'agent' => $existingSidecar['agent'] ?? 'claude',
     // Lets the dashboard tell "this app spawned the pane" apart from "this
     // app adopted a pane Andres started by hand" without re-deriving it
     // from the session name later (e.g. to decide whether Kill should
     // just tear down a pane this app made, versus needing more care for
     // one Andres is also using directly outside the app).
-    'spawned_by_csm' => $existingSidecar['spawned_by_csm'] ?? (is_string($spawnedByCsm) && $spawnedByCsm !== ''),
+    'spawned_by_app' => $existingSidecar['spawned_by_app'] ?? (is_string($spawnedByApp) && $spawnedByApp !== ''),
 ]);

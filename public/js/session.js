@@ -42,7 +42,7 @@
   // between polls. null means "not known yet" (e.g. a session_detail.php
   // call errors before this is ever set) - deliberately never treated as
   // a change on its own, only a real id -> a DIFFERENT real id is.
-  var currentClaudeSessionId = window.SESSIONEER_BOOTSTRAP.claudeSessionId || null;
+  var currentAgentSessionId = window.SESSIONEER_BOOTSTRAP.agentSessionId || null;
   var sessionAgent = window.SESSIONEER_BOOTSTRAP.agent || 'claude';
   var sessionAgentLabel = window.SESSIONEER_BOOTSTRAP.agentLabel || (sessionAgent === 'antigravity' ? 'Antigravity' : (sessionAgent === 'codex' ? 'Codex' : 'Claude Code'));
 
@@ -1915,7 +1915,7 @@
 
   // Wipes the rendered history and pagination state clean, same in spirit
   // to how a real terminal clears on /clear - called once a rotation to a
-  // brand new transcript file is detected (see currentClaudeSessionId
+  // brand new transcript file is detected (see currentAgentSessionId
   // above), since every already-rendered entry belongs to the now-
   // abandoned old file and the "Load older messages" cursor (btn.dataset.
   // before) points into it too.
@@ -1943,12 +1943,12 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data && data.ok) {
-          if (typeof data.claude_session_id === 'string' && data.claude_session_id !== '') {
-            if (currentClaudeSessionId !== null && data.claude_session_id !== currentClaudeSessionId) {
+          if (typeof data.agent_session_id === 'string' && data.agent_session_id !== '') {
+            if (currentAgentSessionId !== null && data.agent_session_id !== currentAgentSessionId) {
               resetHistoryForRotatedTranscript();
             }
 
-            currentClaudeSessionId = data.claude_session_id;
+            currentAgentSessionId = data.agent_session_id;
           }
 
           renderStaticInfo(data);

@@ -43,7 +43,7 @@ $router->get('/session_history.php', [SessionController::class, 'history']);
 $router->get('/session_attachment.php', [SessionController::class, 'attachment']);
 $router->get('/session_search.php', [SessionController::class, 'search']);
 
-// Reads `claude_session_id` from either GET or POST, same as session.php's own `session` param.
+// Reads `agent_session_id` from either GET or POST, same as session.php's own `session` param.
 $router->get('/archived_session.php', [SessionController::class, 'showArchived']);
 $router->post('/archived_session.php', [SessionController::class, 'showArchived']);
 $router->get('/archived_session_history_fragment.php', [SessionController::class, 'archivedHistoryFragment']);

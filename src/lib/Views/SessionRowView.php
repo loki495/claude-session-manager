@@ -201,8 +201,8 @@ class SessionRowView extends View
     public static function archived_session_row_html(array $a, string $csrfToken): string
     {
         return self::render('session-row/archived-row', [
-            'claudeSessionId' => (string)$a['claude_session_id'],
-            'title' => (string)($a['title'] ?? $a['claude_session_id']),
+            'agentSessionId' => (string)$a['agent_session_id'],
+            'title' => (string)($a['title'] ?? $a['agent_session_id']),
             'cwd' => $a['cwd'] ?? null,
             'relativeTime' => self::relative_time((int)($a['last_activity'] ?? 0)),
             'csrfToken' => $csrfToken,

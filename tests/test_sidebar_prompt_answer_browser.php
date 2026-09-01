@@ -45,7 +45,7 @@ declare(strict_types=1);
  * is one process-wide env var - see replay_setup()'s own doc comment) under
  * their own separate .claude/projects/ subdirectories, since
  * TranscriptService::find_transcript_path() globs across every project dir
- * for a matching claude_session_id.jsonl rather than caring what the
+ * for a matching agent_session_id.jsonl rather than caring what the
  * directory is named.
  *
  * PromptInteractionService::answer_prompt()/answer_prompt_with_text() (the
@@ -131,16 +131,16 @@ function browser_wait_until(callable $check, float $timeoutSeconds = 20.0): bool
  *
  * @param string[] $paneTextLines
  * @param array<string, mixed> $hookStatus
- * @return array{session_name:string, claude_session_id:string, project_dir:string, transcript_path:string}
+ * @return array{session_name:string, agent_session_id:string, project_dir:string, transcript_path:string}
  */
 function spawn_side_session(string $suffix, string $fixtureHome, string $workdir, array $paneTextLines, array $hookStatus): array
 {
     $sessionName = 'cc-test-sidebar-' . $suffix . '-' . getmypid();
-    $claudeSessionId = sprintf('8%07d-8888-4888-8888-%012d', getmypid() % 10000000, getmypid());
+    $agentSessionId = sprintf('8%07d-8888-4888-8888-%012d', getmypid() % 10000000, getmypid());
 
     $projectDir = $fixtureHome . '/.claude/projects/-sidebar-' . $suffix . '-project';
     @mkdir($projectDir, 0700, true);
-    $transcriptPath = "{$projectDir}/{$claudeSessionId}.jsonl";
+    $transcriptPath = "{$projectDir}/{$agentSessionId}.jsonl";
     file_put_contents(
         $transcriptPath,
         json_encode([
@@ -171,8 +171,8 @@ function spawn_side_session(string $suffix, string $fixtureHome, string $workdir
     replay_write_sidecar($sessionName, [
         'workdir' => $workdir,
         'spawned_at' => time(),
-        'claude_session_id' => $claudeSessionId,
-        'spawned_by_csm' => true,
+        'agent_session_id' => $agentSessionId,
+        'spawned_by_app' => true,
     ]);
 
     foreach ($paneTextLines as $line) {
@@ -183,7 +183,7 @@ function spawn_side_session(string $suffix, string $fixtureHome, string $workdir
 
     return [
         'session_name' => $sessionName,
-        'claude_session_id' => $claudeSessionId,
+        'agent_session_id' => $agentSessionId,
         'project_dir' => $projectDir,
         'transcript_path' => $transcriptPath,
     ];

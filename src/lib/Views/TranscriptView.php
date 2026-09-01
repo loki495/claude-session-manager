@@ -80,14 +80,14 @@ class TranscriptView extends View
      * along with $fileUuid, that's enough for the host-agent to re-derive
      * the real file path itself (see TranscriptService::read_attachment()),
      * without the browser ever seeing it. $isArchived routes to the
-     * archived-session-view counterpart endpoint, keyed by claude_session_id
+     * archived-session-view counterpart endpoint, keyed by agent_session_id
      * rather than a live tmux session name - a dormant session has no
      * sidecar for session_attachment.php's own action to resolve one from.
      */
     public static function attachment_url(string $sessionIdentifier, int $line, string $fileUuid, bool $isArchived = false): string
     {
         if ($isArchived) {
-            return '/archived_session_attachment.php?claude_session_id=' . rawurlencode($sessionIdentifier) . '&line=' . $line . '&file_uuid=' . rawurlencode($fileUuid);
+            return '/archived_session_attachment.php?agent_session_id=' . rawurlencode($sessionIdentifier) . '&line=' . $line . '&file_uuid=' . rawurlencode($fileUuid);
         }
 
         return '/session_attachment.php?session=' . rawurlencode($sessionIdentifier) . '&line=' . $line . '&file_uuid=' . rawurlencode($fileUuid);
@@ -797,9 +797,9 @@ class TranscriptView extends View
 
     /**
      * $sessionIdentifier is a live tmux session name, unless $isArchived is
-     * true, in which case it's a claude_session_id instead (see
+     * true, in which case it's a agent_session_id instead (see
      * attachment_url()) - the archived-session read-only view's own
-     * counterpart to session.php passes its claude_session_id here.
+     * counterpart to session.php passes its agent_session_id here.
      *
      * @param array{role:?string, timestamp:?string, line?:int, blocks:array<int, array{kind:string, text:string}>} $entry
      */

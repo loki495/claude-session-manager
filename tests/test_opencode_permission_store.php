@@ -65,7 +65,7 @@ try {
 
     // --- sidecar join: ses_* -> Sessioneer session name via a fixture sidecar ---
     $sessName = 'oc-test-ocps-' . getmypid();
-    SidecarStore::write_sidecar($sessName, ['workdir' => sys_get_temp_dir(), 'spawned_at' => time(), 'claude_session_id' => $ses, 'spawned_by_csm' => true, 'agent' => 'opencode']);
+    SidecarStore::write_sidecar($sessName, ['workdir' => sys_get_temp_dir(), 'spawned_at' => time(), 'agent_session_id' => $ses, 'spawned_by_app' => true, 'agent' => 'opencode']);
     assert_equal($sessName, PermissionStore::find_by_session_id($ses), 'find_by_session_id: resolves ses_* to the bound sidecar session name');
     assert_equal(null, PermissionStore::find_by_session_id('ses_nonexistent'), 'find_by_session_id: null for an unbound id');
     SidecarStore::delete_sidecar($sessName);

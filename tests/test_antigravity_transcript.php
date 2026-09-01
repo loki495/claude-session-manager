@@ -157,11 +157,11 @@ try {
 
     $claudeFixtureDir = Config::home_root() . '/.claude/projects/-fixture-project';
     mkdir($claudeFixtureDir, 0700, true);
-    $claudeSessionId = '11111111-1111-4111-8111-111111111111';
-    $claudeTranscriptPath = "{$claudeFixtureDir}/{$claudeSessionId}.jsonl";
+    $agentSessionId = '11111111-1111-4111-8111-111111111111';
+    $claudeTranscriptPath = "{$claudeFixtureDir}/{$agentSessionId}.jsonl";
     file_put_contents($claudeTranscriptPath, json_encode(['type' => 'user', 'message' => ['role' => 'user', 'content' => 'hello from claude code']]) . "\n");
 
-    assert_equal($claudeTranscriptPath, TranscriptRouter::find_transcript_path($claudeSessionId), 'TranscriptRouter::find_transcript_path: still resolves a real Claude Code session via TranscriptService, unaffected by AntigravityTranscriptService existing');
+    assert_equal($claudeTranscriptPath, TranscriptRouter::find_transcript_path($agentSessionId), 'TranscriptRouter::find_transcript_path: still resolves a real Claude Code session via TranscriptService, unaffected by AntigravityTranscriptService existing');
     assert_equal(TranscriptService::read_transcript_page($claudeTranscriptPath, null, 10), TranscriptRouter::read_transcript_page($claudeTranscriptPath, null, 10), 'TranscriptRouter::read_transcript_page: a Claude Code path routes to TranscriptService, not AntigravityTranscriptService');
 } finally {
     @unlink($transcriptPath);

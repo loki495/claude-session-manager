@@ -64,7 +64,7 @@ class PromptInteractionService
 
         if ($agent === 'opencode') {
             $sidecarOc = SidecarStore::read_sidecar($name);
-            $ocSessionId = is_string($sidecarOc['claude_session_id'] ?? null) ? $sidecarOc['claude_session_id'] : null;
+            $ocSessionId = is_string($sidecarOc['agent_session_id'] ?? null) ? $sidecarOc['agent_session_id'] : null;
 
             // Prefer the serve API (authoritative, orphan-safe: GET /question
             // returns the live request or [] when nothing/orphaned). Fall back
@@ -102,7 +102,7 @@ class PromptInteractionService
         // reliable path - mirrors how opencode/web answers.
         if (($prompt['tool_name'] ?? null) === 'question') {
             $sidecarQ = SidecarStore::read_sidecar($name);
-            $ocQid = is_string($sidecarQ['claude_session_id'] ?? null) ? $sidecarQ['claude_session_id'] : null;
+            $ocQid = is_string($sidecarQ['agent_session_id'] ?? null) ? $sidecarQ['agent_session_id'] : null;
 
             if ($ocQid === null) {
                 return ['ok' => false, 'message' => 'Rejected: no OpenCode session id for this question'];

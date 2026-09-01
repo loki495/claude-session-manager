@@ -65,7 +65,7 @@ function dispatch_action(array $request): array
             return SessionDetailService::session_detail($session);
 
         case 'archived_session_detail':
-            return SessionDetailService::archived_session_detail((string)($request['claude_session_id'] ?? ''));
+            return SessionDetailService::archived_session_detail((string)($request['agent_session_id'] ?? ''));
 
         case 'session_history':
             $historySession = (string)($request['session'] ?? '');
@@ -87,7 +87,7 @@ function dispatch_action(array $request): array
 
         case 'archived_session_history':
             return SessionDetailService::archived_session_history(
-                (string)($request['claude_session_id'] ?? ''),
+                (string)($request['agent_session_id'] ?? ''),
                 isset($request['before']) ? (int)$request['before'] : null,
                 isset($request['limit']) ? (int)$request['limit'] : 30,
                 isset($request['after']) ? (int)$request['after'] : null
@@ -109,7 +109,7 @@ function dispatch_action(array $request): array
 
         case 'archived_session_transcript_search':
             return ArchivedSessionService::archived_session_transcript_search(
-                (string)($request['claude_session_id'] ?? ''),
+                (string)($request['agent_session_id'] ?? ''),
                 (string)($request['query'] ?? ''),
                 isset($request['max_matches']) ? (int)$request['max_matches'] : 20
             );
@@ -123,7 +123,7 @@ function dispatch_action(array $request): array
 
         case 'archived_session_attachment':
             return SessionDetailService::archived_session_attachment(
-                (string)($request['claude_session_id'] ?? ''),
+                (string)($request['agent_session_id'] ?? ''),
                 (int)($request['line'] ?? 0),
                 (string)($request['file_uuid'] ?? '')
             );
@@ -164,8 +164,8 @@ function dispatch_action(array $request): array
                     SidecarStore::write_sidecar($createdId, [
                         'workdir' => $workdir,
                         'spawned_at' => time(),
-                        'claude_session_id' => $createdId,
-                        'spawned_by_csm' => true,
+                        'agent_session_id' => $createdId,
+                        'spawned_by_app' => true,
                         'agent' => $agentId,
                         'runtime' => RuntimeType::HEADLESS,
                         'title' => is_string($createdSession['title'] ?? null) && $createdSession['title'] !== '' ? $createdSession['title'] : null,
@@ -197,7 +197,7 @@ function dispatch_action(array $request): array
 
         case 'resume':
             $resumeWorkdir = (string)($request['workdir'] ?? '');
-            $resumeId = (string)($request['claude_session_id'] ?? '');
+            $resumeId = (string)($request['agent_session_id'] ?? '');
 
             // Headless sessions (opencode/codex) resume via their respective
             // runtimes - no tmux pane spawned. claude/antigravity keep the
@@ -244,7 +244,7 @@ function dispatch_action(array $request): array
             return BareProcessService::take_over_bare_process_with_id(
                 (int)($request['pid'] ?? 0),
                 (string)($request['workdir'] ?? ''),
-                (string)($request['claude_session_id'] ?? '')
+                (string)($request['agent_session_id'] ?? '')
             );
 
         case 'answer_prompt':
@@ -422,7 +422,7 @@ function sessioneer_merge_headless_sessions(array $sessions): array
             'attached' => false,
             'pid' => null,
             'workdir' => $h['workdir'],
-            'spawned_by_csm' => true,
+            'spawned_by_app' => true,
             'kind' => $h['kind'] ?? 'user',
             'parent_session_id' => $h['parent_session_id'] ?? null,
             'agent' => $agentId,
@@ -455,7 +455,7 @@ function sessioneer_merge_headless_sessions(array $sessions): array
             'current_model' => null,
             'current_antigravity_model' => null,
             'last_turn_error' => null,
-            'claude_session_id' => $h['id'],
+            'agent_session_id' => $h['id'],
             'last_message' => null,
             'context_used_percentage' => null,
             'git_worktree' => null,
@@ -602,8 +602,8 @@ function sessioneer_headless_sync(): void
         SidecarStore::write_sidecar($id, [
             'workdir' => $workdir,
             'spawned_at' => $createdMs > 0 ? (int)round($createdMs / 1000) : time(),
-            'claude_session_id' => $id,
-            'spawned_by_csm' => true,
+            'agent_session_id' => $id,
+            'spawned_by_app' => true,
             'agent' => 'opencode',
             'runtime' => RuntimeType::HEADLESS,
             'title' => $title,
@@ -719,8 +719,8 @@ function sessioneer_codex_sync(): void
         SidecarStore::write_sidecar($id, [
             'workdir' => is_string($thread['cwd'] ?? null) ? $thread['cwd'] : null,
             'spawned_at' => (int)($thread['createdAt'] ?? time()),
-            'claude_session_id' => $id,
-            'spawned_by_csm' => true,
+            'agent_session_id' => $id,
+            'spawned_by_app' => true,
             'agent' => 'codex',
             'runtime' => RuntimeType::HEADLESS,
             'title' => is_string($thread['name'] ?? null) && $thread['name'] !== ''
@@ -892,7 +892,7 @@ function sessioneer_headless_answer_prompt(string $ref, array $answers): array
  *
  * @return array{ok:bool, name?:string, session?:string, id?:string, message?:string}
  */
-function sessioneer_headless_resume(string $workdir, string $claudeSessionId): array
+function sessioneer_headless_resume(string $workdir, string $agentSessionId): array
 {
     if ($workdir === '' || $workdir[0] !== '/') {
         return ['ok' => false, 'message' => 'Working directory must be an absolute path'];
@@ -904,7 +904,7 @@ function sessioneer_headless_resume(string $workdir, string $claudeSessionId): a
         return ['ok' => false, 'message' => 'Working directory does not exist'];
     }
 
-    $result = $client->resume_session($claudeSessionId, $workdir);
+    $result = $client->resume_session($agentSessionId, $workdir);
 
     if ($result['ok'] !== true || !is_string($result['id'] ?? null)) {
         return ['ok' => false, 'message' => $result['message'] ?? 'Resume failed'];
@@ -916,8 +916,8 @@ function sessioneer_headless_resume(string $workdir, string $claudeSessionId): a
     SidecarStore::write_sidecar($id, [
         'workdir' => $workdir,
         'spawned_at' => time(),
-        'claude_session_id' => $id,
-        'spawned_by_csm' => true,
+        'agent_session_id' => $id,
+        'spawned_by_app' => true,
         'agent' => 'opencode',
         'runtime' => RuntimeType::HEADLESS,
         'title' => is_string($createdSession['title'] ?? null) && $createdSession['title'] !== '' ? $createdSession['title'] : null,
@@ -951,8 +951,8 @@ function sessioneer_codex_resume(string $workdir, string $threadId): array
     SidecarStore::write_sidecar($threadId, [
         'workdir' => $workdir,
         'spawned_at' => time(),
-        'claude_session_id' => $threadId,
-        'spawned_by_csm' => true,
+        'agent_session_id' => $threadId,
+        'spawned_by_app' => true,
         'agent' => 'codex',
         'runtime' => RuntimeType::HEADLESS,
     ]);
@@ -963,7 +963,7 @@ function sessioneer_codex_resume(string $workdir, string $threadId): array
 /**
  * Normalizes a headless session's serve detail object into the same
  * session-entry shape the session.php page + sidebar expect (title/name/
- * workdir/agent/agent_label/claude_session_id/status). The raw serve GET
+ * workdir/agent/agent_label/agent_session_id/status). The raw serve GET
  * /session/{id} object carries id/title/directory but none of those keys,
  * which is why a headless session page used to render broken/blank instead
  * of loading - see docs/headless-runtime-plan.md Phase 3. Status comes from
@@ -1016,7 +1016,7 @@ function sessioneer_headless_detail_shape(array $serve, string $agentId = 'openc
         'directory' => $workdir,
         'agent' => $agentId,
         'agent_label' => AgentRegistry::get($agentId)->label(),
-        'claude_session_id' => $id,
+        'agent_session_id' => $id,
         'runtime' => RuntimeType::HEADLESS,
         'status' => is_string($status['status'] ?? null) ? $status['status'] : 'idle',
         'working' => ($status['status'] ?? null) === 'working',

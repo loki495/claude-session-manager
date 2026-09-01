@@ -448,7 +448,7 @@ class QuotaService
         }
 
         if ($agent === 'opencode') {
-            $opencodeSessionId = is_string($sidecar['claude_session_id'] ?? null) ? $sidecar['claude_session_id'] : null;
+            $opencodeSessionId = is_string($sidecar['agent_session_id'] ?? null) ? $sidecar['agent_session_id'] : null;
             $ocSessionLive = self::opencode_quota_state($opencodeSessionId);
             $goLive = self::opencode_go_quota_state();
             if ($goLive !== null) {

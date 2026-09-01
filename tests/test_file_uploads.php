@@ -26,7 +26,7 @@ $fixtureWorkdir = sys_get_temp_dir() . '/sessioneer-test-uploads-' . bin2hex(ran
 mkdir($fixtureWorkdir, 0700, true);
 
 $sessionName = 'cc-test-uploads-' . bin2hex(random_bytes(4));
-SidecarStore::write_sidecar($sessionName, ['workdir' => $fixtureWorkdir, 'spawned_at' => time(), 'claude_session_id' => null]);
+SidecarStore::write_sidecar($sessionName, ['workdir' => $fixtureWorkdir, 'spawned_at' => time(), 'agent_session_id' => null]);
 
 function rrmdir(string $dir): void
 {
@@ -122,7 +122,7 @@ try {
     $emptySessionName = 'cc-test-uploads-empty-' . bin2hex(random_bytes(4));
     $emptyWorkdir = sys_get_temp_dir() . '/sessioneer-test-uploads-empty-' . bin2hex(random_bytes(4));
     mkdir($emptyWorkdir, 0700, true);
-    SidecarStore::write_sidecar($emptySessionName, ['workdir' => $emptyWorkdir, 'spawned_at' => time(), 'claude_session_id' => null]);
+    SidecarStore::write_sidecar($emptySessionName, ['workdir' => $emptyWorkdir, 'spawned_at' => time(), 'agent_session_id' => null]);
     $emptyListed = UploadService::list_uploaded_files($emptySessionName);
     assert_equal(true, $emptyListed['ok'] ?? null, 'list_uploaded_files: ok=true even when the uploads dir has never been created yet');
     assert_equal([], $emptyListed['files'] ?? null, 'list_uploaded_files: empty list, not an error, when nothing has ever been uploaded');

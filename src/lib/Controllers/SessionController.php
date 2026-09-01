@@ -83,9 +83,9 @@ class SessionController extends Controller
 
     /**
      * The archived (dormant) session read-only view's full-page render -
-     * reads `claude_session_id` from either GET or POST with no method
+     * reads `agent_session_id` from either GET or POST with no method
      * check (matches show()'s own `session` handling), the counterpart to
-     * show() above but keyed by claude_session_id (a dormant session has
+     * show() above but keyed by agent_session_id (a dormant session has
      * no live tmux name to look up by) and rendering a deliberately
      * separate, much smaller template: no compose bar, no live polling, no
      * mode toggle, no Kill button - nothing here is actionable. This is
@@ -97,15 +97,15 @@ class SessionController extends Controller
     {
         AuthService::start_app_session();
 
-        $claudeSessionId = trim((string)($_GET['claude_session_id'] ?? $_POST['claude_session_id'] ?? ''));
+        $agentSessionId = trim((string)($_GET['agent_session_id'] ?? $_POST['agent_session_id'] ?? ''));
 
-        if ($claudeSessionId === '') {
+        if ($agentSessionId === '') {
             header('Location: /', true, 303);
 
             return;
         }
 
-        $detail = AgentClient::agent_call(['action' => 'archived_session_detail', 'claude_session_id' => $claudeSessionId]);
+        $detail = AgentClient::agent_call(['action' => 'archived_session_detail', 'agent_session_id' => $agentSessionId]);
         $found = (bool)($detail['ok'] ?? false);
 
         // See show()'s own jump_line handling above - same reasoning, minus
@@ -118,7 +118,7 @@ class SessionController extends Controller
 
         $history = $found ? AgentClient::agent_call([
             'action' => 'archived_session_history',
-            'claude_session_id' => $claudeSessionId,
+            'agent_session_id' => $agentSessionId,
             'before' => $jumpLine !== null ? $jumpLine + 1 : null,
             'limit' => 30,
         ]) : ['ok' => false];
@@ -128,7 +128,7 @@ class SessionController extends Controller
         $hasMore = $historyOk && ($history['has_more'] ?? false);
 
         echo PageView::render_archived_session_page([
-            'claudeSessionId' => $claudeSessionId,
+            'agentSessionId' => $agentSessionId,
             'detail' => $detail,
             'found' => $found,
             'history' => $history,
@@ -154,12 +154,12 @@ class SessionController extends Controller
     {
         $this->start_readonly_json();
 
-        $claudeSessionId = (string)($_GET['claude_session_id'] ?? '');
+        $agentSessionId = (string)($_GET['agent_session_id'] ?? '');
         $before = isset($_GET['before']) ? (int)$_GET['before'] : null;
 
         $history = AgentClient::agent_call([
             'action' => 'archived_session_history',
-            'claude_session_id' => $claudeSessionId,
+            'agent_session_id' => $agentSessionId,
             'before' => $before,
             'limit' => 30,
         ]);
@@ -170,7 +170,7 @@ class SessionController extends Controller
             return;
         }
 
-        $html = TranscriptView::render_transcript_entries_html($history['entries'] ?? [], $claudeSessionId, true, is_string($history['cwd'] ?? null) ? $history['cwd'] : null, 'Claude Code');
+        $html = TranscriptView::render_transcript_entries_html($history['entries'] ?? [], $agentSessionId, true, is_string($history['cwd'] ?? null) ? $history['cwd'] : null, 'Claude Code');
 
         echo json_encode([
             'ok' => true,
@@ -274,7 +274,7 @@ class SessionController extends Controller
 
     /**
      * The archived-session-view counterpart to search() above - same
-     * search, keyed by claude_session_id instead of a live tmux name.
+     * search, keyed by agent_session_id instead of a live tmux name.
      */
     public function archivedSearch(): void
     {
@@ -282,7 +282,7 @@ class SessionController extends Controller
 
         echo json_encode(AgentClient::agent_call([
             'action' => 'archived_session_transcript_search',
-            'claude_session_id' => (string)($_GET['claude_session_id'] ?? ''),
+            'agent_session_id' => (string)($_GET['agent_session_id'] ?? ''),
             'query' => trim((string)($_GET['q'] ?? '')),
             'max_matches' => 20,
         ]));
@@ -411,7 +411,7 @@ class SessionController extends Controller
     /**
      * The archived-session-view counterpart to attachment() above - same
      * binary-endpoint contract, just backed by archived_session_attachment
-     * (keyed by claude_session_id, no live tmux session/sidecar involved).
+     * (keyed by agent_session_id, no live tmux session/sidecar involved).
      */
     public function archivedAttachment(): void
     {
@@ -419,7 +419,7 @@ class SessionController extends Controller
 
         self::stream_binary_result(AgentClient::agent_call([
             'action' => 'archived_session_attachment',
-            'claude_session_id' => (string)($_GET['claude_session_id'] ?? ''),
+            'agent_session_id' => (string)($_GET['agent_session_id'] ?? ''),
             'line' => (int)($_GET['line'] ?? 0),
             'file_uuid' => (string)($_GET['file_uuid'] ?? ''),
         ]), immutable: true);

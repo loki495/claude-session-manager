@@ -219,9 +219,9 @@ document.addEventListener('keydown', function (e) {
     var picker = row.querySelector('.take-over-picker');
     var options = (data.candidates || []).map(function (c) {
       var when = c.last_activity ? new Date(c.last_activity * 1000).toLocaleString() : '';
-      var selected = c.claude_session_id === data.suggested_claude_session_id ? ' selected' : '';
-      return '<option value="' + escapeHtml(c.claude_session_id) + '"' + selected + '>'
-        + escapeHtml(c.title || c.claude_session_id) + ' - ' + escapeHtml(when) + '</option>';
+      var selected = c.agent_session_id === data.suggested_agent_session_id ? ' selected' : '';
+      return '<option value="' + escapeHtml(c.agent_session_id) + '"' + selected + '>'
+        + escapeHtml(c.title || c.agent_session_id) + ' - ' + escapeHtml(when) + '</option>';
     }).join('');
 
     if (options === '') {
@@ -315,7 +315,7 @@ document.addEventListener('keydown', function (e) {
         pid: confirmRow.dataset.pid,
         csrf_token: confirmRow.dataset.csrfToken,
         workdir: picker.dataset.workdir,
-        claude_session_id: select.value
+        agent_session_id: select.value
       }).toString()
     })
       .then(function (r) { return parseJsonResponse(r, 'take-over-bare-confirm'); })
@@ -1123,7 +1123,7 @@ document.addEventListener('keydown', function (e) {
     results.innerHTML = sessionResults.map(function (r) {
       var url = r.session_name
         ? '/session.php?session=' + encodeURIComponent(r.session_name) + '&jump_line=' + encodeURIComponent(r.matches[0].line)
-        : '/archived_session.php?claude_session_id=' + encodeURIComponent(r.claude_session_id) + '&jump_line=' + encodeURIComponent(r.matches[0].line);
+        : '/archived_session.php?agent_session_id=' + encodeURIComponent(r.agent_session_id) + '&jump_line=' + encodeURIComponent(r.matches[0].line);
 
       var matchesHtml = r.matches.map(function (m) {
         var roleLabel = m.role === 'user' ? 'You' : (m.role === 'assistant' ? 'Claude' : (m.kind === 'tool_use' ? 'Tool call' : 'Tool output'));
@@ -1148,7 +1148,7 @@ document.addEventListener('keydown', function (e) {
           ? '<form method="post" action="/" class="shrink-0">'
             + '<input type="hidden" name="action" value="resume">'
             + '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">'
-            + '<input type="hidden" name="claude_session_id" value="' + escapeHtml(r.claude_session_id) + '">'
+            + '<input type="hidden" name="agent_session_id" value="' + escapeHtml(r.agent_session_id) + '">'
             + '<input type="hidden" name="workdir" value="' + escapeHtml(r.cwd) + '">'
             + '<button type="submit" class="select-none rounded-lg border border-slate-700 bg-slate-800 active:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5">Unarchive</button>'
             + '</form>'
