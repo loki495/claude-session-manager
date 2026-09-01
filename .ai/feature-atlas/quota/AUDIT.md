@@ -6,7 +6,7 @@ generated_at: 2026-08-25
 
 # Usage quota (Claude statusline + Antigravity `/usage` poll) — maintainability audit
 
-Verified by re-reading the source against `.claude/feature-atlas/quota/DETAILS.md`
+Verified by re-reading the source against `.ai/feature-atlas/quota/DETAILS.md`
 (repo HEAD `44e4caab` == DETAILS.md's `last_scanned_commit`, so the map is
 current — no meaningful drift). All findings below cite current `file:line`.
 
