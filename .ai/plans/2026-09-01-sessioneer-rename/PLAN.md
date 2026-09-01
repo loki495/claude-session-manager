@@ -101,19 +101,30 @@ same as this codebase's own established pattern for exactly this situation.
 
 ## Task 4 — Repo + directory rename
 
-**Objective:** Rename the GitHub repo (`loki495/claude-session-manager` →
-`loki495/sessioneer`) and the local directory (`~/www/claude-session-manager` →
+**Status:** done. GitHub repo renamed (`loki495/claude-session-manager` ->
+`loki495/sessioneer`, confirmed reachable), local remote URL updated and verified
+(`git ls-remote`), local directory renamed (`~/www/claude-session-manager` ->
 `~/www/sessioneer`).
 
-**Status:** pending
+**Real risk found and handled**: the currently-INSTALLED systemd units
+(`~/.config/systemd/user/csm-agent@.service` etc., still `csm-*`-named — that's
+Task 5's job) hardcode the OLD absolute path in `ExecStart=`/`EnvironmentFile=`.
+Renaming the directory outright would have broken the live host-agent, Codex
+bridge, and push-check services immediately (same class of issue as Task 3's
+incident). Fixed by leaving a symlink at the old path
+(`~/www/claude-session-manager -> ~/www/sessioneer`) pointing to the new location
+— every currently-live absolute-path reference keeps working transparently until
+Task 5 renames the systemd units for real (name + path together), at which point
+the symlink can be removed.
 
-**Implementation notes:** GitHub keeps an automatic redirect from the old slug, so
-this is lower-risk than it feels — but update the local git remote URL after (or
-confirm it still resolves via the redirect), and check for any absolute-path
-assumptions in `.env`/`.env.testing`/systemd unit `WorkingDirectory=`/`ExecStart=`
-lines that would break on a directory move. Do this AFTER Task 2/3 are committed —
-renaming the directory mid-work would break relative-path assumptions in an
-in-progress editing session.
+Also updated absolute-path references to the new location directly (redundant
+with the symlink but cleaner): the tracked `tests/.env.testing`, and the
+gitignored `host-agent/.env`'s `PUSH_SUBSCRIPTIONS_FILE`/`PUSH_STATE_FILE`.
+
+**Acceptance criteria:** met — full test suite re-run from the new path (31 files,
+zero failures); live dashboard smoke test confirms all real sessions still list
+correctly; systemd services (`csm-agent.socket`, `csm-codex-bridge.service`)
+confirmed still active via the symlink bridge.
 
 ---
 

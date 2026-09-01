@@ -1,5 +1,33 @@
 # RESULT.md
 
+## 2026-09-01 — Task 4 complete: GitHub repo + local directory rename
+
+`gh repo rename sessioneer --repo loki495/claude-session-manager` — confirmed via
+`gh repo view loki495/sessioneer`. Local `origin` remote URL updated
+(`git remote set-url`) and verified reachable (`git ls-remote origin HEAD`).
+
+Local directory: `mv ~/www/claude-session-manager ~/www/sessioneer`. Before doing
+this, found that the currently-INSTALLED systemd units
+(`~/.config/systemd/user/csm-agent@.service`, `csm-codex-bridge.service`,
+`csm-push-check.service`, `csm-antigravity-quota-check.service` — still `csm-*`
+named, that rename is Task 5's job) hardcode the OLD absolute repo path in their
+`ExecStart=`/`EnvironmentFile=` lines. A bare directory rename would have broken
+the live host-agent, Codex bridge, and push-check services immediately — the same
+class of issue as Task 3's incident, just via a different path (installed unit
+files instead of a gitignored `.env`). Avoided by leaving a symlink at the old
+path (`~/www/claude-session-manager -> ~/www/sessioneer`) so every currently-live
+absolute-path reference keeps working transparently until Task 5 renames the
+systemd units for real. Also updated the absolute-path references that were easy
+to fix directly rather than lean on the symlink forever: the tracked
+`tests/.env.testing`, and gitignored `host-agent/.env`'s
+`PUSH_SUBSCRIPTIONS_FILE`/`PUSH_STATE_FILE`.
+
+Verified: full test suite re-run from the new path (31 files, zero failures);
+live dashboard smoke test (all real sessions list correctly); `csm-agent.socket`/
+`csm-codex-bridge.service` confirmed still active via the symlink.
+
+**Task 4 marked done.**
+
 ## 2026-09-01 — Task 3 complete: column rename + a serious gitignored-file incident found and fixed
 
 **The rename itself** (`claude_session_id`->`agent_session_id`, `spawned_by_csm`->
