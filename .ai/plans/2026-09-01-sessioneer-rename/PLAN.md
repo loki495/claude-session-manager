@@ -139,14 +139,13 @@ getting the rename done.
 
 **Sub-steps, in order:**
 
-1. **Host agent, dual-run.** Install the new-named systemd socket/service
-   (`sessioneer-agent.socket`, etc.) *alongside* the still-running old one — new
-   socket path, old one untouched. Don't stop/disable the old unit yet.
-2. **Container, dual-run.** Bring up the renamed container (Task 2's naming) on a
-   temporary alternate port, pointed at the NEW host-agent socket from step 1 and
-   the migrated DB copy from Task 3's rehearsal (not the live DB yet). Verify it
-   lists real sessions correctly, health check passes, no "Cannot reach host agent"
-   errors.
+1. ✅ **Host agent, dual-run.** Done — ran the repo's own `install.sh` (already
+   correctly templated), new `sessioneer-*` units ran alongside old `csm-*` ones
+   with zero conflict, then old units disabled+removed once the new ones were
+   verified end-to-end. See RESULT.md "Task 5, part 1" for full detail.
+2. ✅ **Container.** Done as part of step 1's verification — container already
+   points at the new real socket (no separate alternate-port dual-run needed;
+   the DB migration from Task 3 was already live, not a pending copy to apply).
 3. **New TLS cert.** Generate the new self-signed cert for `sessioneer.example.com`
    (`~/www/traefik/dynamic/csm-tls.yml` → new file) before adding the router, so
    the router isn't live for a moment with no valid cert behind it.
@@ -174,14 +173,14 @@ getting the rename done.
    further) — then remove the OLD `csm-ac495` Traefik router, the OLD `csm-tls.yml`
    cert, and stop+disable the OLD systemd units. Don't remove any of this in the
    same sitting as the cutover itself.
-9. **`~/.gemini/config/hooks.json`** — `AntigravityHookService::HOOK_GROUP` key
-   rename. This can happen at the container cutover (step 5) since Antigravity
-   sessions re-check hook registration on next launch, not continuously — no
-   separate dual-run needed here.
-10. **The real statusline script** — re-run whatever installs
-    `StatuslineMarkerService`'s markers at the container cutover (step 5); check
-    for orphaned old markers left behind if the installer doesn't clean up its own
-    prior output.
+9. ✅ **`~/.gemini/config/hooks.json`** — done. Found proactively (checked for
+   this class of issue given Task 3's incident, rather than waiting to discover
+   it live): code already expected `HOOK_GROUP='sessioneer'`, real file still had
+   the old key. Renamed the JSON key + updated embedded command paths, backup
+   taken first.
+10. ✅ **The real statusline script** — checked, no action needed. No markers
+    were actually installed in the real script yet (this app only writes them on
+    first use), so there was no old/new mismatch to fix.
 
 **Status:** pending
 

@@ -1,5 +1,47 @@
 # RESULT.md
 
+## 2026-09-01 — Task 5, part 1 complete: host-agent systemd units renamed for real
+
+Ran the repo's own `host-agent/install.sh` (already correctly templated with
+`@REPO_ROOT@`/`@PHP_BIN@` placeholders, and the unit filenames were already
+renamed to `sessioneer-*` by Task 2) — this is a pre-existing, idempotent,
+purely-additive installer, the safest way to do this rather than hand-rolling
+unit files. Installed and enabled `sessioneer-agent.socket`,
+`sessioneer-codex-bridge.service`, `opencode-serve.service` (shared daemon,
+briefly restarted — a real but minor/unavoidable blip affecting any active
+opencode session, not just this tool's), plus the (not-auto-enabled-by-design)
+`sessioneer-push-check`/`sessioneer-antigravity-quota-check` timer units.
+
+True dual-run achieved: new units ran alongside the still-active old `csm-*`
+ones with zero conflict (different socket paths: `sessioneer-agent.sock` vs.
+`csm-agent.sock`). Verified the new socket end-to-end BEFORE touching anything
+old: pointed the container's `SESSIONEER_AGENT_SOCKET_HOST` at the new real
+socket (replacing the Task 3/4 temporary bridge value), recreated the
+container, confirmed the live dashboard still lists all real sessions
+correctly. Only then: checked which of the two opt-in timers (push-check,
+antigravity-quota-check) were actually enabled under the old names (both
+were) and enabled their new-named equivalents to match, before disabling+
+stopping the old `csm-agent.socket`/`csm-codex-bridge.service`/both old
+timers, removing the now-orphaned old unit files and stale socket files, and
+confirming the live app still works with the old units fully gone.
+
+**Also found and fixed the same class of code/live-file mismatch as Task 3's
+incident, before it could cause a problem**: `AntigravityHookService::HOOK_GROUP`
+was already renamed to `'sessioneer'` in code (Task 2), but the real
+`~/.gemini/config/hooks.json` on disk still had the old `'claude-session-manager'`
+group key — checked proactively this time (having learned from Task 3) rather
+than discovered via a live break. Fixed by renaming the JSON key and updating
+its embedded command paths to the new repo location (backup taken first at
+`/tmp/hooks-backup.json`). The statusline-script marker constants were also
+checked for the same class of issue — no mismatch, since no markers were
+actually installed in the real script yet either way (this app only writes
+them on first use, not at install time).
+
+**Remaining for Task 5**: the actual `csm.example.com` -> `sessioneer.example.com`
+hostname cutover (separate `~/www/traefik` repo, new TLS cert, the explicit
+"safe to switch now" message to Andres, homie's dashboard card update) — not
+yet started.
+
 ## 2026-09-01 — Task 4 complete: GitHub repo + local directory rename
 
 `gh repo rename sessioneer --repo loki495/claude-session-manager` — confirmed via

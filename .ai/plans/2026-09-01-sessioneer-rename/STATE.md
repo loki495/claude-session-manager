@@ -2,11 +2,13 @@
 
 - **Current objective:** Rename "Claude Session Manager" → "Sessioneer" across the
   repo, GitHub, and external infra (see PLAN.md).
-- **Current step:** Task 4 done (GitHub repo + local directory rename, with a
-  symlink bridge at the old path so the still-`csm-*`-named live systemd units
-  don't break). Repo now lives at `~/www/sessioneer` /
-  `github.com/loki495/sessioneer`. Next: Task 5 (external infra cutover —
-  traefik, homie, systemd unit rename-for-real, host config files).
+- **Current step:** Task 5 in progress — host-agent systemd units renamed for
+  real (steps 1-2, 9-10 of Task 5 done, see RESULT.md), old `csm-*` units fully
+  retired and removed. Remaining: the actual `csm.example.com` ->
+  `sessioneer.example.com` hostname cutover (traefik repo, new TLS cert, the
+  explicit "safe to switch" message to Andres, homie's dashboard card) — steps
+  3-8 of Task 5, not yet started. 3 commits still unpushed (Andres asked to
+  hold off pushing until Task 5 wraps).
 - **Worker status:** Task 2 delegated to opencode (`opencode-go/kimi-k2.7-code`),
   completed the bulk (129 files) correctly per the established Bucket A/B mapping,
   but missed `CONTRIBUTING.md` + 5 `docs/*.md` planning files (~56 lines) — orchestrator
