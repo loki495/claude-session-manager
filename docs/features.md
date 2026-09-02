@@ -6,9 +6,12 @@ It is the source of truth for the tool's *capabilities* (the atlas's
 per subsystem — read these together when planning work).
 
 The tool manages interactive coding-agent sessions (Claude Code, Antigravity,
-OpenCode) running in tmux on this machine, from a single-user LAN web UI. The
-table below shows everything it can do. The end sections break the same list
-down **per agent** and flag the known **gaps / partial parity**.
+OpenCode, Codex) on this machine, from a single-user LAN web UI - tmux-driven
+for Claude Code/Antigravity, headless (each agent's own local server) for
+Codex, either for OpenCode. The table below shows everything it can do. The
+end sections break the same list down **per agent** and flag the known
+**gaps / partial parity** (see also "To research later" at the bottom -
+Codex isn't reflected in those per-agent breakdowns yet).
 
 > Generated from the feature atlas (`.claude/feature-atlas/`, 2026-08-26).
 > Anything marked **verify** needs a live check before you rely on it as "the
@@ -232,3 +235,52 @@ list as the "same features for each agent" work queue.
 
 For the authoritative per-finding detail (file:line, impact, recommended fix) for
 items 1–5, see `.claude/feature-atlas/REPORT.md`.
+
+---
+
+## To research later — this document is stale relative to recent commits
+
+This file was generated from the feature atlas on 2026-08-26. Commit history
+since then (checked 2026-09-02 while revising the README) turned up real gaps
+between what's documented here and what's actually shipped. None of these are
+fixed in this pass — they need a proper `/feature-atlas` re-run (or targeted
+scout/audit) to verify and correct. Flagging them here so they aren't lost:
+
+1. **Codex is entirely absent from this document.** The `CodexAdapter`/
+   `CodexHeadlessRuntime` landed 2026-08-28 (commit `cf0f462` onward), two days
+   after this atlas snapshot. The "Full capability list" intro, the per-agent
+   coverage table, and the implementation-status detail table all only cover
+   Claude Code / Antigravity / OpenCode — Codex needs a full column added to
+   each, not just an entry appended.
+2. **Bare-process/"take over" discovery is Claude Code only in the actual
+   code** (`ProcessInspector::find_claude_processes()`, `BareProcessService`),
+   but this doc's "Session management" list describes it generically ("an
+   agent started by hand outside the tool") without that caveat. Verify
+   whether this was ever generalized, or fix the wording to scope it
+   correctly.
+3. **Worker-session tagging/lineage** (commit `5aa8749`, the dashboard/sidebar
+   "Show worker sessions" toggle and parent/child lineage) isn't mentioned
+   anywhere in this document.
+4. **Mobile pull-to-refresh** (commit `e429518`) isn't mentioned under
+   "Platform / access" or anywhere else.
+5. **Todo file rendered as markdown** in the sidebar modal (commit `d6e85c0`)
+   — the "Files & project info" section only says "read-only glance," doesn't
+   mention markdown rendering.
+6. **Per-agent health-check sections** (commit `3229252`, "split health
+   checkup into per-agent sections") — the "Health check / diagnostics" row
+   just shows a blanket ✓ for every agent; doesn't reflect the actual
+   per-agent UI structure this shipped.
+7. **New-session model selector** (commit `baca67c`, "dashboard model
+   selector for new-session form") may have fully or partially closed **Known
+   gap #5** below ("Antigravity/OpenCode model & create-option reachability")
+   — re-verify against the current New Session UI before trusting that gap
+   entry as still accurate.
+8. **A batch of parity/bugfix commits not individually re-verified against
+   this doc's matrix**: `12b2e46` (sidebar prompt-answer submission),
+   `23b3c05` (session-page/sidebar UI parity, quota-table footer, three
+   status-desync fixes), `b0d8337` (OpenCode forward-poll cursor fix — may
+   have closed **Known gap #3** below), `9edb052`/`fdb2e21` (OpenCode quota
+   display/provider label), `29adf02`/`1f2e903` (archived-session
+   cwd/title/resume routing fixes for OpenCode/Codex/Antigravity — may have
+   closed or narrowed **Known gap #2** below). Each should be checked against
+   its corresponding row/gap entry above rather than assumed still-accurate.

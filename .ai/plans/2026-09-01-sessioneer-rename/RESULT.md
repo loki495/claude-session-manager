@@ -1,5 +1,129 @@
 # RESULT.md
 
+## 2026-09-02 — README content overhaul: fix stale claims, remove Claude-centric framing, new screenshots
+
+Follow-up to the previous entry's README refresh, prompted by Andres pointing
+out the README still had several stale/inaccurate claims left over from
+before this was a multi-agent tool, beyond just the branding rename:
+
+- **"tmux sessions" framing was wrong for half the agents** — verified in
+  code (`RuntimeRegistry`, each `*Adapter::supported_runtimes()`): Claude
+  Code and Antigravity are tmux-only, Codex is headless-only (no tmux at
+  all, via `codex app-server`), OpenCode prefers headless with tmux as a
+  fallback. Rewrote the intro, "Architecture," and "Requirements" sections
+  to reflect the actual tmux/headless split per agent instead of treating
+  tmux as universal.
+- **"No database" was stale** — the app now uses SQLite extensively
+  (`sessions.sqlite`, `push.sqlite` via `Config::sessions_sqlite_path()`/
+  `push_sqlite_path()`). Reworded to "no user database / no multi-tenant
+  data" (still true) rather than claiming no database at all.
+- **`cc-*`-only and Claude-Code-centric language throughout** — swept the
+  whole file; each capability bullet now either generalizes correctly
+  (e.g. New Session, quota footer, blocked-prompt detection) or explicitly
+  scopes itself as Claude-Code-only where that's still actually true today
+  (content search, bare-process take-over, archived-session browsing for
+  the other three agents — confirmed via `BareProcessService`/
+  `ProcessInspector::find_claude_processes()` that take-over really is
+  Claude-only in the code, not just under-documented).
+- **`composer.json`'s own description** was also still "managing tmux
+  sessions running Claude Code" — fixed to mention all four agents.
+- **Network-binding/no-login messaging was repeated 3x** (intro, "Network
+  binding," "Security summary") — per Andres's direction, trimmed to one
+  full explanation in "Network binding" with one-line pointers elsewhere.
+- **`docs/features.md` gap-audit**: re-checked commit history since its
+  2026-08-26 generation date and found it predates Codex entirely (Codex
+  landed 2026-08-28) plus ~8 shipped features/fixes never folded in (worker-
+  session tagging, mobile pull-to-refresh, todo-markdown rendering, per-
+  agent health-check sections, a new-session model selector that may have
+  closed one of the doc's own listed gaps, and several OpenCode/Antigravity
+  parity fixes). Per Andres's explicit instruction, did NOT re-derive or
+  fix these now — added a "To research later" section at the bottom of
+  `docs/features.md` listing all of them with enough detail (commit hashes,
+  what to check) for a future `/feature-atlas` pass to act on.
+
+**New screenshots** (replacing the single dashboard shot):
+- `dashboard.png` — retaken (same two-demo-session technique as before) with
+  an added step: every `/home/user` string in the DOM is walked and
+  replaced with `/home/user` client-side, right before the screenshot call,
+  per Andres's explicit instruction that no real username/home path appear
+  in public screenshots.
+- `blocked-prompt.png` (+ `mobile-blocked-prompt.png`) — a new throwaway
+  demo session's transcript gets one real, safe exchange (asked to
+  *describe*, not run, a cleanup command), then its blocked/awaiting-
+  approval state is fabricated directly via
+  `HostAgent\Stores\SessionStatusStore::update_status()` (writing a
+  `Bash: rm -rf build dist` fake tool call matching the transcript's own
+  narrative) rather than actually triggering a real permission prompt —
+  chosen over the "real triggered block" alternative specifically so
+  nothing in the demo session ever really runs a tool. This is a real,
+  authentically-server-rendered "Awaiting approval" card (not a hand-built
+  DOM mock), since the app's own PHP renders straight from that status row.
+  Had to close the session page's "Other sessions" sidebar first — it was
+  leaking real session titles/paths into the first attempt at this shot.
+- `mobile-dashboard.png` / `mobile-blocked-prompt.png` — same pages at a
+  390×844 viewport (`browser_resize`), demonstrating the PWA's mobile
+  layout.
+
+All four throwaway demo sessions/directories (`sessioneer-demo-a`,
+`sessioneer-demo-b`, `sessioneer-demo-blocked`) created for these shots were
+killed/removed afterward; verified the real 6-8 work sessions and the
+current session were never touched, and that reloading the dashboard after
+each shot's DOM manipulation restored the real live state (nothing
+persisted server-side by the mocking).
+
+## 2026-09-01 — README/screenshot refresh, stale-path cleanup, pushed to origin
+
+Retook `docs/screenshots/dashboard.png` to show the new "Sessioneer" branding
+(old screenshot still said "Claude Session Manager"). Two throwaway demo
+sessions (`sessioneer-demo-a`/`-b`, generic prompts, no real project data)
+were created for this; the 6 real work sessions live on the same dashboard
+were kept out of the shot by monkeypatching the page's own poll `fetch()` to
+a no-op and hiding their `<li>` rows client-side immediately before calling
+`page.screenshot()` — purely a rendering trick for the capture, nothing
+persisted server-side, confirmed by reloading the page afterward and seeing
+the real 8-session count return. (Two earlier approaches were tried and
+rejected first: the dashboard's search box turned out to be a separate
+content-search overlay, not a list filter; and the sidebar's "Archive" button
+was found to literally issue `action: kill` against the real tmux session —
+i.e. "archive" is not a safe hide/show toggle in this app, it ends the real
+session — so archiving live sessions to declutter the shot was correctly
+ruled out before touching anything.) Demo tmux sessions killed and demo
+directories removed afterward. README's screenshot caption updated to
+mention all four agent prefixes (`cc`/`cx`/`oc`/`ag`), matching the rest of
+the README (was still `cc-*`-only from before this was a multi-agent tool).
+
+A repo-wide re-grep for `csm`/`claude-session-manager` (same discipline as
+the original naming audit) turned up leftovers the earlier Task 2/Task 4
+passes missed: a directory-tree label in `CONTRIBUTING.md`, three
+`docs/*.md` files with stale example paths/group names, and — more
+seriously — six `tests/test_*.php` files (`test_push.php`,
+`test_antigravity_quota_poll.php`, `test_quota.php`,
+`test_opencode_spawn.php`, `test_sessions_lifecycle.php`,
+`test_statusline_marker.php`) whose `REAL_*_SQLITE_FILE` safety-guard
+constants still held the pre-rename absolute path. Those constants exist so
+a test run refuses to proceed if `Config::push_sqlite_path()` ever resolves
+to the real, live sqlite file — but since `Config` derives that path from
+the (now renamed) repo root, the guard's old-path string could never equal
+the new-path string the config actually returns, so the safety check was
+silently inert (would never fire either way). Fixed by updating all six
+constants to the new `/home/user/www/sessioneer/...` path. Noted but
+deliberately NOT touched: `test_quota.php`'s `REAL_SESSIONS_SQLITE_FILE_Q`
+guard compares against a `host-agent/state/sessions.sqlite` path, but
+`Config::sessions_sqlite_path()` actually resolves under the tmpfs sidecar
+dir (`/run/user/<uid>/csm-sessions/sessions.sqlite` today) — a convention
+mismatch that predates this rename and made that specific guard inert
+already, unrelated to the renaming work; flagged to Andres as a possible
+pre-existing bug worth a separate look, not fixed here.
+
+`bash tests/run.sh --no-browser` re-run after all fixes: all tests passed.
+
+Committed as a single commit (`161f9eb`) on top of the 5 existing local
+rename commits, then pushed to `origin/master`
+(`git@github.com:loki495/sessioneer.git`) after explicit confirmation —
+`51fff22..161f9eb`. Task 5 step 8 (grace period cleanup of the old
+`csm-ac495` Traefik router) remains the only open item, intentionally
+deferred pending Andres per the plan.
+
 ## 2026-09-01 — Task 5, part 2 complete: hostname cutover, plus a real production outage found and fixed
 
 **Found and fixed a live break unrelated to the rename plan's own sequencing**:

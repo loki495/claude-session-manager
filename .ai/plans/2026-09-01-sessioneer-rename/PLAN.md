@@ -185,7 +185,9 @@ getting the rename done.
     were actually installed in the real script yet (this app only writes them on
     first use), so there was no old/new mismatch to fix.
 
-**Status:** pending
+**Status:** done except step 8 (grace period, intentionally deferred pending
+Andres). README/screenshot refresh + final stale-path cleanup done and
+pushed — see RESULT.md's last entry.
 
 **Dependencies:** Task 2 (code renames) and Task 3 (DB migration, rehearsed against
 a copy) land first.
