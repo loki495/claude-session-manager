@@ -23,9 +23,6 @@ Shown with two throwaway demo sessions (generic prompts, no real project
 data) - day-to-day the list is whatever `cc-*`/`cx-*`/`oc-*`/`ag-*` sessions
 (Claude Code, Codex, OpenCode, Antigravity) are actually running on your box.
 
-<details>
-<summary>Blocked-prompt view, and both on mobile</summary>
-
 A session waiting on a tool-permission approval, with real Approve/Deny
 buttons right in the browser:
 
@@ -36,8 +33,6 @@ an installable PWA, meant to be added to an iOS/Android home screen):
 
 <img src="docs/screenshots/mobile-dashboard.png" alt="Dashboard on a mobile viewport" width="360">
 <img src="docs/screenshots/mobile-blocked-prompt.png" alt="Blocked prompt on a mobile viewport" width="360">
-
-</details>
 
 ## What it does
 
