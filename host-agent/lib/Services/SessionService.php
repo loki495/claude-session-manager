@@ -262,6 +262,23 @@ class SessionService
             }
         } elseif ($hookStatusValue === 'blocked') {
             $prompt = PromptParser::build_prompt_from_hook_status($hookBlocked);
+
+            // PermissionRequest tells us the tool details but its suggestions
+            // do not reliably describe the menu Claude actually rendered.
+            // Keep the hook-fed context, but use the live pane's option list
+            // whenever the matching permission prompt is visible.
+            $panePrompt = PromptParser::parse_blocking_prompt($paneContent);
+
+            if (
+                $prompt !== null
+                && $panePrompt !== null
+                && !($panePrompt['is_folder_trust'] ?? false)
+                && count($panePrompt['options'] ?? []) >= 2
+                && PromptParser::classify_permission_option_intent((string)($panePrompt['options'][0]['label'] ?? '')) === 'yes_once'
+                && PromptParser::classify_permission_option_intent((string)($panePrompt['options'][count($panePrompt['options']) - 1]['label'] ?? '')) === 'no'
+            ) {
+                $prompt['options'] = $panePrompt['options'];
+            }
         } else {
             // The only prompt shape that can still be showing here is the
             // initial per-folder trust dialog - confirmed live to fire NONE

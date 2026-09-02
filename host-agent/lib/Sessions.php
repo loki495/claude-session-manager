@@ -252,7 +252,11 @@ function dispatch_action(array $request): array
             if (sessioneer_is_headless_session($answerSession)) {
                 return sessioneer_headless_answer_prompt($answerSession, ['option' => (int)($request['option'] ?? 0)]);
             }
-            return PromptInteractionService::answer_prompt($answerSession, (int)($request['option'] ?? 0));
+            return PromptInteractionService::answer_prompt(
+                $answerSession,
+                (int)($request['option'] ?? 0),
+                is_string($request['expected_label'] ?? null) ? $request['expected_label'] : null
+            );
 
         case 'answer_prompt_with_text':
             $answerTextSession = (string)($request['session'] ?? '');

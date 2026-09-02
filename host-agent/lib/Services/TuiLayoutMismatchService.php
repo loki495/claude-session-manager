@@ -27,6 +27,7 @@ use HostAgent\Stores\GlobalStateStore;
 class TuiLayoutMismatchService
 {
     private const STATE_KEY = 'tui_layout_mismatch';
+    private const STATE_VERSION = 2;
 
     /**
      * How long a recorded mismatch keeps failing the health check before
@@ -41,6 +42,7 @@ class TuiLayoutMismatchService
     public static function record(string $sessionName, string $toolName, string $expectedLabel, string $realLabel): void
     {
         GlobalStateStore::write(self::STATE_KEY, [
+            'version' => self::STATE_VERSION,
             'session' => $sessionName,
             'tool_name' => $toolName,
             'expected_label' => $expectedLabel,
@@ -58,6 +60,13 @@ class TuiLayoutMismatchService
         $check = ['key' => 'tui_layout_mismatch', 'section' => 'Claude Code', 'label' => 'Permission-menu layout'];
 
         if ($state === null) {
+            return $check + ['ok' => true, 'detail' => null];
+        }
+
+        // Version 1 recorded the now-fixed hook-suggestion-versus-live-menu
+        // mismatch. Only warnings produced by the label-aware flow remain
+        // actionable after that fix is installed.
+        if (($state['version'] ?? null) !== self::STATE_VERSION) {
             return $check + ['ok' => true, 'detail' => null];
         }
 

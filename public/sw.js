@@ -163,7 +163,8 @@ self.addEventListener('notificationclick', function (event) {
         body: new URLSearchParams({
           csrf_token: csrfToken,
           session: notifData.session,
-          option: String(option)
+          option: String(option),
+          expected_label: event.action === 'approve' ? 'Yes' : 'No'
         }).toString()
       }).catch(function () {});
     });

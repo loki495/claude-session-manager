@@ -1344,6 +1344,7 @@
         + '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">'
         + '<input type="hidden" name="session" value="' + escapeHtml(sessionName) + '">'
         + '<input type="hidden" name="option" value="' + opt.number + '">'
+        + '<input type="hidden" name="expected_label" value="' + label + '">'
         + '<button type="submit" class="rounded-lg border border-amber-700/60 bg-amber-900/40 active:bg-amber-800/60 text-amber-100 text-xs font-medium px-3 py-2 break-words max-w-full text-left">'
         + opt.number + '. ' + label
         + '</button></form>';

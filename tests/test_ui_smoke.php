@@ -927,6 +927,7 @@ try {
     assert_contains("{ action: 'deny', title: 'Deny' }", $swJs['body'], 'GET /sw.js: the Deny action button is shipped');
     assert_contains("event.action === 'approve' || event.action === 'deny'", $swJs['body'], 'GET /sw.js: notificationclick has a dedicated branch for the action buttons, separate from a plain tap');
     assert_contains("fetch('/answer_prompt.php'", $swJs['body'], 'GET /sw.js: answers the prompt directly via fetch() to the existing answer_prompt endpoint, no new route needed');
+    assert_contains("expected_label: event.action === 'approve' ? 'Yes' : 'No'", $swJs['body'], 'GET /sw.js: notification actions submit their intent label so a live Claude menu can safely remap changed option numbers');
     assert_contains('return openOrFocusUrl(notifData.url || \'/\')', $swJs['body'], 'GET /sw.js: falls back to opening/focusing the app if the answer can\'t be sent headlessly (no cached token yet, or a malformed payload) rather than silently doing nothing');
     assert_contains('id="session-header"', $result['body'], 'GET /session.php: the header carries a stable id for the tap-to-scroll-to-top handler to bind to');
     assert_contains('id="mode-select"', $result['body'], 'GET /session.php: mode select present');

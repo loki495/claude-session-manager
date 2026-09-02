@@ -46,7 +46,7 @@ class PromptInteractionService
      *
      * @return array{ok:bool, message:string}
      */
-    public static function answer_prompt(string $name, int $option): array
+    public static function answer_prompt(string $name, int $option, ?string $expectedLabel = null): array
     {
         if (!in_array($name, array_column(TmuxService::list_tracked_tmux_sessions(), 'name'), true)) {
             return ['ok' => false, 'message' => 'Rejected: not a currently active managed session'];
@@ -88,6 +88,17 @@ class PromptInteractionService
 
             if ($prompt === null) {
                 return ['ok' => false, 'message' => 'Rejected: this session is not currently waiting on a prompt'];
+            }
+        }
+
+        if ($agent === 'claude' && $expectedLabel !== null && $expectedLabel !== '' && ($prompt['question'] ?? null) === 'Do you want to proceed?') {
+            $expectedIntent = PromptParser::classify_permission_option_intent($expectedLabel);
+
+            foreach ($prompt['options'] as $realOpt) {
+                if (PromptParser::classify_permission_option_intent((string)$realOpt['label']) === $expectedIntent) {
+                    $option = (int)$realOpt['number'];
+                    break;
+                }
             }
         }
 
@@ -152,10 +163,12 @@ class PromptInteractionService
                 && $hookToolName !== 'AskUserQuestion'
                 && ($prompt['question'] ?? null) === 'Do you want to proceed?'
             ) {
-                $expectedOptions = PromptParser::build_options_from_permission_suggestions(
-                    is_array($hookBlockedForCheck['permission_suggestions'] ?? null) ? $hookBlockedForCheck['permission_suggestions'] : []
-                );
-                $expectedLabel = $expectedOptions[$option - 1]['label'] ?? null;
+                if ($expectedLabel === null || $expectedLabel === '') {
+                    $expectedOptions = PromptParser::build_options_from_permission_suggestions(
+                        is_array($hookBlockedForCheck['permission_suggestions'] ?? null) ? $hookBlockedForCheck['permission_suggestions'] : []
+                    );
+                    $expectedLabel = $expectedOptions[$option - 1]['label'] ?? null;
+                }
                 $realLabel = $prompt['options'][$option - 1]['label'] ?? null;
 
                 if ($expectedLabel !== null && $realLabel !== null) {

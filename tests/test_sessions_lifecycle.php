@@ -1417,6 +1417,13 @@ try {
     TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '  2. No', 'Enter']);
     usleep(300000);
 
+    $liveMismatchEntry = find_session($promptTestSession);
+    assert_equal(
+        [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => 'No']],
+        $liveMismatchEntry['prompt_options'] ?? null,
+        'build_session_entry: displays the live permission menu instead of a hook-suggested option the TUI omitted'
+    );
+
     $paneBeforeMismatchAnswer = trim(TmuxService::tmux_capture_pane($promptTestSession));
     $mismatchAnswer = PromptInteractionService::answer_prompt($promptTestSession, 2);
     assert_equal(false, $mismatchAnswer['ok'] ?? null, "answer_prompt: refuses when the real menu doesn't offer the intended option at all");
@@ -1429,6 +1436,23 @@ try {
     $mismatchHealth = TuiLayoutMismatchService::health_check();
     assert_equal(false, $mismatchHealth['ok'] ?? null, 'TuiLayoutMismatchService::health_check: reports unhealthy after a recorded mismatch');
     assert_true(str_contains((string)($mismatchHealth['detail'] ?? ''), $promptTestSession), 'TuiLayoutMismatchService::health_check: names the affected session in its detail');
+
+    // A freshly rendered dashboard submits the label it actually showed.
+    // When that label is the live pane's "No", option 2 must remain a
+    // denial instead of being mistaken for the hook's absent always-allow
+    // suggestion at the same ordinal.
+    $liveMenuAnswer = PromptInteractionService::answer_prompt($promptTestSession, 3, 'No');
+    assert_true($liveMenuAnswer['ok'] ?? false, 'answer_prompt: accepts the live pane label as the user intent when hook suggestions disagree (' . ($liveMenuAnswer['message'] ?? 'no message') . ')');
+    usleep(300000);
+    assert_true(str_ends_with(trim(TmuxService::tmux_capture_pane($promptTestSession)), '2'), 'answer_prompt: sends the live pane option selected by label');
+
+    GlobalStateStore::write('tui_layout_mismatch', [
+        'session' => $promptTestSession,
+        'expected_label' => 'Old guessed option',
+        'real_label' => 'Old live option',
+        'detected_at' => time(),
+    ]);
+    assert_equal(true, TuiLayoutMismatchService::health_check()['ok'] ?? null, 'TuiLayoutMismatchService::health_check: ignores a legacy warning produced by the fixed ordinal-only flow');
 
     // The refusal above returns early, before the usual "mark working,
     // clear blocked" cleanup - clear it explicitly so this session's

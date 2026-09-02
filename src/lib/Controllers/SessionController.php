@@ -475,6 +475,7 @@ class SessionController extends Controller
 
         $sessionName = trim((string)($_POST['session'] ?? ''));
         $option = (int)($_POST['option'] ?? 0);
+        $expectedLabel = trim((string)($_POST['expected_label'] ?? ''));
         $text = trim((string)($_POST['text'] ?? ''));
 
         // A free-text reply (the "Type something." option) needs the typed
@@ -484,7 +485,7 @@ class SessionController extends Controller
         if ($text !== '') {
             echo json_encode(AgentClient::agent_call(['action' => 'answer_prompt_with_text', 'session' => $sessionName, 'option' => $option, 'text' => $text]));
         } else {
-            echo json_encode(AgentClient::agent_call(['action' => 'answer_prompt', 'session' => $sessionName, 'option' => $option]));
+            echo json_encode(AgentClient::agent_call(['action' => 'answer_prompt', 'session' => $sessionName, 'option' => $option, 'expected_label' => $expectedLabel]));
         }
     }
 

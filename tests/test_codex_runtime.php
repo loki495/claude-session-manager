@@ -61,6 +61,27 @@ class FakeUnmaterializedCodexBridgeClient extends CodexBridgeClient
     }
 }
 
+class FakeUnsupportedTurnsCodexBridgeClient extends CodexBridgeClient
+{
+    /** @var array<int,array{method:string,params:array<string,mixed>}> */
+    public array $calls = [];
+
+    public function request(string $method, array $params = []): array
+    {
+        $this->calls[] = ['method' => $method, 'params' => $params];
+        if ($method === 'thread/read' && ($params['includeTurns'] ?? false) === true) {
+            return ['ok' => false, 'message' => 'list_turns is not supported yet'];
+        }
+        if ($method === 'thread/read') {
+            return ['ok' => true, 'result' => ['thread' => ['id' => 'codex-current', 'status' => ['type' => 'idle']]]];
+        }
+        if ($method === 'thread/resume') {
+            return ['ok' => true, 'result' => ['thread' => ['id' => 'codex-current']]];
+        }
+        return ['ok' => false, 'message' => 'Unexpected method'];
+    }
+}
+
 class FakePaginatedCodexBridgeClient extends CodexBridgeClient
 {
     /** @var array<int,array{method:string,params:array<string,mixed>}> */
@@ -166,6 +187,12 @@ assert_equal(true, $emptyFake->calls[0]['params']['includeTurns'], 'Codex detail
 assert_true(!array_key_exists('includeTurns', $emptyFake->calls[1]['params']), 'Codex brand-new detail falls back to metadata-only thread/read');
 assert_equal('thread/resume', $emptyFake->calls[2]['method'], 'Codex brand-new detail remains writable after metadata fallback');
 assert_true((new CodexHeadlessRuntime($emptyFake))->send_message('codex-empty', 'first message')['ok'] === true, 'Codex brand-new thread sends its first message without a persisted rollout');
+
+$unsupportedTurnsFake = new FakeUnsupportedTurnsCodexBridgeClient();
+$unsupportedTurnsDetail = (new CodexHeadlessRuntime($unsupportedTurnsFake))->detail('codex-current');
+assert_true($unsupportedTurnsDetail['ok'] === true, 'Codex detail falls back when the installed app-server does not support retained-turn listing');
+assert_equal(true, $unsupportedTurnsFake->calls[0]['params']['includeTurns'], 'Codex unsupported-turn fallback first attempts retained turns');
+assert_true(!array_key_exists('includeTurns', $unsupportedTurnsFake->calls[1]['params']), 'Codex unsupported-turn fallback retries metadata-only thread/read');
 
 $ownedRuntime = new CodexHeadlessRuntime(new FakeActiveWriterCodexBridgeClient());
 $ownedDetail = $ownedRuntime->detail('codex-owned');

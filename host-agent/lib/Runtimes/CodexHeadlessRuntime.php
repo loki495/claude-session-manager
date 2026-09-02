@@ -59,7 +59,13 @@ class CodexHeadlessRuntime implements RuntimeProvider
         // metadata only so session.php can render its normal empty-history
         // state and expose the composer for that first message.
         $readMessage = is_string($result['message'] ?? null) ? $result['message'] : '';
-        if (($result['ok'] ?? false) !== true && str_contains($readMessage, 'includeTurns is unavailable before first user message')) {
+        if (
+            ($result['ok'] ?? false) !== true
+            && (
+                str_contains($readMessage, 'includeTurns is unavailable before first user message')
+                || str_contains($readMessage, 'list_turns is not supported yet')
+            )
+        ) {
             $result = $this->client->request('thread/read', ['threadId' => $sessionRef]);
         }
 
