@@ -71,6 +71,14 @@ sub-clause was trimmed for the same reason (its own UI-split ask stands).
   the initial-load vs poll-time entry set, and whether a hard page reload
   (not a poll) takes a different code path that could drop something a
   poll wouldn't.
+- Bug report, not yet investigated (Andres 2026-09-02): the last message
+  before a session goes into "waiting for input" (blocked-prompt) state is
+  missing from the transcript/UI. Related polish ask: once found, the text
+  that renders after "waiting for input" should be split out into its own
+  expandable text box rather than however it's currently laid out. No repro
+  steps captured yet - needs a live session that actually blocks to see
+  what's dropped and where in the render path (session.js vs
+  BlockedPromptView/PHP partials) it belongs.
 
 === Tier 2: finish in-progress work / de-risk unknowns before starting anything new ===
 

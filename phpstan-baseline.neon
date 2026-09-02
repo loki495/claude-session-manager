@@ -7,6 +7,12 @@ parameters:
 			path: host-agent/hooks/session_start.php
 
 		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, detail\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Agents/CodexAdapter.php
+
+		-
 			message: '#^Method HostAgent\\Services\\AntigravityTranscriptService\:\:read_transcript_page\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -17,6 +23,12 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: host-agent/lib/Services/AntigravityTranscriptService.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: host-agent/lib/Services/ArchivedSessionService.php
 
 		-
 			message: '#^Method HostAgent\\Services\\ArchivedSessionService\:\:archived_session_transcript_search\(\) return type has no value type specified in iterable type array\.$#'
@@ -39,6 +51,24 @@ parameters:
 		-
 			message: '#^Method HostAgent\\Services\\ArchivedSessionService\:\:transcript_search_for_claude_session\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/ArchivedSessionService.php
+
+		-
+			message: '#^Offset ''agent'' on array\{agent_session_id\: string, cwd\: string\|null, ai_title\: string\|null, last_activity\: int, path\: string, agent\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/ArchivedSessionService.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, threads\?\: array\<int, array\<string, mixed\>\>, message\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/ArchivedSessionService.php
+
+		-
+			message: '#^Offset ''session_name'' on array\{session_name\: string, workdir\: string\|null, spawned_at\: int\|null, agent_session_id\: string\|null, agent\: string\|null, runtime\: string\|null, title\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
 			count: 1
 			path: host-agent/lib/Services/ArchivedSessionService.php
 
@@ -77,6 +107,66 @@ parameters:
 			identifier: nullCoalesce.offset
 			count: 1
 			path: host-agent/lib/Services/NotificationContentBuilder.php
+
+		-
+			message: '#^Method HostAgent\\Services\\OpenCodeQuestionService\:\:to_prompt\(\) has parameter \$pending with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/OpenCodeQuestionService.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 4
+			path: host-agent/lib/Services/OpenCodeTranscriptService.php
+
+		-
+			message: '#^Method HostAgent\\Services\\OpenCodeTranscriptService\:\:read_transcript_page\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/OpenCodeTranscriptService.php
+
+		-
+			message: '#^Method HostAgent\\Services\\OpenCodeTranscriptService\:\:read_transcript_page_since\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/OpenCodeTranscriptService.php
+
+		-
+			message: '#^Offset ''line'' on array\{type\: string, role\: string\|null, timestamp\: string\|null, blocks\: array\<int, array\{kind\: string, text\: string\}\>, line\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/OpenCodeTranscriptService.php
+
+		-
+			message: '#^Offset ''text'' on array\{kind\: string, text\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/OpenCodeTranscriptService.php
+
+		-
+			message: '#^Result of \|\| is always false\.$#'
+			identifier: booleanOr.alwaysFalse
+			count: 2
+			path: host-agent/lib/Services/OpenCodeTranscriptService.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between array and false will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 2
+			path: host-agent/lib/Services/OpenCodeTranscriptService.php
+
+		-
+			message: '#^Method HostAgent\\Services\\PermissionStore\:\:read_file\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/PermissionStore.php
+
+		-
+			message: '#^Method HostAgent\\Services\\PermissionStore\:\:write_file\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: host-agent/lib/Services/PermissionStore.php
 
 		-
 			message: '#^Method HostAgent\\Services\\ProcessInspector\:\:build_ppid_map\(\) should return array\<array\{pid\: int, ppid\: int\}\> but returns array\<int, int\>\.$#'
@@ -124,6 +214,24 @@ parameters:
 			message: '#^Method HostAgent\\Services\\PromptInteractionService\:\:set_mode\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
+			path: host-agent/lib/Services/PromptInteractionService.php
+
+		-
+			message: '#^Offset ''message'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/PromptInteractionService.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, message\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/PromptInteractionService.php
+
+		-
+			message: '#^Offset ''question'' on array\{question\: string, context\: string, options\: array\<int, array\{number\: int, label\: string\}\>, multi_question\: bool, is_folder_trust\: bool\}\|array\{question\: string, context\: string, options\: array\<int, array\{number\: int, label\: string\}\>, multi_question\: bool, tool_name\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
 			path: host-agent/lib/Services/PromptInteractionService.php
 
 		-
@@ -187,6 +295,24 @@ parameters:
 			path: host-agent/lib/Services/PushDeliveryService.php
 
 		-
+			message: '#^Offset ''detail'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/PushHealthService.php
+
+		-
+			message: '#^Offset ''ok'' on array\{ok\: bool, detail\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: host-agent/lib/Services/PushHealthService.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-falsy\-string and '''' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: host-agent/lib/Services/PushHealthService.php
+
+		-
 			message: '#^Method HostAgent\\Services\\QuotaService\:\:antigravity_quota_state\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -241,6 +367,12 @@ parameters:
 			path: host-agent/lib/Services/SessionDetailService.php
 
 		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 2
+			path: host-agent/lib/Services/SessionDetailService.php
+
+		-
 			message: '#^Method HostAgent\\Services\\SessionService\:\:build_session_entry\(\) return type has no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 3
@@ -253,7 +385,19 @@ parameters:
 			path: host-agent/lib/Services/SessionService.php
 
 		-
+			message: '#^Offset ''is_folder_trust'' on array\{question\: string, context\: string, options\: array\<int, array\{number\: int, label\: string\}\>, multi_question\: bool, is_folder_trust\: bool\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/SessionService.php
+
+		-
 			message: '#^Offset ''ok'' on array\{ok\: bool, entries\: array\<int, array\>, next_before\: int\|null, has_more\: bool, message\?\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: host-agent/lib/Services/SessionService.php
+
+		-
+			message: '#^Offset ''options'' on \*NEVER\* on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: host-agent/lib/Services/SessionService.php
@@ -261,6 +405,12 @@ parameters:
 		-
 			message: '#^Parameter \#3 \$ppidMap of static method HostAgent\\Services\\SessionService\:\:build_session_entry\(\) expects array\<int, int\>, array\<array\<string, int\>\> given\.$#'
 			identifier: argument.type
+			count: 1
+			path: host-agent/lib/Services/SessionService.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
 			count: 1
 			path: host-agent/lib/Services/SessionService.php
 
@@ -385,6 +535,18 @@ parameters:
 			path: src/lib/Views/BlockedPromptView.php
 
 		-
+			message: '#^Offset ''Global'' on array\{General\: non\-empty\-list\<array\{key\?\: string, label\?\: string, ok\?\: bool, detail\?\: string\|null\}\>\} in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/lib/Views/HealthBoxView.php
+
+		-
+			message: '#^Offset ''section'' on array\{key\?\: string, label\?\: string, ok\?\: bool, detail\?\: string\|null\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/lib/Views/HealthBoxView.php
+
+		-
 			message: '#^Method App\\Views\\PageView\:\:render_archived_session_page\(\) has parameter \$data with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
@@ -407,6 +569,12 @@ parameters:
 			identifier: missingType.iterableValue
 			count: 1
 			path: src/lib/Views/SessionRowView.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments null, array\{''bash'', ''execute'', ''run_command''\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: src/lib/Views/TranscriptView.php
 
 		-
 			message: '#^Match arm comparison between null and ''completed'' is always false\.$#'
@@ -609,7 +777,7 @@ parameters:
 		-
 			message: '#^Strict comparison using \!\=\= between null and null will always evaluate to false\.$#'
 			identifier: notIdentical.alwaysFalse
-			count: 8
+			count: 9
 			path: src/lib/Views/TranscriptView.php
 
 		-

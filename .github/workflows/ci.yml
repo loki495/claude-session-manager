@@ -34,15 +34,40 @@ jobs:
       - name: Install tmux
         run: sudo apt-get update && sudo apt-get install --yes tmux
 
+      # tests/lib/cdp.php and test_ui_smoke.php's headless-browser checks
+      # only ever probe the fixed paths /usr/bin/google-chrome-stable,
+      # /usr/bin/google-chrome, /usr/bin/chromium, /usr/bin/chromium-browser
+      # (no env var override) - browser-actions/setup-chrome installs to a
+      # runner-tool-cache path instead, so it's symlinked into the first of
+      # those spots the harness actually looks for.
+      - name: Set up Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Link Chrome for the CDP test harness
+        run: sudo ln -sf "${{ steps.setup-chrome.outputs.chrome-path }}" /usr/bin/google-chrome-stable
+
       - name: Validate Composer manifest
         run: composer validate --strict --no-check-lock
 
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Run PHPStan (advisory)
-        continue-on-error: true
+      - name: Audit Composer dependencies for known vulnerabilities
+        run: composer audit --no-dev
+
+      - name: Run PHPStan
         run: composer phpstan
 
-      - name: Run non-browser tests
-        run: bash tests/run.sh --no-browser --bail
+      - name: Check public JS syntax
+        run: for f in public/js/*.js public/sw.js; do node --check "$f"; done
+
+      # Advisory, like PHPStan started out - shellcheck has never run
+      # against these scripts before, so no baseline of what's pre-existing
+      # vs. a real regression exists yet.
+      - name: Shellcheck (advisory)
+        continue-on-error: true
+        run: shellcheck tests/run.sh host-agent/install.sh docs/opencode-serve-fix/apply-opencode-patch.sh
+
+      - name: Run full test suite (including browser tests)
+        run: bash tests/run.sh --bail
