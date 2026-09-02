@@ -42,3 +42,18 @@ detached, immediately follow in the same turn with a `Monitor` (or
 `run_in_background`) call that polls the actual PID or a sentinel file — never
 leave a bare-backgrounded process unmonitored, even for a moment, even as a
 "quick restart."
+
+**Third occurrence, later session (2026-09-02)**: despite this lesson file already
+existing in this exact project, typed `bash tests/run.sh --no-browser > log.txt
+2>&1 &` as a plain Bash call while mid-way through an unrelated cleanup task. Same
+result as before: the wrapping call "completed" instantly while the real
+~2.5-minute test run kept going untracked, and its stale flock lock then made two
+subsequent, correctly-formed `run_in_background: true` attempts fail with
+"REFUSING TO RUN: another tests/run.sh already in progress." Recovered the same
+way as the first incident (`kill -0 <pid>` poll via Monitor) — but the real fix is
+upstream: **before writing any Bash call for a command already run earlier in the
+session, check whether a lesson file for this exact command/pattern already
+exists, not just recall it from memory.** Memory of "I know not to do this" is not
+enough on its own to prevent it under time pressure; the lesson file must actually
+be consulted at the moment of typing the command, not just written once and
+trusted to have stuck.

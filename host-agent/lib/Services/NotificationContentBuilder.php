@@ -69,7 +69,7 @@ class NotificationContentBuilder
             return basename($workdir);
         }
 
-        return is_string($session['name'] ?? null) ? $session['name'] : 'Claude session';
+        return is_string($session['name'] ?? null) ? $session['name'] : 'Coding session';
     }
 
     /**

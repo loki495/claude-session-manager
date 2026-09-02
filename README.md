@@ -17,11 +17,10 @@ binding" below for how access is actually controlled.
 
 ## Screenshots
 
-![Dashboard showing two sessions](docs/screenshots/dashboard.png)
+![Dashboard listing active sessions](docs/screenshots/dashboard.png)
 
-Shown with two throwaway demo sessions (generic prompts, no real project
-data) - day-to-day the list is whatever `cc-*`/`cx-*`/`oc-*`/`ag-*` sessions
-(Claude Code, Codex, OpenCode, Antigravity) are actually running on your box.
+The dashboard lists every `cc-*`/`cx-*`/`oc-*`/`ag-*` session (Claude Code,
+Codex, OpenCode, Antigravity) currently running on your box.
 
 A session waiting on a tool-permission approval, with real Approve/Deny
 buttons right in the browser:

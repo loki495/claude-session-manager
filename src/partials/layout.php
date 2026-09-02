@@ -16,6 +16,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="<?= $this->e($viewportContent) ?>">
 <title><?= $this->e($title) ?></title>
+<!-- Fixed app identity for "Add to Home Screen", independent of $title
+     above (which is per-page - a session's own title on session.php, so
+     browser tabs stay distinguishable). Without a manifest/fixed title
+     here, iOS/Android use whatever page's <title> was open at install
+     time for the home-screen icon's name, which for a titleless session
+     page is just the bare agent name. -->
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Sessioneer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#020617">
 <?= $this->section('head-extra', '') ?>
 <link rel="stylesheet" href="<?= \App\Assets::versioned_url('/css/tailwind.css') ?>">
 <?= $this->section('style', '') ?>

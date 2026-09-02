@@ -1,0 +1,14 @@
+{
+  "name": "Sessioneer",
+  "short_name": "Sessioneer",
+  "description": "Manage Claude Code, Codex, OpenCode, and Antigravity coding-agent sessions from your phone or any browser on your LAN.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
