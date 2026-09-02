@@ -95,6 +95,98 @@ class PromptInteractionService
             return ['ok' => false, 'message' => 'Rejected: that option is not currently offered by this prompt'];
         }
 
+        // Claude Code's own permission-suggestion menu is the one prompt
+        // shape where the browser's option NUMBERS (built by
+        // PromptParser::build_options_from_permission_suggestions() from
+        // the PermissionRequest hook payload - see build_session_entry())
+        // and the real on-screen menu (validated above only by number
+        // against $prompt['options'], a completely separate pane-scrape
+        // via PromptParser::parse_blocking_prompt()) come from two
+        // independent guesses at the same thing. Every other prompt shape
+        // in this method (OpenCode question/permission, AskUserQuestion,
+        // folder trust) sources its options from a SINGLE place for both
+        // display and send, so there's nothing to reconcile there.
+        //
+        // Found live 2026-09-02 (Andres): clicked a button labeled "Allow
+        // always" for a Bash tool's addRules suggestion; the guessed menu
+        // put that at position 2, but Claude Code's real on-screen menu for
+        // that combo didn't have a third option at all (iOS/the TUI itself
+        // sometimes offers a plain Allow/Deny for this exact shape) - so
+        // sending digit 2 landed on the pane's real "No" and the tool use
+        // came back denied. Fix: don't trust the guessed NUMBER at all here
+        // - resolve the user's actual INTENT (once/always/no) from the
+        // guessed label at $option, then find whichever number the FRESH
+        // pane-scrape really has that same intent at (self-healing if the
+        // real menu just reordered), and send that number instead. Only
+        // refuse if the real menu doesn't offer that intent at all - e.g.
+        // "always" was picked but the real menu has no always-allow option
+        // this time - rather than silently downgrading to a different
+        // intent (once, say) the user never asked for.
+        if ($agent === 'claude') {
+            $hookStatusForCheck = SessionStatusStore::read_status($name);
+            $hookBlockedForCheck = is_array($hookStatusForCheck['blocked'] ?? null) ? $hookStatusForCheck['blocked'] : null;
+            $hookToolName = is_string($hookBlockedForCheck['tool_name'] ?? null) ? $hookBlockedForCheck['tool_name'] : null;
+
+            // Gated on the HOOK's own tool_name, not $prompt['tool_name'] -
+            // the plain pane-scrape parse_blocking_prompt() call above never
+            // sets that key at all (only build_prompt_from_hook_status()
+            // and the AskUserQuestion pending-tool augmentation do), so
+            // checking $prompt['tool_name'] here would silently never fire.
+            //
+            // Also requires the REAL pane to currently be asking Claude
+            // Code's own fixed "Do you want to proceed?" question - the
+            // literal text build_prompt_from_hook_status() always uses for
+            // this exact prompt shape (see its own docblock). Without this,
+            // a stale SessionStatusStore 'blocked' row left over from an
+            // EARLIER answered-but-not-yet-hook-cleared permission prompt
+            // would wrongly apply this whole cross-check to whatever
+            // DIFFERENT prompt (a multi-question AskUserQuestion tab, a
+            // folder-trust dialog) is actually on screen right now - caught
+            // by this method's own test suite, not just theorized: a later,
+            // unrelated multi-question answer_prompt() call broke once this
+            // guard was missing.
+            if (
+                ($hookStatusForCheck['status'] ?? null) === 'blocked'
+                && $hookBlockedForCheck !== null
+                && $hookToolName !== null
+                && $hookToolName !== 'AskUserQuestion'
+                && ($prompt['question'] ?? null) === 'Do you want to proceed?'
+            ) {
+                $expectedOptions = PromptParser::build_options_from_permission_suggestions(
+                    is_array($hookBlockedForCheck['permission_suggestions'] ?? null) ? $hookBlockedForCheck['permission_suggestions'] : []
+                );
+                $expectedLabel = $expectedOptions[$option - 1]['label'] ?? null;
+                $realLabel = $prompt['options'][$option - 1]['label'] ?? null;
+
+                if ($expectedLabel !== null && $realLabel !== null) {
+                    $wantedIntent = PromptParser::classify_permission_option_intent($expectedLabel);
+                    $realIntentAtSameNumber = PromptParser::classify_permission_option_intent($realLabel);
+
+                    if ($wantedIntent !== $realIntentAtSameNumber) {
+                        $correctedOption = null;
+
+                        foreach ($prompt['options'] as $realOpt) {
+                            if (PromptParser::classify_permission_option_intent((string)$realOpt['label']) === $wantedIntent) {
+                                $correctedOption = (int)$realOpt['number'];
+                                break;
+                            }
+                        }
+
+                        if ($correctedOption === null) {
+                            TuiLayoutMismatchService::record($name, $hookToolName, $expectedLabel, $realLabel);
+
+                            return [
+                                'ok' => false,
+                                'message' => "Refusing: this page showed \"{$expectedLabel}\" as option {$option}, but the real on-screen menu doesn't currently offer an equivalent choice at all (it shows \"{$realLabel}\" there instead) - Claude Code's prompt layout may have changed. Nothing was sent. Reload the page, or answer by hand: `tmux attach -t {$name}`.",
+                            ];
+                        }
+
+                        $option = $correctedOption;
+                    }
+                }
+            }
+        }
+
         // OpenCode QUESTION prompt - answer via the serve API (POST
         // /question/{requestID}/reply with the chosen label). The pane modal is
         // orphan-prone and its nav shape (↑↓ list vs ⇆ tab) varies, so mapping

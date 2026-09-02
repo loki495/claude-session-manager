@@ -294,6 +294,8 @@ class PushHealthService
         $codexBridge['section'] = 'Codex';
         $checks[] = $codexBridge;
 
+        $checks[] = TuiLayoutMismatchService::health_check();
+
         $vendorAutoload = Config::sessioneer_repo_root() . '/vendor/autoload.php';
         $checks[] = [
             'key' => 'composer_vendor',

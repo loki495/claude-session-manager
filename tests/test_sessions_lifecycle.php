@@ -26,6 +26,7 @@ use HostAgent\Services\SessionDetailService;
 use HostAgent\Services\SessionLifecycleService;
 use HostAgent\Services\SessionService;
 use HostAgent\Services\TmuxService;
+use HostAgent\Services\TuiLayoutMismatchService;
 use HostAgent\Stores\GlobalStateStore;
 use HostAgent\Stores\SidecarStore;
 use HostAgent\Stores\SessionStatusStore;
@@ -397,6 +398,35 @@ assert_true(
 assert_true(str_contains($reshowParsed['context'] ?? '', '←  ☒ Visibility'), 'parse_blocking_prompt: a reshown tab\'s context DOES include its own tab bar');
 assert_true(str_contains($reshowParsed['context'] ?? '', 'Repo visibility —'), 'parse_blocking_prompt: a reshown tab\'s context DOES include its own question');
 assert_equal(true, $reshowParsed['multi_question'] ?? null, 'parse_blocking_prompt: a reshown tab is still correctly detected as multi_question');
+
+// --- PromptParser::build_options_from_permission_suggestions() /
+// classify_permission_option_intent(): the guessed-menu builder and the
+// intent classifier PromptInteractionService::answer_prompt() uses to
+// reconcile that guess against a real pane-scrape (see its own docblock
+// for the live incident this whole pair exists to catch). ---
+assert_equal(
+    [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => 'No']],
+    PromptParser::build_options_from_permission_suggestions([]),
+    'build_options_from_permission_suggestions: no suggestions -> plain Yes/No'
+);
+assert_equal(
+    [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => "Yes, and don't ask again for: rm -rf /tmp/scratch"], ['number' => 3, 'label' => 'No']],
+    PromptParser::build_options_from_permission_suggestions([['type' => 'addRules', 'rules' => [['toolName' => 'Bash', 'ruleContent' => 'rm -rf /tmp/scratch']], 'behavior' => 'allow', 'destination' => 'session']]),
+    'build_options_from_permission_suggestions: a single addRules suggestion gets its own middle option'
+);
+assert_equal(
+    [['number' => 1, 'label' => 'Yes'], ['number' => 2, 'label' => 'No']],
+    PromptParser::build_options_from_permission_suggestions([['type' => 'setMode', 'mode' => 'plan']]),
+    'build_options_from_permission_suggestions: a setMode suggestion this app has no label for is simply not offered'
+);
+
+assert_equal('yes_once', PromptParser::classify_permission_option_intent('Yes'), 'classify_permission_option_intent: bare "Yes"');
+assert_equal('yes_once', PromptParser::classify_permission_option_intent('  yes  '), 'classify_permission_option_intent: case/whitespace-insensitive');
+assert_equal('yes_always', PromptParser::classify_permission_option_intent("Yes, and don't ask again for: rm -rf /tmp/scratch"), 'classify_permission_option_intent: addRules-suggestion label');
+assert_equal('yes_always', PromptParser::classify_permission_option_intent('Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)'), 'classify_permission_option_intent: setMode-suggestion label');
+assert_equal('no', PromptParser::classify_permission_option_intent('No'), 'classify_permission_option_intent: bare "No"');
+assert_equal('no', PromptParser::classify_permission_option_intent('No, and tell Claude what to do differently'), 'classify_permission_option_intent: Claude Code\'s longer real "No" phrasing');
+assert_equal('unknown', PromptParser::classify_permission_option_intent('Type something else'), 'classify_permission_option_intent: a free-text-style label is neither yes nor no');
 
 // --- PermissionMode::parse_current_mode(): reads Claude Code's own bottom status line -
 // mode names and cycle order confirmed live against a real running
@@ -1319,6 +1349,95 @@ try {
 
     $paneAfterAnswer = trim(TmuxService::tmux_capture_pane($promptTestSession));
     assert_true(str_ends_with($paneAfterAnswer, '1'), 'answer_prompt: the option number was actually sent into the pane (echoed back by cat)');
+
+    // --- PromptInteractionService::answer_prompt(): Claude Code permission-suggestion
+    // cross-check (see PromptParser::classify_permission_option_intent()'s
+    // own docblock for the live incident - "Allow always" silently sending
+    // the digit for "No" instead). Case 1: the real menu re-ordered but
+    // still HAS the intended option - self-corrects to its real number. ---
+    SessionStatusStore::update_status($promptTestSession, [
+        'status' => 'blocked',
+        'blocked' => [
+            'tool_name' => 'Bash',
+            'tool_input' => ['command' => 'sed -n 1,5p file.lua', 'description' => 'Inspect file'],
+            'permission_suggestions' => [[
+                'type' => 'addRules',
+                'rules' => [['toolName' => 'Read', 'ruleContent' => '//some/glob/**']],
+                'behavior' => 'allow',
+                'destination' => 'session',
+            ]],
+        ],
+    ]);
+    // Guessed layout (from the status above) would be 1=Yes, 2=Yes-always,
+    // 3=No - the real pane here instead has the always-option at 3, with
+    // No at 2, simulating a real menu that doesn't match that guess. Uses
+    // the same realistic "● Bash(...)" marker + divider shape as the
+    // $realPermissionPrompt fixture above (not a bare "Do you want to
+    // proceed?" line) - needed so parse_blocking_prompt()'s context/marker
+    // scan has a clean boundary to stop at, now that this session's pane
+    // already has earlier tests' content sitting above it.
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '● Bash(sed -n 1,5p file.lua)', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'Do you want to proceed?', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '❯ 1. Yes', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '  2. No', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, "  3. Yes, and don't ask again for: //some/glob/**", 'Enter']);
+    usleep(300000);
+
+    $reorderedAnswer = PromptInteractionService::answer_prompt($promptTestSession, 2);
+    assert_true($reorderedAnswer['ok'] ?? false, 'answer_prompt: still succeeds when the real menu re-ordered the intended option');
+    assert_true(str_contains((string)($reorderedAnswer['message'] ?? ''), '3'), 'answer_prompt: reports the REAL corrected option number (3), not the guessed one (2)');
+    usleep(300000);
+
+    $paneAfterReorderedAnswer = trim(TmuxService::tmux_capture_pane($promptTestSession));
+    assert_true(str_ends_with($paneAfterReorderedAnswer, '3'), 'answer_prompt: sent the corrected option number (3) into the pane, not the guessed one (2)');
+
+    // Case 2: the real menu doesn't offer the intended option AT ALL (only
+    // a plain Yes/No this time, matching Andres's own report that the iOS
+    // app/TUI can show just Allow/Deny for this same prompt shape) - must
+    // refuse rather than silently sending whatever's really at that
+    // number, and the health check must then flag it.
+    SessionStatusStore::update_status($promptTestSession, [
+        'status' => 'blocked',
+        'blocked' => [
+            'tool_name' => 'Bash',
+            'tool_input' => ['command' => 'sed -n 1,5p file.lua', 'description' => 'Inspect file'],
+            'permission_suggestions' => [[
+                'type' => 'addRules',
+                'rules' => [['toolName' => 'Read', 'ruleContent' => '//some/glob/**']],
+                'behavior' => 'allow',
+                'destination' => 'session',
+            ]],
+        ],
+    ]);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '● Bash(sed -n 1,5p file.lua)', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, 'Do you want to proceed?', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '❯ 1. Yes', 'Enter']);
+    TmuxService::tmux_run(['send-keys', '-t', $promptTestSession, '  2. No', 'Enter']);
+    usleep(300000);
+
+    $paneBeforeMismatchAnswer = trim(TmuxService::tmux_capture_pane($promptTestSession));
+    $mismatchAnswer = PromptInteractionService::answer_prompt($promptTestSession, 2);
+    assert_equal(false, $mismatchAnswer['ok'] ?? null, "answer_prompt: refuses when the real menu doesn't offer the intended option at all");
+    assert_true(str_contains((string)($mismatchAnswer['message'] ?? ''), 'Refusing'), 'answer_prompt: the refusal message says so, not a generic rejection');
+    usleep(300000);
+
+    $paneAfterMismatchAnswer = trim(TmuxService::tmux_capture_pane($promptTestSession));
+    assert_equal($paneBeforeMismatchAnswer, $paneAfterMismatchAnswer, 'answer_prompt: nothing was actually sent to the pane when refusing on a layout mismatch');
+
+    $mismatchHealth = TuiLayoutMismatchService::health_check();
+    assert_equal(false, $mismatchHealth['ok'] ?? null, 'TuiLayoutMismatchService::health_check: reports unhealthy after a recorded mismatch');
+    assert_true(str_contains((string)($mismatchHealth['detail'] ?? ''), $promptTestSession), 'TuiLayoutMismatchService::health_check: names the affected session in its detail');
+
+    // The refusal above returns early, before the usual "mark working,
+    // clear blocked" cleanup - clear it explicitly so this session's
+    // leftover 'blocked' status can't affect anything answered on it
+    // afterward (the tests below don't rely on this either way now that
+    // answer_prompt() itself also gates its cross-check on the real pane's
+    // question text, not just hook status - see its own comment - but a
+    // test session shouldn't carry stale state forward regardless).
+    SessionStatusStore::update_status($promptTestSession, ['status' => 'working', 'blocked' => null]);
 
     // --- PromptInteractionService::answer_prompt(): for a MULTI-QUESTION prompt specifically,
     // sends ONLY the digit - no trailing Enter (found live 2026-08-09,

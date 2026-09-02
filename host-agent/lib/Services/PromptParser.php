@@ -503,6 +503,45 @@ class PromptParser
     }
 
     /**
+     * Classifies a permission-menu option label into one of the three
+     * intents this app's own guessed layout (build_options_from_
+     * permission_suggestions() above) ever assigns a label - 'yes_once'
+     * for the bare "Yes", 'yes_always' for a suggestion-augmented one
+     * (every permission_suggestion_option_label() string starts with
+     * "Yes," - a comma, not the bare word - whether it's an addRules/
+     * addDirectories/setMode suggestion), 'no' for "No" and Claude Code's
+     * own longer "No, and tell Claude..." phrasing alike. 'unknown' for
+     * anything else (a prompt shape this classifier was never meant to
+     * cover reaching it by mistake).
+     *
+     * Used to compare a GUESSED label against a REAL pane-scraped one by
+     * MEANING rather than exact text - see PromptInteractionService::
+     * answer_prompt()'s cross-check for why exact text can't be required
+     * (Andres, 2026-09-02: real wording for the same suggestion can carry
+     * extra detail the guess doesn't reproduce verbatim) while still
+     * catching an actual menu mismatch (a guessed 'yes_always' landing on
+     * a real 'no' is never a wording difference).
+     */
+    public static function classify_permission_option_intent(string $label): string
+    {
+        $normalized = strtolower(trim($label));
+
+        if ($normalized === 'yes') {
+            return 'yes_once';
+        }
+
+        if (str_starts_with($normalized, 'yes,') || str_starts_with($normalized, 'yes ')) {
+            return 'yes_always';
+        }
+
+        if (str_starts_with($normalized, 'no')) {
+            return 'no';
+        }
+
+        return 'unknown';
+    }
+
+    /**
      * The PermissionRequest-hook-fed equivalent of parse_blocking_prompt() +
      * augment_prompt_with_pending_tool() combined, built entirely from
      * SessionStatusStore's own `blocked` field - no pane capture, no
