@@ -11,7 +11,7 @@ session's directory differs from the serve process's working directory.
 - `GET /config/providers` resolves to `process.cwd()` (the serve's cwd,
   e.g. `/home/user`)
 - `POST /session/{id}/prompt_async` resolves to the session's stored directory
-  (e.g. `/home/user/www/claude-session-manager`)
+  (e.g. `/home/user/www/sessioneer`)
 
 Different directories → different cache keys → different provider init runs →
 models visible in `/config/providers` but "not found" during prompt execution.

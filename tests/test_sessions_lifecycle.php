@@ -31,7 +31,7 @@ use HostAgent\Stores\SidecarStore;
 use HostAgent\Stores\SessionStatusStore;
 
 const REAL_TMUX_SOCKET = '/tmp/tmux-1000/default';
-const REAL_PUSH_SQLITE_FILE_LC = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
+const REAL_PUSH_SQLITE_FILE_LC = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
 
 if (Config::tmux_socket() === REAL_TMUX_SOCKET) {
     fwrite(STDERR, "REFUSING TO RUN: TMUX_SOCKET resolves to the real host socket. Check tests/.env.testing.\n");

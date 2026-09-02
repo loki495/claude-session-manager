@@ -415,7 +415,7 @@ earlier commit this plan doc already described)**
 
 **Phase 3 — hooks — DONE, scope adjusted per the live findings above**
 - `AntigravityHookService` (`host-agent/lib/Services/AntigravityHookService.php`)
-  writes `~/.gemini/config/hooks.json` under a `claude-session-manager`
+  writes `~/.gemini/config/hooks.json` under a `sessioneer`
   named group, in the confirmed nested schema (grouped-with-matcher for
   PreToolUse/PostToolUse, flat for PreInvocation/Stop) - same data-driven,
   never-touch-other-hook-groups discipline as `HookService`. Wired into

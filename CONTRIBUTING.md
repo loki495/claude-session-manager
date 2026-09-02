@@ -144,7 +144,7 @@ DOM in the first place.
 ## File structure
 
 ```
-claude-session-manager/
+sessioneer/
 ├── docker-compose.yml     # container: includes the Dockerfile inline (dockerfile_inline)
 ├── composer.json           # one root autoloader: App\ -> src/lib/, HostAgent\ -> host-agent/lib/
 ├── .env.example           # copy to .env, fill in real values, never commit .env

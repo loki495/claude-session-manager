@@ -25,7 +25,7 @@ use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
 
 const REAL_PUSH_TIMER_UNIT_NAME = 'sessioneer-push-check.timer';
-const REAL_PUSH_SQLITE_FILE = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
+const REAL_PUSH_SQLITE_FILE = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
 
 $fixtureDir = sys_get_temp_dir() . '/sessioneer-test-push-' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0700, true);

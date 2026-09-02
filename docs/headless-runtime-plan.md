@@ -200,7 +200,7 @@ diverge:
 
 The running serve already hosts sessions across directories: each session
 carries a `directory`/`path`/`projectID`, and `/project` lists multiple
-worktrees (incl. `/home/user/www/claude-session-manager`). So **one
+worktrees (incl. `/home/user/www/sessioneer`). So **one
 serve instance can manage sessions in many workdirs** — no per-project
 serve needed.
 

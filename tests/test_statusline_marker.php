@@ -22,7 +22,7 @@ use HostAgent\Stores\GlobalStateStore;
 use HostAgent\Stores\SidecarStore;
 
 const REAL_HOME_ROOT_SM = '/home/user';
-const REAL_PUSH_SQLITE_FILE_SM = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
+const REAL_PUSH_SQLITE_FILE_SM = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
 
 $fixtureHome = sys_get_temp_dir() . '/sessioneer-test-statusline-home-' . bin2hex(random_bytes(4));
 $fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-statusline-sidecars-' . bin2hex(random_bytes(4));

@@ -18,7 +18,7 @@ require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 use HostAgent\Services\Config;
 use HostAgent\Stores\GlobalStateStore;
 
-const REAL_PUSH_SQLITE_FILE_AQ = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
+const REAL_PUSH_SQLITE_FILE_AQ = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
 
 $pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-agy-quota-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");

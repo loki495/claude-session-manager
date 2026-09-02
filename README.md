@@ -19,7 +19,8 @@ binding, not a login.
 ![Dashboard showing two sessions](docs/screenshots/dashboard.png)
 
 Shown with two throwaway demo sessions (generic prompts, no real project data) —
-day-to-day the list is whatever `cc-*` tmux sessions are actually running on your box.
+day-to-day the list is whatever `cc-*`/`cx-*`/`oc-*`/`ag-*` tmux sessions (Claude
+Code, Codex, OpenCode, Antigravity) are actually running on your box.
 
 ## What it does
 

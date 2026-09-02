@@ -33,8 +33,8 @@ use HostAgent\Stores\SqliteDb;
 
 use HostAgent\Stores\SidecarStore;
 
-const REAL_PUSH_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-agent/state/push.sqlite';
-const REAL_SESSIONS_SQLITE_FILE_Q = '/home/user/www/claude-session-manager/host-agent/state/sessions.sqlite';
+const REAL_PUSH_SQLITE_FILE_Q = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
+const REAL_SESSIONS_SQLITE_FILE_Q = '/home/user/www/sessioneer/host-agent/state/sessions.sqlite';
 
 $pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-quota-live-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 $sessionsSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-quota-sessions-' . bin2hex(random_bytes(4)) . '/sessions.sqlite';
