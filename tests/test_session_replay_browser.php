@@ -175,6 +175,7 @@ function control_panel_wait_for_go(array &$page): bool
 // green run leaves nothing here at all.
 $debugDir = sys_get_temp_dir() . '/sessioneer-test-replay-browser-failures-' . getmypid();
 $debugCounter = 0;
+$failuresAtStart = $GLOBALS['__sessioneer_test_failures'];
 
 /**
  * assert_true(), plus a screenshot + full-page HTML dump on failure -
@@ -637,6 +638,25 @@ try {
         }
     }
 } finally {
+    // Chrome's own stderr (see cdp_launch()'s doc comment) - dumped only
+    // when this file actually failed, and only up to $debugDir (never
+    // cleaned up on failure - see $debugDir's own comment above), since
+    // cdp_shutdown() below deletes $browser['user_data_dir'] (where the
+    // log file actually lives) unconditionally.
+    if ($browser !== null && $GLOBALS['__sessioneer_test_failures'] > $failuresAtStart) {
+        $stderrLog = $browser['stderr_log'] ?? null;
+
+        if ($stderrLog !== null && is_file($stderrLog)) {
+            @mkdir($debugDir, 0700, true);
+            @copy($stderrLog, "{$debugDir}/chrome-stderr.log");
+            echo "  chrome stderr (this run had failures, saved to {$debugDir}/chrome-stderr.log):\n";
+            $lines = @file($stderrLog, FILE_IGNORE_NEW_LINES) ?: [];
+            foreach (array_slice($lines, -100) as $line) {
+                echo "    {$line}\n";
+            }
+        }
+    }
+
     if ($page !== null) {
         cdp_close_page($page);
     }

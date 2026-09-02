@@ -95,7 +95,7 @@ function cdp_launch(string $chromeBin): ?array
         '--disable-crash-reporter',
         '--remote-debugging-port=0', '--user-data-dir=' . $userDataDir, 'about:blank',
     ];
-    // stdout/stderr go to /dev/null, not pipes - found live: chrome is
+    // stdout/stderr go to a real FILE, not pipes - found live: chrome is
     // chatty on stderr (its own internal logging), and NOTHING in this
     // file ever reads a piped stdout/stderr once launch succeeds. Once
     // that pipe's OS buffer (64KB) fills, chrome's own write() calls
@@ -106,10 +106,15 @@ function cdp_launch(string $chromeBin): ?array
     // getting responses with no crash, no JS exception, no error -
     // cdp_call() just timed out every time from then on, every
     // downstream check silently failing against a technically-still-
-    // alive but unresponsive browser. A discarded (file) descriptor can
-    // never fill, so there's nothing to block on.
-    $devNull = [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
-    $process = proc_open($cmd, [0 => ['pipe', 'r']] + $devNull, $pipes);
+    // alive but unresponsive browser. A file descriptor can never fill
+    // the way a pipe can, so there's nothing to block on - unlike
+    // /dev/null (used here previously), a real file also means a caller
+    // that sees CDP go unresponsive can inspect chrome's own stderr
+    // afterward instead of guessing (see test_session_replay_browser.php's
+    // finally block).
+    $stderrLog = $userDataDir . '/chrome-stderr.log';
+    $fileSinks = [1 => ['file', '/dev/null', 'w'], 2 => ['file', $stderrLog, 'w']];
+    $process = proc_open($cmd, [0 => ['pipe', 'r']] + $fileSinks, $pipes);
 
     if (!is_resource($process)) {
         echo "  SKIP: chrome found at {$chromeBin} but failed to launch\n";
@@ -144,7 +149,7 @@ function cdp_launch(string $chromeBin): ?array
         return null;
     }
 
-    return ['process' => $process, 'port' => $port, 'user_data_dir' => $userDataDir];
+    return ['process' => $process, 'port' => $port, 'user_data_dir' => $userDataDir, 'stderr_log' => $stderrLog];
 }
 
 function cdp_shutdown(array $browser): void

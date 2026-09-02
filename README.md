@@ -1,5 +1,7 @@
 # Sessioneer
 
+[![CI](https://github.com/loki495/sessioneer/actions/workflows/ci.yml/badge.svg)](https://github.com/loki495/sessioneer/actions/workflows/ci.yml)
+
 A self-hosted, LAN-only web UI for managing coding-agent sessions - Claude
 Code and Antigravity (`cc-*`/`ag-*`, tmux-driven), OpenCode (`oc-*`, its own
 headless server by default, tmux as a fallback), and Codex (`cx-*`, headless
