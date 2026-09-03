@@ -562,14 +562,19 @@ function cdp_call(array &$page, string $method, array $params = [], float $timeo
  * layer, and sufficient here since every page this drives is a small,
  * already-fast local `php -S` response, not a heavy real-world page.
  *
- * Default bumped from 5.0 - found live on CI (a slower, shared runner
- * than this suite was originally tuned against): occasionally still
- * mid-load a hair past 5s even though the page was never actually stuck
- * (every assertion against it right afterward still passed) - a plain
- * "not enough margin on a loaded box" gap, not the frame-desync class of
- * bug cdp_ws_read_frame()'s own doc comment covers.
+ * Default bumped 5.0 -> 10.0 -> 20.0 - found live on CI (a slower, shared
+ * runner than this suite was originally tuned against, confirmed by two
+ * genuinely separate navigate() calls in the SAME run each occasionally
+ * needing more than 10s): occasionally still mid-load a hair past the
+ * prior default even though the page was never actually stuck (every
+ * assertion against it right afterward still passed) - a plain "not
+ * enough margin on a loaded box" gap, not the frame-desync class of bug
+ * cdp_ws_read_frame()'s own doc comment covers, and not the real
+ * multi-question race test_session_replay_browser.php's own doc comment
+ * covers either (that one's fixed at the source now, in the test itself,
+ * not by widening a timeout).
  */
-function cdp_navigate(array &$page, string $url, float $timeout = 10.0): bool
+function cdp_navigate(array &$page, string $url, float $timeout = 20.0): bool
 {
     if (cdp_call($page, 'Page.navigate', ['url' => $url]) === null) {
         return false;
