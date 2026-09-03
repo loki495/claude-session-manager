@@ -576,7 +576,16 @@ function cdp_call(array &$page, string $method, array $params = [], float $timeo
  */
 function cdp_navigate(array &$page, string $url, float $timeout = 20.0): bool
 {
-    if (cdp_call($page, 'Page.navigate', ['url' => $url]) === null) {
+    // Found live investigating a CI-only navigate() failure that
+    // consistently gave up after exactly 5.0s no matter how high $timeout
+    // was raised: this initial Page.navigate dispatch used to call
+    // cdp_call() with NO timeout argument at all, silently falling back to
+    // cdp_call()'s OWN unrelated 5.0 default - $timeout only ever reached
+    // the readyState poll below, never this line, so bumping it repeatedly
+    // did nothing whenever the SLOW part was Chrome acknowledging the
+    // navigate command itself (e.g. still tearing down the previous page)
+    // rather than the new page finishing its load.
+    if (cdp_call($page, 'Page.navigate', ['url' => $url], $timeout) === null) {
         return false;
     }
 
