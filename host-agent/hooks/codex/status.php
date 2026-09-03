@@ -69,7 +69,7 @@ try {
                     'tool_input' => $toolInput,
                     'external' => true,
                 ]];
-            } elseif ($event === 'PostToolUse' && ($payload['tool_name'] ?? null) === 'request_user_input') {
+            } elseif ($event === 'PostToolUse') {
                 $fields = ['status' => 'working', 'blocked' => null];
             }
 

@@ -57,6 +57,7 @@ try {
     assert_equal('personal hooks', $config['description'] ?? null, 'installer preserves unrelated top-level settings');
     assert_equal('notify-send done', $config['hooks']['Stop'][0]['hooks'][0]['command'] ?? null, 'installer preserves an unrelated hook for the same event');
     assert_equal(2, count($config['hooks']['Stop'] ?? []), 'installer appends its Stop hook without replacing the existing one');
+    assert_equal('*', $config['hooks']['PostToolUse'][0]['matcher'] ?? null, 'PostToolUse observes every completed tool so approved permissions return to working immediately');
     assert_equal(true, CodexHookService::check_session_hook()['installed'], 'checker sees the complete installed hook set');
     CodexHookService::install_session_hook();
     $second = json_decode((string)file_get_contents($path), true);
@@ -92,8 +93,8 @@ try {
     assert_equal('Input required in Codex Remote.', $question['blocked']['question'] ?? null, 'request_user_input is visible as a Remote-owned input block');
     assert_equal('Which environment?', $question['blocked']['context'] ?? null, 'request_user_input preserves readable question context');
 
-    run_codex_status_hook($base + ['hook_event_name' => 'PostToolUse', 'tool_name' => 'request_user_input'], $statusDb);
-    assert_equal('working', SessionStatusStore::read_status('codex-hook-session')['status'] ?? null, 'answering the Remote prompt returns the session to working');
+    run_codex_status_hook($base + ['hook_event_name' => 'PostToolUse', 'tool_name' => 'Bash'], $statusDb);
+    assert_equal('working', SessionStatusStore::read_status('codex-hook-session')['status'] ?? null, 'the approved Remote tool completing returns the session to working');
 
     run_codex_status_hook($base + ['hook_event_name' => 'Stop', 'last_assistant_message' => 'Finished'], $statusDb);
     $stopped = SessionStatusStore::read_status('codex-hook-session');

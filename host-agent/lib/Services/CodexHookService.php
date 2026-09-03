@@ -15,7 +15,9 @@ class CodexHookService
             ['event' => 'UserPromptSubmit', 'matcher' => null],
             ['event' => 'PreToolUse', 'matcher' => '^request_user_input$'],
             ['event' => 'PermissionRequest', 'matcher' => null],
-            ['event' => 'PostToolUse', 'matcher' => '^request_user_input$'],
+            // Clears either kind of external block after the approved tool
+            // or request_user_input call actually finishes.
+            ['event' => 'PostToolUse', 'matcher' => '*'],
             ['event' => 'Stop', 'matcher' => null],
             ['event' => 'Interrupt', 'matcher' => null],
             ['event' => 'SessionEnd', 'matcher' => null],
@@ -32,7 +34,17 @@ class CodexHookService
         }
 
         foreach ($groups as $group) {
-            if (!is_array($group) || ($matcher !== null && ($group['matcher'] ?? null) !== $matcher)) {
+            if (!is_array($group)) {
+                continue;
+            }
+
+            $configuredMatcher = $group['matcher'] ?? null;
+
+            if ($matcher === null) {
+                if (!in_array($configuredMatcher, [null, '', '*'], true)) {
+                    continue;
+                }
+            } elseif ($configuredMatcher !== $matcher) {
                 continue;
             }
 
