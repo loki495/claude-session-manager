@@ -460,20 +460,56 @@ try {
                         browser_assert($page, $selected === true, "session.php (step {$i}): question {$qIndex}'s option {$ans} is selected in the form", "step-{$i}-multi-question-select-failed");
                     }
 
+                    // PromptInteractionService::answer_multi_question() re-scrapes
+                    // the REAL tmux pane and REJECTS the whole answer (no keys
+                    // sent, blocked status left untouched) if that pane doesn't
+                    // already show this exact question - found live investigating
+                    // a CI-only (occasionally-local-too) failure where the
+                    // blocked prompt never cleared after this exact click: this
+                    // step's own pane_text is written via a SEPARATE, slower path
+                    // (real `tmux send-keys` subprocesses in replay_step(), one
+                    // per line) than the DOM update just waited for above (driven
+                    // by the JSONL/hook_status write, which lands instantly) - the
+                    // DOM can legitimately show the prompt before the real pane
+                    // has caught up to match it, and CI's slower subprocess
+                    // spawning made that race far more likely to lose than on a
+                    // fast dev box. Waits for the LAST line of this step's own
+                    // pane_text specifically (not just the question text, which
+                    // is sent EARLY in the same multi-line sequence) - the
+                    // question alone appearing doesn't prove the later lines
+                    // (options, tab-bar) replay_step() also sent have actually
+                    // landed yet, and parse_blocking_prompt() needs the whole
+                    // thing to recognize this as a valid multi-question prompt.
+                    $paneTextLines = $advanced['step']['pane_text'] ?? [];
+                    $lastPaneLine = end($paneTextLines);
+                    $paneReady = $lastPaneLine === false || browser_wait_until(function () use ($ctx, $lastPaneLine) {
+                        return str_contains(replay_capture_pane($ctx['session_name']), $lastPaneLine);
+                    });
+                    browser_assert($page, $paneReady, "session.php (step {$i}): the real tmux pane shows this multi-question prompt's full pane_text before submitting", "step-{$i}-multi-question-pane-not-ready");
+
                     $clicked = cdp_click($page, '.multi-question-submit-btn');
                     browser_assert($page, $clicked, "session.php (step {$i}): the \"Send answers\" button is found and clicked", "step-{$i}-multi-question-send-failed");
 
-                    // Same "nothing visibly checkable here" reasoning the OLD
-                    // multi-question case already relied on: SessionService::
-                    // answer_multi_question() sends its whole computed key
-                    // sequence as mostly escape-sequence Right-arrow presses
-                    // cat's canonical-mode echo never renders as visible
-                    // text, and the backend side (which digits, in which
-                    // order) is already thoroughly covered by
-                    // PromptParser::build_multi_question_key_sequence()'s
-                    // own unit tests plus test_session_replay.php's
-                    // curl-based equivalent - a brief settle beat instead.
-                    usleep(500000);
+                    // Checks the CLIENT's own DOM (via the same real poll
+                    // cycle steps 15/16 already trust for "no blocked prompt
+                    // showing") rather than diffing raw pane bytes or making
+                    // a separate HTTP call: an earlier version of this check
+                    // tried comparing replay_capture_pane() before/after,
+                    // which is NOT reliable (the real key sequence is mostly
+                    // cursor-movement escape codes, which tmux's OWN terminal
+                    // emulation can interpret as pure cursor movement rather
+                    // than a visible content change); a later version tried
+                    // curl_request() straight to session_detail.php, which is
+                    // NOT reliable either - unlike test_session_replay.php's
+                    // own curl-based checks, this file never carries an
+                    // authenticated cookie jar (session.js's cookie lives
+                    // inside Chrome's own store, not a PHP-side jar), so an
+                    // unauthenticated request here can't be trusted to report
+                    // real backend state at all.
+                    $answered = browser_wait_until(function () use (&$page) {
+                        return cdp_evaluate($page, "document.querySelector('#blocked-prompt-section .multi-question-wrapper') === null") === true;
+                    });
+                    browser_assert($page, $answered, "session.php (step {$i}): the click's real submit reached /answer_prompt.php and the blocked form is gone from the DOM", "step-{$i}-multi-question-not-sent");
                 } elseif ($mode === 'freetext') {
                     $option = (int)$blockedPrompt['answer']['option'];
                     $text = (string)$blockedPrompt['answer']['text'];
