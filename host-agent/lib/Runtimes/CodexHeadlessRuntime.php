@@ -5,13 +5,28 @@ declare(strict_types=1);
 namespace HostAgent\Runtimes;
 
 use HostAgent\Services\CodexTranscriptService;
+use HostAgent\Services\Config;
+use HostAgent\Services\ProcessRunner;
 
-/** Native Codex runtime backed exclusively by codex app-server. */
+/** Native Codex runtime backed by app-server plus Codex's persistent queue. */
 class CodexHeadlessRuntime implements RuntimeProvider
 {
-    public function __construct(private ?CodexBridgeClient $client = null)
+    /** @var \Closure(array<int,string>):array{exit:int,stdout:string,stderr:string} */
+    private \Closure $processRunner;
+
+    private string $codexBin;
+
+    public function __construct(
+        private ?CodexBridgeClient $client = null,
+        ?callable $processRunner = null,
+        ?string $codexBin = null,
+    )
     {
         $this->client ??= new CodexBridgeClient();
+        $this->processRunner = $processRunner !== null
+            ? \Closure::fromCallable($processRunner)
+            : static fn(array $cmd): array => ProcessRunner::run_process($cmd);
+        $this->codexBin = $codexBin ?? Config::codex_bin();
     }
 
     public function id(): string { return RuntimeType::HEADLESS; }
@@ -73,20 +88,9 @@ class CodexHeadlessRuntime implements RuntimeProvider
             return ['ok' => false, 'message' => $result['message'] ?? 'Codex thread not found'];
         }
 
-        // Reading persisted history does not prove this app-server can
-        // write the thread. Probe the stable resume operation while the
-        // full page is loading: it claims a released thread for Sessioneer, but
-        // reports the single-writer conflict without disturbing a thread
-        // still open in another Codex client.
-        $resume = $this->client->request('thread/resume', ['threadId' => $sessionRef]);
-        $message = is_string($resume['message'] ?? null) ? $resume['message'] : '';
-        $activeWriter = str_contains(strtolower($message), 'active writer');
-        $unmaterialized = str_contains($message, 'no rollout found for thread id');
         $thread = $result['result']['thread'];
-        $thread['writable'] = ($resume['ok'] ?? false) === true || $unmaterialized;
-        $thread['readOnlyReason'] = $activeWriter
-            ? 'This session is owned by a Codex process on the host. Stop the terminal or background `codex remote-control` process, then refresh this page. Closing the mobile app does not stop it.'
-            : ((($resume['ok'] ?? false) === true || $unmaterialized) ? null : ($message !== '' ? $message : 'Codex could not open this session for writing.'));
+        $thread['writable'] = true;
+        $thread['readOnlyReason'] = null;
 
         return ['ok' => true, 'session' => $thread];
     }
@@ -109,30 +113,62 @@ class CodexHeadlessRuntime implements RuntimeProvider
 
     public function send_message(string $sessionRef, string $text, array $attachmentPaths = []): array
     {
-        // thread/read can inspect a persisted thread without loading it into
-        // this app-server process. That distinction matters after the bridge
-        // is restarted: turn/start otherwise fails with "thread not found"
-        // even though the session page and transcript loaded successfully.
-        // Resume is idempotent for an already-running thread and rejoins it
-        // when another Codex client currently owns the active turn.
-        $resumed = $this->client->request('thread/resume', ['threadId' => $sessionRef]);
-        if (($resumed['ok'] ?? false) !== true) {
-            $message = is_string($resumed['message'] ?? null) ? $resumed['message'] : '';
-            if (str_contains(strtolower($message), 'active writer')) {
-                return [
-                    'ok' => false,
-                    'message' => 'This session is read-only because a Codex process on the host owns it. Stop the terminal or background `codex remote-control` process, then refresh this page. Closing the mobile app does not stop it.',
-                ];
-            }
-            // A thread created by this persistent bridge has no rollout to
-            // resume until its first user message. It is already loaded in
-            // app-server, so fall through to sessioneer/sendInput to materialize
-            // that first turn. Any other resume failure remains fatal.
-            if (!str_contains($message, 'no rollout found for thread id')) {
-                return $resumed;
-            }
+        // A thread/start result has no rollout until its first user message,
+        // so the global queue cannot cold-resume it yet. Keep that one narrow
+        // case on the private bridge that created and still has it loaded.
+        $probe = $this->client->request('thread/read', ['threadId' => $sessionRef, 'includeTurns' => true]);
+        $probeMessage = is_string($probe['message'] ?? null) ? $probe['message'] : '';
+        if (
+            ($probe['ok'] ?? false) !== true
+            && (
+                str_contains($probeMessage, 'includeTurns is unavailable before first user message')
+                || str_contains($probeMessage, 'no rollout found for thread id')
+            )
+        ) {
+            return $this->send_via_bridge($sessionRef, $text, $attachmentPaths);
         }
 
+        if ($this->codexBin === '') {
+            return ['ok' => false, 'message' => 'CODEX_BIN is not configured'];
+        }
+
+        $thread = is_array($probe['result']['thread'] ?? null) ? $probe['result']['thread'] : [];
+        $cwd = is_string($thread['cwd'] ?? null) ? rtrim($thread['cwd'], '/') : '';
+        $message = $text;
+        $images = [];
+
+        foreach ($attachmentPaths as $path) {
+            $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            if (in_array($extension, ['png', 'jpg', 'jpeg', 'gif', 'webp'], true)) {
+                $images[] = $path !== '' && $path[0] === '/' ? $path : ($cwd !== '' ? $cwd . '/' . $path : $path);
+                continue;
+            }
+
+            $message = rtrim($message);
+            $message .= ($message === '' ? '' : "\n") . '[Attached: ' . $path . ']';
+        }
+
+        $cmd = [$this->codexBin, 'queue', '--thread', $sessionRef, '--message', $message];
+        if ($images !== []) {
+            $cmd[] = '--image';
+            array_push($cmd, ...$images);
+        }
+
+        $result = ($this->processRunner)($cmd);
+        if ($result['exit'] !== 0) {
+            $error = trim($result['stderr']) !== '' ? trim($result['stderr']) : trim($result['stdout']);
+            return ['ok' => false, 'message' => $error !== '' ? $error : 'Codex could not queue the message'];
+        }
+
+        return ['ok' => true, 'message' => 'Message queued'];
+    }
+
+    /**
+     * @param string[] $attachmentPaths
+     * @return array<string,mixed>
+     */
+    private function send_via_bridge(string $sessionRef, string $text, array $attachmentPaths): array
+    {
         $input = [['type' => 'text', 'text' => $text, 'text_elements' => []]];
         foreach ($attachmentPaths as $path) {
             $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
@@ -140,6 +176,7 @@ class CodexHeadlessRuntime implements RuntimeProvider
                 ? ['type' => 'localImage', 'path' => $path]
                 : ['type' => 'mention', 'name' => basename($path), 'path' => $path];
         }
+
         $result = $this->client->request('sessioneer/sendInput', ['threadId' => $sessionRef, 'input' => $input]);
         return $result['ok'] === true ? ['ok' => true, 'message' => 'Message sent'] : $result;
     }

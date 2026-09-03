@@ -26,7 +26,7 @@ class FakeCodexBridgeClient extends CodexBridgeClient
         return match ($method) {
             'thread/start' => ['ok' => true, 'result' => ['thread' => ['id' => 'codex-thread-1', 'cwd' => $params['cwd']]]],
             'thread/list' => ['ok' => true, 'result' => ['data' => [['id' => 'codex-thread-1']]]],
-            'thread/read' => ['ok' => true, 'result' => ['thread' => ['id' => 'codex-thread-1', 'status' => ['type' => 'idle']]]],
+            'thread/read' => ['ok' => true, 'result' => ['thread' => ['id' => 'codex-thread-1', 'cwd' => '/tmp/project', 'status' => ['type' => 'idle']]]],
             'thread/resume' => ['ok' => true, 'result' => ['thread' => ['id' => 'codex-thread-1']]],
             'thread/archive' => ['ok' => true, 'result' => (object)[]],
             'sessioneer/sendInput' => ['ok' => true, 'result' => ['turn' => ['id' => 'turn-1']]],
@@ -100,11 +100,14 @@ class FakePaginatedCodexBridgeClient extends CodexBridgeClient
 
 class FakeActiveWriterCodexBridgeClient extends CodexBridgeClient
 {
+    /** @var array<int,array{method:string,params:array<string,mixed>}> */
+    public array $calls = [];
+
     public function request(string $method, array $params = []): array
     {
+        $this->calls[] = ['method' => $method, 'params' => $params];
         return match ($method) {
             'thread/read' => ['ok' => true, 'result' => ['thread' => ['id' => 'codex-owned', 'status' => ['type' => 'idle']]]],
-            'thread/resume' => ['ok' => false, 'message' => 'thread codex-owned already has an active writer'],
             default => ['ok' => false, 'message' => 'Unexpected method'],
         };
     }
@@ -128,7 +131,12 @@ assert_true(RuntimeRegistry::runtime_for('codex', RuntimeType::TMUX) === null, '
 assert_true(RuntimeRegistry::runtime_for('codex', RuntimeType::HEADLESS) instanceof CodexHeadlessRuntime, 'Codex resolves to its own app-server runtime');
 
 $fake = new FakeCodexBridgeClient();
-$runtime = new CodexHeadlessRuntime($fake);
+$queueCommands = [];
+$queueRunner = static function (array $cmd) use (&$queueCommands): array {
+    $queueCommands[] = $cmd;
+    return ['exit' => 0, 'stdout' => 'Queued message', 'stderr' => ''];
+};
+$runtime = new CodexHeadlessRuntime($fake, $queueRunner, '/usr/bin/codex');
 $noCallFake = new FakeFailingCodexBridgeClient();
 assert_equal(false, (new CodexHeadlessRuntime($noCallFake))->create(['workdir' => 'relative/path'])['ok'] ?? null, 'Codex create rejects a relative workdir');
 assert_equal(0, $noCallFake->calls, 'Codex invalid create is rejected before contacting app-server');
@@ -168,16 +176,16 @@ putenv('HOME_ROOT');
 @rmdir($archiveHome . '/.codex');
 @rmdir($archiveHome);
 assert_true($runtime->detail('codex-thread-1')['ok'] === true, 'Codex thread detail succeeds');
-assert_equal('thread/resume', $fake->calls[3]['method'], 'Codex detail probes whether the thread is writable');
+assert_equal(3, count($fake->calls), 'Codex detail does not claim an idle thread through thread/resume');
 assert_true($runtime->send_message('codex-thread-1', 'hello')['ok'] === true, 'Codex message send succeeds');
-assert_equal('thread/resume', $fake->calls[4]['method'], 'Codex message resumes a persisted thread before sending');
-assert_equal('sessioneer/sendInput', $fake->calls[5]['method'], 'Codex message delegates start-versus-steer to the persistent bridge');
+assert_equal('thread/read', $fake->calls[3]['method'], 'Codex message checks whether the thread has a materialized rollout');
+assert_equal(['/usr/bin/codex', 'queue', '--thread', 'codex-thread-1', '--message', 'hello'], $queueCommands[0], 'Codex materialized message uses the owner-independent queue CLI');
 assert_true($runtime->interrupt('codex-thread-1')['ok'] === true, 'Codex active turn can be interrupted');
-assert_equal('sessioneer/interrupt', $fake->calls[6]['method'], 'Codex interrupt is server-native');
+assert_equal('sessioneer/interrupt', $fake->calls[4]['method'], 'Codex interrupt is server-native');
 assert_true($runtime->update_settings('codex-thread-1', 'gpt-test-2', 'high')['ok'] === true, 'Codex sticky model and effort can be updated');
-assert_equal('thread/settings/update', $fake->calls[7]['method'], 'Codex settings use the native thread method');
+assert_equal('thread/settings/update', $fake->calls[5]['method'], 'Codex settings use the native thread method');
 assert_true($runtime->kill('codex-thread-1')['ok'] === true, 'Codex close succeeds');
-assert_equal('thread/archive', $fake->calls[8]['method'], 'Codex close archives rather than deleting');
+assert_equal('thread/archive', $fake->calls[6]['method'], 'Codex close archives rather than deleting');
 
 $emptyFake = new FakeUnmaterializedCodexBridgeClient();
 $emptyDetail = (new CodexHeadlessRuntime($emptyFake))->detail('codex-empty');
@@ -185,8 +193,9 @@ assert_true($emptyDetail['ok'] === true, 'Codex brand-new unmaterialized thread 
 assert_equal(true, $emptyDetail['session']['writable'], 'Codex brand-new unmaterialized thread is writable before its rollout exists');
 assert_equal(true, $emptyFake->calls[0]['params']['includeTurns'], 'Codex detail first requests retained turns');
 assert_true(!array_key_exists('includeTurns', $emptyFake->calls[1]['params']), 'Codex brand-new detail falls back to metadata-only thread/read');
-assert_equal('thread/resume', $emptyFake->calls[2]['method'], 'Codex brand-new detail remains writable after metadata fallback');
-assert_true((new CodexHeadlessRuntime($emptyFake))->send_message('codex-empty', 'first message')['ok'] === true, 'Codex brand-new thread sends its first message without a persisted rollout');
+assert_equal(2, count($emptyFake->calls), 'Codex brand-new detail does not try to resume the unmaterialized thread');
+assert_true((new CodexHeadlessRuntime($emptyFake, $queueRunner, '/usr/bin/codex'))->send_message('codex-empty', 'first message')['ok'] === true, 'Codex brand-new thread sends its first message without a persisted rollout');
+assert_equal('sessioneer/sendInput', $emptyFake->calls[3]['method'], 'Codex brand-new first message stays on the private bridge that created the thread');
 
 $unsupportedTurnsFake = new FakeUnsupportedTurnsCodexBridgeClient();
 $unsupportedTurnsDetail = (new CodexHeadlessRuntime($unsupportedTurnsFake))->detail('codex-current');
@@ -194,13 +203,33 @@ assert_true($unsupportedTurnsDetail['ok'] === true, 'Codex detail falls back whe
 assert_equal(true, $unsupportedTurnsFake->calls[0]['params']['includeTurns'], 'Codex unsupported-turn fallback first attempts retained turns');
 assert_true(!array_key_exists('includeTurns', $unsupportedTurnsFake->calls[1]['params']), 'Codex unsupported-turn fallback retries metadata-only thread/read');
 
-$ownedRuntime = new CodexHeadlessRuntime(new FakeActiveWriterCodexBridgeClient());
+$ownedFake = new FakeActiveWriterCodexBridgeClient();
+$ownedRuntime = new CodexHeadlessRuntime($ownedFake, $queueRunner, '/usr/bin/codex');
 $ownedDetail = $ownedRuntime->detail('codex-owned');
-assert_equal(false, $ownedDetail['session']['writable'] ?? null, 'Codex externally-owned thread is explicitly read-only');
-assert_contains('owned by a Codex process', $ownedDetail['session']['readOnlyReason'] ?? '', 'Codex read-only detail explains the active-writer conflict');
-$ownedSend = $ownedRuntime->send_message('codex-owned', 'must not send');
-assert_equal(false, $ownedSend['ok'] ?? null, 'Codex externally-owned thread rejects message submission');
-assert_contains('read-only', $ownedSend['message'] ?? '', 'Codex active-writer send failure gives the user a handled read-only message');
+assert_equal(true, $ownedDetail['session']['writable'] ?? null, 'Codex externally-owned thread remains writable through the global queue');
+assert_equal(null, $ownedDetail['session']['readOnlyReason'] ?? null, 'Codex externally-owned detail has no stale single-writer warning');
+$ownedSend = $ownedRuntime->send_message('codex-owned', 'queue across owners');
+assert_equal(true, $ownedSend['ok'] ?? null, 'Codex externally-owned thread accepts queued message submission');
+assert_equal(['/usr/bin/codex', 'queue', '--thread', 'codex-owned', '--message', 'queue across owners'], $queueCommands[1], 'Codex cross-owner send queues against the existing thread id');
+assert_true(!in_array('thread/resume', array_column($ownedFake->calls, 'method'), true), 'Codex cross-owner detail and send never attempt to acquire ownership');
+
+$attachmentRuntime = new CodexHeadlessRuntime(new FakeCodexBridgeClient(), $queueRunner, '/usr/bin/codex');
+$attachmentSend = $attachmentRuntime->send_message('codex-thread-1', 'Review these', ['.claude/uploads/screenshot.png', '.claude/uploads/diagram.webp', '.claude/uploads/report.pdf']);
+assert_equal(true, $attachmentSend['ok'] ?? null, 'Codex queued send supports images and path-based file mentions');
+assert_equal(
+    ['/usr/bin/codex', 'queue', '--thread', 'codex-thread-1', '--message', "Review these\n[Attached: .claude/uploads/report.pdf]", '--image', '/tmp/project/.claude/uploads/screenshot.png', '/tmp/project/.claude/uploads/diagram.webp'],
+    $queueCommands[2],
+    'Codex queued send maps images to --image and retains non-image attachments in the message'
+);
+
+$queueFailureRuntime = new CodexHeadlessRuntime(
+    new FakeCodexBridgeClient(),
+    static fn(array $cmd): array => ['exit' => 1, 'stdout' => '', 'stderr' => 'queue unavailable'],
+    '/usr/bin/codex',
+);
+$queueFailure = $queueFailureRuntime->send_message('codex-thread-1', 'will fail');
+assert_equal(false, $queueFailure['ok'] ?? null, 'Codex queue CLI failure is handled');
+assert_contains('queue unavailable', $queueFailure['message'] ?? '', 'Codex queue CLI failure retains its actionable error');
 
 $failingRuntime = new CodexHeadlessRuntime(new FakeFailingCodexBridgeClient());
 assert_equal(false, $failingRuntime->detail('missing')['ok'] ?? null, 'Codex detail handles an unavailable or missing thread');
