@@ -49,6 +49,19 @@ declare(strict_types=1);
  */
 const CDP_CONSOLE_EVENT_METHODS = ['Runtime.exceptionThrown', 'Runtime.consoleAPICalled'];
 
+/**
+ * Once cdp_ws_read_frame() has read a frame's 2-byte header, Chrome has
+ * already committed to sending the rest of that exact frame - on this
+ * same-machine loopback connection that's for all practical purposes
+ * instant, so this is a "something is genuinely wrong" ceiling, not a
+ * budget meant to be brushed up against. Deliberately NOT tied to a
+ * cdp_call() caller's own $timeout - see cdp_ws_read_frame()'s doc
+ * comment for why abandoning a frame mid-read (rather than only ever
+ * between frames) would desync the connection instead of just failing
+ * this one read.
+ */
+const CDP_FRAME_CONTINUATION_TIMEOUT = 5;
+
 function cdp_find_chrome(): ?string
 {
     foreach (['/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'] as $path) {
@@ -316,15 +329,49 @@ function cdp_ws_send(mixed $sock, string $payload): void
  * cdp_ws_recv()'s own doc comment for why a frame's payload must always
  * be fully consumed here regardless of its opcode, never skipped.
  *
- * @return array{opcode:int, payload:string}|null null on a read failure
+ * $deadline (an absolute microtime(true), not a duration) is only ever
+ * applied BEFORE this frame's own 2-byte header is read - i.e. only
+ * between frames, never in the middle of one already in flight. Found
+ * live investigating a CI-only (never reproduced as reliably locally)
+ * ~30-45s stall exactly at one specific scenario step:
+ * stream_set_timeout() sets an IDLE timeout, reset by every byte that
+ * arrives, not a total-call-time budget. A steady trickle of real frames
+ * (any opcode - here specifically a burst of Runtime.consoleAPICalled
+ * events, none of them errors, so cdp_drain_console_errors() never
+ * flagged it) never idles long enough to trip that timeout, so
+ * cdp_ws_recv()'s own while(true) loop (below) could keep consuming whole
+ * NEW frames well past its caller's intended deadline - the per-command
+ * $timeout in cdp_call() was therefore advisory at best whenever the
+ * OTHER end was actually chatty, not silent. Re-arming the timeout to the
+ * remaining budget right before each new header read fixes that.
+ *
+ * Deliberately NOT re-checked against $deadline once the header is in
+ * hand (extended-length bytes, payload chunks): those remaining bytes are
+ * already declared as belonging to a frame this socket is mid-read on,
+ * and Chrome sends a frame's bytes together as one write on this same
+ * loopback connection, so waiting on them uses a short fixed
+ * CDP_FRAME_CONTINUATION_TIMEOUT instead - abandoning them on the outer
+ * deadline instead would leave those declared-but-unread bytes sitting in
+ * the socket, and the NEXT read would misparse them as a fresh frame
+ * header, permanently desyncing every frame boundary from then on -
+ * exactly the same failure mode this file's own PING-frame handling
+ * above already exists to avoid.
+ *
+ * @return array{opcode:int, payload:string}|null null on a read failure OR the deadline passing (only possible before the header)
  */
-function cdp_ws_read_frame(mixed $sock): ?array
+function cdp_ws_read_frame(mixed $sock, float $deadline): ?array
 {
+    if (!cdp_ws_arm_timeout($sock, $deadline)) {
+        return null;
+    }
+
     $header = fread($sock, 2);
 
     if ($header === false || strlen($header) < 2) {
         return null;
     }
+
+    stream_set_timeout($sock, CDP_FRAME_CONTINUATION_TIMEOUT);
 
     $b0 = ord($header[0]);
     $b1 = ord($header[1]);
@@ -354,6 +401,28 @@ function cdp_ws_read_frame(mixed $sock): ?array
 }
 
 /**
+ * Re-arms $sock's read timeout (see cdp_ws_read_frame()'s doc comment) to
+ * whatever real time remains until $deadline, an absolute microtime(true).
+ * Returns false without touching the socket if the deadline has already
+ * passed, so callers can bail out immediately instead of issuing a
+ * pointless zero-duration read.
+ */
+function cdp_ws_arm_timeout(mixed $sock, float $deadline): bool
+{
+    $remaining = $deadline - microtime(true);
+
+    if ($remaining <= 0) {
+        return false;
+    }
+
+    $seconds = (int)$remaining;
+    $microseconds = (int)(($remaining - $seconds) * 1_000_000);
+    stream_set_timeout($sock, $seconds, $microseconds);
+
+    return true;
+}
+
+/**
  * Reads WebSocket frames until a text-message one (opcode 0x1) arrives,
  * returning its payload - every CDP command/event response fits in one
  * frame in practice for what this client sends/receives, so this only
@@ -374,11 +443,16 @@ function cdp_ws_read_frame(mixed $sock): ?array
  * no error of any kind on either side to point at why. A PING frame
  * specifically gets a real PONG (opcode 0xA) reply, per RFC 6455 - not
  * required for chrome to keep tolerating this client, but correct.
+ *
+ * $deadline (absolute microtime(true)) bounds the TOTAL time this call may
+ * spend looping over non-text frames - see cdp_ws_read_frame()'s doc
+ * comment for why a per-read idle timeout alone isn't enough once the
+ * other end is sending a steady stream of real frames.
  */
-function cdp_ws_recv(mixed $sock): ?string
+function cdp_ws_recv(mixed $sock, float $deadline): ?string
 {
     while (true) {
-        $frame = cdp_ws_read_frame($sock);
+        $frame = cdp_ws_read_frame($sock, $deadline);
 
         if ($frame === null) {
             return null;
@@ -462,7 +536,7 @@ function cdp_call(array &$page, string $method, array $params = [], float $timeo
     $deadline = microtime(true) + $timeout;
 
     while (microtime(true) < $deadline) {
-        $raw = cdp_ws_recv($page['sock']);
+        $raw = cdp_ws_recv($page['sock'], $deadline);
 
         if ($raw === null) {
             return null;
@@ -487,8 +561,15 @@ function cdp_call(array &$page, string $method, array $params = [], float $timeo
  * Page.loadEventFired - simpler for a client with no event-buffering
  * layer, and sufficient here since every page this drives is a small,
  * already-fast local `php -S` response, not a heavy real-world page.
+ *
+ * Default bumped from 5.0 - found live on CI (a slower, shared runner
+ * than this suite was originally tuned against): occasionally still
+ * mid-load a hair past 5s even though the page was never actually stuck
+ * (every assertion against it right afterward still passed) - a plain
+ * "not enough margin on a loaded box" gap, not the frame-desync class of
+ * bug cdp_ws_read_frame()'s own doc comment covers.
  */
-function cdp_navigate(array &$page, string $url, float $timeout = 5.0): bool
+function cdp_navigate(array &$page, string $url, float $timeout = 10.0): bool
 {
     if (cdp_call($page, 'Page.navigate', ['url' => $url]) === null) {
         return false;
