@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HostAgent\Agents;
 
 use HostAgent\Runtimes\RuntimeType;
+use HostAgent\Services\CodexHookService;
 use HostAgent\Services\PushHealthService;
 
 /** Codex is server-owned in Sessioneer; it is never spawned into tmux. */
@@ -21,14 +22,25 @@ class CodexAdapter implements AgentAdapter
 
     public function check_hooks(): array
     {
+        $hooks = CodexHookService::check_session_hook();
         $reachable = PushHealthService::codex_bridge_reachable();
 
-        return ['ok' => $reachable['ok'] ?? false, 'installed' => true, 'message' => $reachable['detail'] ?? 'Codex bridge unavailable'];
+        if (!$hooks['ok']) {
+            return $hooks;
+        }
+
+        return [
+            'ok' => $reachable['ok'],
+            'installed' => $hooks['installed'],
+            'message' => $reachable['ok']
+                ? ($hooks['installed'] ? 'Codex bridge reachable and status hooks installed' : 'Codex status hooks are not fully installed')
+                : ($reachable['detail'] !== null ? $reachable['detail'] : 'Codex bridge unavailable'),
+        ];
     }
 
     public function install_hooks(): array
     {
-        return $this->check_hooks();
+        return CodexHookService::install_session_hook();
     }
 
     public function permission_mode_map(): array { return []; }

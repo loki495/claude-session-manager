@@ -24,6 +24,7 @@ use HostAgent\Services\OpenCodeTranscriptService;
 use HostAgent\Services\TranscriptRouter;
 use HostAgent\Services\BareProcessService;
 use HostAgent\Services\HookService;
+use HostAgent\Services\CodexHookService;
 use HostAgent\Services\UploadService;
 use HostAgent\Services\QuotaService;
 use HostAgent\Stores\SidecarStore;
@@ -359,10 +360,24 @@ function dispatch_action(array $request): array
             return QuotaService::get_quota($quotaSession !== '' ? $quotaSession : null);
 
         case 'check_session_hook':
-            return HookService::check_session_hook();
+            $claudeHooks = HookService::check_session_hook();
+            $codexHooks = CodexHookService::check_session_hook();
+
+            return [
+                'ok' => $claudeHooks['ok'] && $codexHooks['ok'],
+                'installed' => $claudeHooks['installed'] && $codexHooks['installed'],
+                'message' => $claudeHooks['message'] ?? $codexHooks['message'] ?? null,
+            ];
 
         case 'install_session_hook':
-            return HookService::install_session_hook();
+            $claudeHooks = HookService::install_session_hook();
+            $codexHooks = CodexHookService::install_session_hook();
+
+            return [
+                'ok' => $claudeHooks['ok'] && $codexHooks['ok'],
+                'installed' => $claudeHooks['installed'] && $codexHooks['installed'],
+                'message' => $claudeHooks['message'] ?? $codexHooks['message'] ?? null,
+            ];
 
         case 'save_uploaded_file':
             return UploadService::save_uploaded_file(
@@ -446,6 +461,11 @@ function sessioneer_merge_headless_sessions(array $sessions): array
             'prompt_is_folder_trust' => (bool)($blocked['is_folder_trust'] ?? false),
             'prompt_tool_name' => is_string($blocked['tool_name'] ?? null) ? $blocked['tool_name'] : null,
             'prompt_tool_input' => is_array($blocked['tool_input'] ?? null) ? $blocked['tool_input'] : null,
+            // Remote-owned Codex prompts are observable through hooks, but
+            // their response IDs belong to the Remote app's app-server
+            // connection. Surface that distinction so the UI does not
+            // offer controls that cannot answer the prompt.
+            'prompt_external' => (bool)($blocked['external'] ?? false),
             // Codex's question-type prompt (item/tool/requestUserInput) has
             // no working pane-based single-question fallback - it's
             // headless - so the structured multi-question form is the only
@@ -1031,6 +1051,7 @@ function sessioneer_headless_detail_shape(array $serve, string $agentId = 'openc
         'prompt_is_folder_trust' => (bool)($blocked['is_folder_trust'] ?? false),
         'prompt_tool_name' => is_string($blocked['tool_name'] ?? null) ? $blocked['tool_name'] : null,
         'prompt_tool_input' => is_array($blocked['tool_input'] ?? null) ? $blocked['tool_input'] : null,
+        'prompt_external' => (bool)($blocked['external'] ?? false),
         // See sessioneer_merge_headless_sessions()'s own comment on this same
         // field - Codex has no pane fallback, so every question count needs
         // the structured form, not just 2+.

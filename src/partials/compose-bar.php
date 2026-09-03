@@ -48,7 +48,9 @@ if ($found): ?>
         <div id="compose-status" class="hidden text-xs text-red-400 mt-1"></div>
       </div>
       <div id="compose-blocked-note" class="<?= $composeBlocked ? '' : 'hidden' ?> text-xs text-slate-500 py-2">
-        Answer the prompt above to continue.
+        <?= !empty($detail['prompt_external'])
+            ? 'Open Codex Remote to answer this prompt and continue.'
+            : 'Answer the prompt above to continue.' ?>
       </div>
       <div id="compose-read-only-note" class="<?= $composeReadOnly ? '' : 'hidden' ?> rounded-lg border border-amber-800/50 bg-amber-950/25 px-3 py-2 text-xs text-amber-300">
         <?= $this->e((string)($detail['read_only_reason'] ?? 'This Codex session is currently read-only.')) ?>

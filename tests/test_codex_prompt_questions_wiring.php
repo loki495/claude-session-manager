@@ -95,6 +95,16 @@ $permissionBlocked = [
     'tool_input' => ['command' => 'rm -rf build'],
     'request_id' => 'item-3',
 ];
+$externalBlocked = [
+    'tool_name' => 'external_input',
+    'question' => 'Approval required in Codex Remote.',
+    'context' => 'Run the deployment command?',
+    'options' => [],
+    'multi_question' => false,
+    'is_folder_trust' => false,
+    'tool_input' => ['command' => 'deploy'],
+    'external' => true,
+];
 
 function pqw_write_codex_sidecar(string $ref, string $title): void
 {
@@ -128,6 +138,9 @@ pqw_write_codex_sidecar('codex-permission', 'Approval session');
 SessionStatusStore::update_status('codex-permission', ['status' => 'blocked', 'blocked' => $permissionBlocked]);
 
 pqw_write_codex_sidecar('codex-idle', 'Idle session');
+
+pqw_write_codex_sidecar('codex-external', 'Remote approval');
+SessionStatusStore::update_status('codex-external', ['status' => 'blocked', 'blocked' => $externalBlocked]);
 
 SidecarStore::write_sidecar('oc-blocked', [
     'workdir' => '/tmp/project',
@@ -165,6 +178,12 @@ $idleRow = pqw_find_row($merged, 'codex-idle');
 assert_true($idleRow !== null, 'an idle Codex session (no blocked prompt at all) is merged into the sessions list');
 assert_true(array_key_exists('prompt_questions', $idleRow) && $idleRow['prompt_questions'] === null, 'an idle Codex session has a null prompt_questions, not a crash on a missing blocked array');
 
+$externalRow = pqw_find_row($merged, 'codex-external');
+assert_true($externalRow !== null, 'the externally answerable Codex prompt is merged into the sessions list');
+assert_equal(true, $externalRow['prompt_external'] ?? null, 'sessioneer_merge_headless_sessions() marks a Remote-owned prompt as externally answerable');
+assert_equal([], $externalRow['prompt_options'] ?? null, 'an externally answerable prompt exposes no nonfunctional Sessioneer answer controls');
+assert_equal(null, $externalRow['prompt_questions'] ?? null, 'an externally answerable prompt exposes no nonfunctional Sessioneer question form');
+
 $ocRow = pqw_find_row($merged, 'oc-blocked');
 assert_true($ocRow !== null, 'the OpenCode session is merged into the sessions list');
 assert_true(array_key_exists('prompt_questions', $ocRow) && $ocRow['prompt_questions'] === null, 'an OpenCode permission-type prompt still gets a null prompt_questions - this fix is Codex tool_name=question specific, no other agent/prompt shape is affected');
@@ -184,9 +203,13 @@ assert_true(!empty($permDetail['prompt_options']), 'sessioneer_headless_detail_s
 $idleDetail = sessioneer_headless_detail_shape(['id' => 'codex-idle', 'directory' => '/tmp/project', 'title' => 'Idle session'], 'codex');
 assert_true(array_key_exists('prompt_questions', $idleDetail) && $idleDetail['prompt_questions'] === null, 'sessioneer_headless_detail_shape() leaves prompt_questions null for an idle session with no blocked prompt');
 
+$externalDetail = sessioneer_headless_detail_shape(['id' => 'codex-external', 'directory' => '/tmp/project', 'title' => 'Remote approval'], 'codex');
+assert_equal(true, $externalDetail['prompt_external'] ?? null, 'sessioneer_headless_detail_shape() marks a Remote-owned prompt as externally answerable');
+assert_equal([], $externalDetail['prompt_options'] ?? null, 'sessioneer_headless_detail_shape() offers no local controls for an externally answerable prompt');
+
 // cleanup so these fixtures don't leak into other test files sharing the
 // isolated sidecar dir
-foreach (['codex-multi-q', 'codex-single-q', 'codex-permission', 'codex-idle', 'oc-blocked'] as $ref) {
+foreach (['codex-multi-q', 'codex-single-q', 'codex-permission', 'codex-idle', 'codex-external', 'oc-blocked'] as $ref) {
     SidecarStore::delete_sidecar($ref);
     SessionStatusStore::delete_status($ref);
 }

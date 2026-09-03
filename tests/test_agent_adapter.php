@@ -26,6 +26,7 @@ use HostAgent\Agents\OpenCodeAdapter;
 use HostAgent\Agents\CodexAdapter;
 use HostAgent\Services\AntigravityHookService;
 use HostAgent\Services\Config;
+use HostAgent\Services\CodexHookService;
 use HostAgent\Services\HookService;
 use HostAgent\Services\PushHealthService;
 use HostAgent\Services\PermissionMode;
@@ -225,9 +226,12 @@ try {
     assert_equal([], $codex->build_spawn_argv([])['argv'], 'CodexAdapter never builds a tmux/TUI spawn argv');
     $codexBridgeHealth = PushHealthService::codex_bridge_reachable();
     $codexHooks = $codex->check_hooks();
-    assert_equal(true, $codexHooks['installed'], 'Codex needs no hooks because app-server is authoritative');
+    assert_equal(false, $codexHooks['installed'], 'CodexAdapter honestly reports missing status hooks on a fresh fixture home');
     assert_equal($codexBridgeHealth['ok'] ?? null, $codexHooks['ok'] ?? null, 'CodexAdapter::check_hooks(): ok now reflects the real Codex bridge reachability check');
-    assert_equal($codexBridgeHealth['detail'] ?? null, $codexHooks['message'] ?? null, 'CodexAdapter::check_hooks(): message mirrors the bridge reachability detail');
+    $codexInstall = $codex->install_hooks();
+    assert_equal(true, $codexInstall['installed'] ?? false, 'CodexAdapter::install_hooks() installs the status hooks');
+    assert_equal(true, CodexHookService::check_session_hook()['installed'] ?? false, 'CodexAdapter::install_hooks() delegates to the real CodexHookService');
+    assert_equal(true, $codex->check_hooks()['installed'] ?? false, 'CodexAdapter reports its status hooks installed afterward');
 
     $agInstall = $antigravity->install_hooks();
     assert_equal(true, $agInstall['ok'], 'AntigravityAdapter::install_hooks(): succeeds against a fresh fixture hooks.json');
@@ -239,6 +243,8 @@ try {
     @unlink(Config::antigravity_hooks_path());
     @rmdir(dirname(Config::antigravity_hooks_path()));
     @rmdir(dirname(dirname(Config::antigravity_hooks_path())));
+    @unlink(Config::codex_hooks_path());
+    @rmdir(dirname(Config::codex_hooks_path()));
     @rmdir($fixtureHome);
 }
 

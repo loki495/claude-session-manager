@@ -162,7 +162,7 @@ class DashboardController extends Controller
                 $result = AgentClient::agent_call(['action' => 'install_session_hook']);
                 $ok = (bool)($result['ok'] ?? false);
                 $message = $ok
-                    ? 'App hooks installed in ~/.claude/settings.json.'
+                    ? 'App hooks installed for Claude Code and Codex.'
                     : (string)($result['message'] ?? 'Failed to install hooks');
                 break;
 

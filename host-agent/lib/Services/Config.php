@@ -72,6 +72,18 @@ class Config
         return self::sessioneer_config('CODEX_BRIDGE_SOCKET', '/run/user/' . getmyuid() . '/sessioneer-codex-bridge.sock');
     }
 
+    /** Global user hook configuration read by local Codex clients. */
+    public static function codex_hooks_path(): string
+    {
+        return self::home_root() . '/.codex/hooks.json';
+    }
+
+    /** One event-aware command handles every Sessioneer Codex status hook. */
+    public static function codex_status_hook_command(): string
+    {
+        return 'php ' . self::sessioneer_repo_root() . '/host-agent/hooks/codex/status.php';
+    }
+
     /**
      * Starting folder for the New Session browser - home_root() itself is
      * a reasonable generic default (always exists, always readable by
