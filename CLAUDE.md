@@ -90,13 +90,26 @@ Docker-spawned, makes that impossible by construction — not by convention.
    `dispatch_push_action()` handles `push_*` actions, falling through
    (`null`) to `Sessions.php`'s `dispatch_action()` for everything else.
    Both are now thin switches — the real logic lives in
-   `host-agent/lib/Services/*` (`SessionService`, `TmuxService`,
-   `QuotaService`, `UploadService`, `HookService`,
-   `TranscriptService`, `PromptParser`, `ProcessInspector`,
-   `ProcessRunner`, `Config`, push-related services) and
-   `host-agent/lib/Stores/*` (`SidecarStore`, `PendingToolStore`,
-   `PushSubscriptionStore`, `PushSessionStateStore`) — all PSR-4 autoloaded
-   under namespace `HostAgent\Services`/`HostAgent\Stores`.
+   `host-agent/lib/Services/*` (36 classes; the load-bearing ones are
+   `Config`, `SessionService`, `SessionLifecycleService`,
+   `PromptInteractionService`, `ArchivedSessionService`, `PlanFileService`,
+   `TmuxService`, `TranscriptService`, `PromptParser`, `ProcessInspector`,
+   `ProcessRunner`, `QuotaService`, `UploadService`, `HookService`, plus the
+   push set) and `host-agent/lib/Stores/*` (`SidecarStore`,
+   `PendingToolStore`, `SessionStatusStore`, `SessionListCacheStore`,
+   `GlobalStateStore`, `PushSubscriptionStore`, `PushSessionStateStore`,
+   `PushQuotaStateStore`, `SqliteDb`).
+
+   Two more namespaces carry the multi-agent design and are where new
+   agent/runtime work belongs — keep per-agent branching out of the services:
+   `host-agent/lib/Agents/*` is WHICH agent (`AgentAdapter` + `AgentRegistry`,
+   with `ClaudeCodeAdapter`/`CodexAdapter`/`OpenCodeAdapter`/
+   `AntigravityAdapter` behind it), and `host-agent/lib/Runtimes/*` is HOW it
+   runs, independently of which agent it is (`TmuxRuntime` vs
+   `HeadlessRuntime` behind `RuntimeProvider`/`RuntimeRegistry`/`RuntimeType`,
+   plus `OpenCodeServeClient`, `CodexBridgeClient`, `CodexHeadlessRuntime` —
+   see `docs/headless-runtime-plan.md`). All PSR-4 autoloaded under
+   `HostAgent\Services`/`Stores`/`Agents`/`Runtimes`.
 5. `App\Views\*` (one render class per feature area — `TranscriptView`,
    `SessionRowView`, `BlockedPromptView`, `QuotaFooterView`,
    `HealthBoxView`, `PushNotifyView`, plus `PageView` for the two full-page

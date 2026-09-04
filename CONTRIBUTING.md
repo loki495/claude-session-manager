@@ -194,21 +194,40 @@ sessioneer/
 │   ├── agent.php            # per-connection entry point (systemd socket activation)
 │   ├── push_trigger.php     # entry point run periodically by the sessioneer-push-check systemd timer
 │   ├── .env.example         # copy to .env, host-specific paths, never commit .env
-│   ├── hooks/
+│   ├── hooks/                # 10 hook scripts across three agents
 │   │   ├── session_start.php  # Claude Code SessionStart hook - see "Why the SessionStart hook exists"
 │   │   ├── pre_tool_use.php   # Claude Code PreToolUse hook - see "Why the PreToolUse hook exists"
 │   │   ├── permission_request.php   # Claude Code PermissionRequest hook \
 │   │   ├── user_prompt_submit.php   #  \_ see "Why the PermissionRequest/
-│   │   └── stop.php                 #  /  UserPromptSubmit/Stop hooks exist"
+│   │   ├── stop.php                 #  /  UserPromptSubmit/Stop hooks exist"
+│   │   ├── antigravity/       # pre_invocation, pre_tool_use, post_tool_use, stop - the same
+│   │   │                      # observe-only status feed, in Antigravity's own hook shape
+│   │   └── codex/status.php   # Codex's equivalent status feed
 │   ├── lib/
 │   │   ├── Sessions.php      # dispatch_action() - thin switch, routes every non-push action
 │   │   ├── Push.php          # dispatch_push_action() - thin switch, routes every push_* action
-│   │   ├── Services/         # the real logic: SessionService, TmuxService, QuotaService,
-│   │   │                     # UploadService, HookService, TranscriptService, PromptParser,
-│   │   │                     # ProcessInspector, ProcessRunner, Config, plus the push-related
-│   │   │                     # services (PushDeliveryService, PushHealthService, PushTimerService,
-│   │   │                     # NotificationContentBuilder)
-│   │   └── Stores/           # SidecarStore, PendingToolStore, SessionStatusStore, PushSubscriptionStore, PushSessionStateStore
+│   │   ├── Agents/           # the per-agent abstraction: AgentAdapter (the interface every
+│   │   │                     # agent implements) + AgentRegistry, with ClaudeCodeAdapter,
+│   │   │                     # CodexAdapter, OpenCodeAdapter, AntigravityAdapter behind it.
+│   │   │                     # This is what keeps cc-*/cx-*/oc-*/ag-* differences out of the
+│   │   │                     # services - add an agent here, not with branches elsewhere.
+│   │   ├── Runtimes/         # HOW a session runs, independent of WHICH agent it is:
+│   │   │                     # TmuxRuntime (a real pane) vs HeadlessRuntime, behind
+│   │   │                     # RuntimeProvider/RuntimeRegistry/RuntimeType, plus the two
+│   │   │                     # headless clients (OpenCodeServeClient, CodexBridgeClient) and
+│   │   │                     # CodexHeadlessRuntime. See docs/headless-runtime-plan.md.
+│   │   ├── Services/         # the real logic - 36 classes, too many to list here; the
+│   │   │                     # load-bearing ones are Config, SessionService (listing +
+│   │   │                     # build_session_entry), SessionLifecycleService (create/resume/
+│   │   │                     # kill), PromptInteractionService (sending input/answers),
+│   │   │                     # ArchivedSessionService, PlanFileService, TmuxService,
+│   │   │                     # TranscriptService, PromptParser, ProcessInspector,
+│   │   │                     # ProcessRunner, QuotaService, UploadService, HookService, and
+│   │   │                     # the push set (PushDeliveryService, PushHealthService,
+│   │   │                     # PushTimerService, NotificationContentBuilder)
+│   │   └── Stores/           # SidecarStore, PendingToolStore, SessionStatusStore,
+│   │                         # SessionListCacheStore, GlobalStateStore, PushSubscriptionStore,
+│   │                         # PushSessionStateStore, PushQuotaStateStore, SqliteDb
 │   ├── systemd/
 │   │   ├── sessioneer-agent.socket / sessioneer-agent@.service   # unit TEMPLATES (@REPO_ROOT@/@PHP_BIN@/
 │   │   │                                            # @SOCKET_GROUP@ placeholders) - install.sh
