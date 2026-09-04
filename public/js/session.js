@@ -2098,10 +2098,12 @@
     // code already uses elsewhere for "is the sidebar open right now".
     var sidebarCurrentlyOpen = sidebar && !sidebar.classList.contains('translate-x-full');
 
+    // refreshSidebarNotification() deliberately does NOT ride this cycle -
+    // it has its own much slower timer in sidebar.js (see
+    // startSidebarNotifyPolling() there for why).
     return Promise.all([
       pollInfo(wasNearBottom),
       pollHistory(wasNearBottom),
-      refreshSidebarNotification(),
       sidebarCurrentlyOpen ? loadUploadedFiles() : Promise.resolve(),
       sidebarCurrentlyOpen ? loadPlanFiles() : Promise.resolve()
     ]).finally(function () {
@@ -2115,6 +2117,10 @@
   }
 
   function startPolling() {
+    // Its own timer, so it starts even if the fast cycle is already
+    // running (and keeps its own independent cadence once going).
+    startSidebarNotifyPolling();
+
     if (pollingActive) {
       return;
     }
@@ -2134,6 +2140,8 @@
   }
 
   function stopPolling() {
+    stopSidebarNotifyPolling();
+
     if (!pollingActive) {
       return;
     }

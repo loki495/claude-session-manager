@@ -7,6 +7,7 @@ namespace HostAgent\Services;
 use HostAgent\Agents\AgentRegistry;
 use HostAgent\Stores\SidecarStore;
 use HostAgent\Stores\PendingToolStore;
+use HostAgent\Stores\SessionListCacheStore;
 use HostAgent\Stores\SessionStatusStore;
 
 /**
@@ -483,9 +484,31 @@ class SessionService
     }
 
     /**
+     * Coalescing wrapper only - see SessionListCacheStore for why. Callers
+     * that must see post-mutation state (kill/send/answer-prompt) validate
+     * against TmuxService::list_tracked_tmux_sessions() directly rather
+     * than going through here, so they're unaffected by the cache.
+     *
      * @return array{sessions: array<int, array>, bare: array<int, array>}
      */
     public static function list_all_sessions(): array
+    {
+        $cached = SessionListCacheStore::read();
+
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $result = self::list_all_sessions_uncached();
+        SessionListCacheStore::write($result);
+
+        return $result;
+    }
+
+    /**
+     * @return array{sessions: array<int, array>, bare: array<int, array>}
+     */
+    private static function list_all_sessions_uncached(): array
     {
         $tmuxSessions = TmuxService::list_tracked_tmux_sessions();
         $claudeProcs = ProcessInspector::find_claude_processes();

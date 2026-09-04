@@ -110,6 +110,7 @@ set +a
 # session.
 REAL_TMUX_SOCKET="/tmp/tmux-1000/default"
 REAL_SIDECAR_DIR="/run/user/1000/sessioneer-sessions"
+REAL_CACHE_DIR="/run/user/1000/sessioneer-cache"
 
 if [ "$TMUX_SOCKET" = "$REAL_TMUX_SOCKET" ] || [ -z "$TMUX_SOCKET" ]; then
     echo "REFUSING TO RUN: TMUX_SOCKET in tests/.env.testing resolves to the real host socket (or is empty). Aborting before touching tmux." >&2
@@ -118,6 +119,11 @@ fi
 
 if [ "$SIDECAR_DIR" = "$REAL_SIDECAR_DIR" ] || [ -z "$SIDECAR_DIR" ]; then
     echo "REFUSING TO RUN: SIDECAR_DIR in tests/.env.testing resolves to the real sidecar dir (or is empty). Aborting before deleting anything." >&2
+    exit 1
+fi
+
+if [ "${CACHE_DIR:-}" = "$REAL_CACHE_DIR" ] || [ -z "${CACHE_DIR:-}" ]; then
+    echo "REFUSING TO RUN: CACHE_DIR in tests/.env.testing resolves to the real cache dir (or is empty). Aborting before deleting anything." >&2
     exit 1
 fi
 
@@ -155,6 +161,10 @@ if [ "$cleanup_only" -eq 1 ]; then
         rm -rf "$SIDECAR_DIR"
     fi
 
+    if [ -n "${CACHE_DIR:-}" ] && [ "$CACHE_DIR" != "$REAL_CACHE_DIR" ]; then
+        rm -rf "$CACHE_DIR"
+    fi
+
     rm -rf "$(dirname "$TMUX_SOCKET")"
     echo "Done."
     exit 0
@@ -171,6 +181,10 @@ cleanup() {
 
     if [ -n "${SIDECAR_DIR:-}" ] && [ "$SIDECAR_DIR" != "$REAL_SIDECAR_DIR" ]; then
         rm -rf "$SIDECAR_DIR"
+    fi
+
+    if [ -n "${CACHE_DIR:-}" ] && [ "$CACHE_DIR" != "$REAL_CACHE_DIR" ]; then
+        rm -rf "$CACHE_DIR"
     fi
 
     rm -rf "$(dirname "$TMUX_SOCKET")"
@@ -190,7 +204,7 @@ interrupt() {
 trap cleanup EXIT
 trap interrupt INT TERM
 
-mkdir -p "$(dirname "$TMUX_SOCKET")" "$SIDECAR_DIR"
+mkdir -p "$(dirname "$TMUX_SOCKET")" "$SIDECAR_DIR" "$CACHE_DIR"
 
 failures=0
 

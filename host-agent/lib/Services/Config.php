@@ -117,6 +117,29 @@ class Config
     }
 
     /**
+     * Separate from sidecar_dir() on purpose - SidecarStore::
+     * prune_orphaned_sidecars() globs and deletes anything in sidecar_dir()
+     * that isn't a live session's own file, so a cache file dropped in
+     * there would get treated as an orphan and unlinked on the very next
+     * scan. Same tmpfs base, own subdirectory.
+     */
+    public static function cache_dir(): string
+    {
+        return self::sessioneer_config('CACHE_DIR', '/run/user/' . getmyuid() . '/sessioneer-cache');
+    }
+
+    /**
+     * See SessionListCacheStore's own doc comment for why this is a
+     * fraction of a second rather than a minutes-scale TTL - it only needs
+     * to outlive the gap between concurrent callers, never a single
+     * poller's own next tick.
+     */
+    public static function session_list_cache_ttl_seconds(): float
+    {
+        return (float)self::sessioneer_config('SESSION_LIST_CACHE_TTL_SECONDS', '0.9');
+    }
+
+    /**
      * Where the OpenCode Sessioneer plugin writes pending-permission records (and the
      * host-agent reads them back) - a small JSON file per ses_* id, so the
      * plugin (Bun/JS, running inside each TUI) and this PHP host-agent never

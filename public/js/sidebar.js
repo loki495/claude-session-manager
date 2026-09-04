@@ -301,6 +301,49 @@ function refreshSidebarNotification() {
     .catch(function () {});
 }
 
+// The notification dot only needs to reflect other sessions' state within
+// a "glance" freshness, not the transcript's own pollIntervalMs (settable
+// as low as 1s). Riding that fast cycle meant every tick also re-ran the
+// full, expensive list_all_sessions() scan (a tmux capture-pane per
+// tracked session plus a /proc walk) purely to maybe flip a dot for
+// sessions this page isn't even showing. Found live 2026-08-11: with
+// several sessions/tabs open, that redundant scan on every fast tick was
+// visibly hanging the page for a second or two. Its own fixed, much
+// slower interval fixes that without losing any responsiveness that
+// matters. Lives here rather than in session.js because that's where
+// refreshSidebarNotification() itself lives - session.js only starts and
+// stops it, from startPolling()/stopPolling().
+var SIDEBAR_NOTIFY_POLL_INTERVAL_MS = 15000;
+var sidebarNotifyPollTimer = null;
+var sidebarNotifyPollingActive = false;
+
+function startSidebarNotifyPolling() {
+  if (sidebarNotifyPollingActive) {
+    return;
+  }
+
+  sidebarNotifyPollingActive = true;
+
+  function cycle() {
+    refreshSidebarNotification().finally(function () {
+      if (sidebarNotifyPollingActive) {
+        sidebarNotifyPollTimer = setTimeout(cycle, SIDEBAR_NOTIFY_POLL_INTERVAL_MS);
+      }
+    });
+  }
+
+  cycle();
+}
+
+function stopSidebarNotifyPolling() {
+  sidebarNotifyPollingActive = false;
+
+  if (sidebarNotifyPollTimer !== null) {
+    clearTimeout(sidebarNotifyPollTimer);
+    sidebarNotifyPollTimer = null;
+  }
+}
+
 
 function loadSidebarList() {
   sidebarList.innerHTML = '<div class="px-1 text-slate-500">Loading&hellip;</div>';
