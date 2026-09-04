@@ -29,7 +29,12 @@ To exercise a single area, run that one `tests/test_*.php` file directly
 with `php` rather than the whole suite (check its own header comment for
 what it covers and what fixtures it needs).
 
-No PHPStan/Pint/Rector here — this is not a Laravel project.
+No Pint/Rector here — this is not a Laravel project. **PHPStan does run**,
+though: `composer phpstan` (level 6 over `host-agent/lib`, `host-agent/hooks`
+and `src/lib`), and CI gates on it, so run it before pushing. Findings that
+predate a change live in `phpstan-baseline.neon` — note that a baseline entry
+is keyed to the exact method name, so renaming or extracting a method moves
+its body out from under its entry and resurfaces the error.
 
 The container never needs a rebuild for PHP/JS edits (`src/`, `public/`,
 and `vendor/` are all bind-mounted); `docker compose up -d --build` is
