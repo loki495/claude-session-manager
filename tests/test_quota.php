@@ -33,8 +33,8 @@ use HostAgent\Stores\SqliteDb;
 
 use HostAgent\Stores\SidecarStore;
 
-const REAL_PUSH_SQLITE_FILE_Q = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
-const REAL_SESSIONS_SQLITE_FILE_Q = '/home/user/www/sessioneer/host-agent/state/sessions.sqlite';
+$realPushSqliteFile = Config::push_sqlite_path();
+$realSessionsSqliteFile = Config::sessions_sqlite_path();
 
 $pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-quota-live-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 $sessionsSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-quota-sessions-' . bin2hex(random_bytes(4)) . '/sessions.sqlite';
@@ -46,7 +46,7 @@ putenv("OPENCODE_DB_PATH={$opencodeDbFixture}");
 putenv("OPENCODE_AUTH_PATH={$opencodeAuthFixture}");
 putenv('OPENCODE_GO_API_KEY=');
 
-if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_Q || Config::sessions_sqlite_path() === REAL_SESSIONS_SQLITE_FILE_Q) {
+if (Config::push_sqlite_path() === $realPushSqliteFile || Config::sessions_sqlite_path() === $realSessionsSqliteFile) {
     fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE or SESSIONS_SQLITE_FILE resolves to real host state file. Check tests/.env.testing.\n");
     exit(1);
 }

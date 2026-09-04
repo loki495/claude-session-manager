@@ -31,12 +31,12 @@ use HostAgent\Services\HookService;
 use HostAgent\Services\PushHealthService;
 use HostAgent\Services\PermissionMode;
 
-const REAL_HOME_ROOT_AA = '/home/user';
+$realHomeRoot = Config::home_root();
 
 $fixtureHome = sys_get_temp_dir() . '/sessioneer-test-agent-adapter-home-' . bin2hex(random_bytes(4));
 putenv("HOME_ROOT={$fixtureHome}");
 
-if (Config::home_root() === REAL_HOME_ROOT_AA) {
+if (Config::home_root() === $realHomeRoot) {
     fwrite(STDERR, "REFUSING TO RUN: HOME_ROOT still resolves to the real home directory.\n");
     exit(1);
 }

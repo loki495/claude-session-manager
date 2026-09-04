@@ -21,8 +21,8 @@ use HostAgent\Services\StatuslineMarkerService;
 use HostAgent\Stores\GlobalStateStore;
 use HostAgent\Stores\SidecarStore;
 
-const REAL_HOME_ROOT_SM = '/home/user';
-const REAL_PUSH_SQLITE_FILE_SM = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
+$realHomeRoot = Config::home_root();
+$realPushSqliteFile = Config::push_sqlite_path();
 
 $fixtureHome = sys_get_temp_dir() . '/sessioneer-test-statusline-home-' . bin2hex(random_bytes(4));
 $fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-statusline-sidecars-' . bin2hex(random_bytes(4));
@@ -32,12 +32,12 @@ putenv("HOME_ROOT={$fixtureHome}");
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 putenv("PUSH_SQLITE_FILE={$fixturePushSqliteFile}");
 
-if (Config::home_root() === REAL_HOME_ROOT_SM) {
+if (Config::home_root() === $realHomeRoot) {
     fwrite(STDERR, "REFUSING TO RUN: HOME_ROOT still resolves to the real home directory.\n");
     exit(1);
 }
 
-if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_SM) {
+if (Config::push_sqlite_path() === $realPushSqliteFile) {
     fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE resolves to the real host state file.\n");
     exit(1);
 }

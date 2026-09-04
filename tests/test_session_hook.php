@@ -25,7 +25,10 @@ use HostAgent\Stores\PendingToolStore;
 use HostAgent\Stores\SessionStatusStore;
 use HostAgent\Stores\SidecarStore;
 
-const REAL_HOME_ROOT = '/home/user';
+// Captured before any override below, so this always reflects whatever
+// machine/CI environment the suite is actually running on - never hardcode
+// a specific real home directory here.
+$realHomeRoot = Config::home_root();
 
 $fixtureHome = sys_get_temp_dir() . '/sessioneer-test-hook-home-' . bin2hex(random_bytes(4));
 $fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-hook-sidecars-' . bin2hex(random_bytes(4));
@@ -33,7 +36,7 @@ $fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-hook-sidecars-' . bi
 putenv("HOME_ROOT={$fixtureHome}");
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 
-if (Config::home_root() === REAL_HOME_ROOT) {
+if (Config::home_root() === $realHomeRoot) {
     fwrite(STDERR, "REFUSING TO RUN: HOME_ROOT still resolves to the real home directory.\n");
     exit(1);
 }

@@ -18,12 +18,12 @@ require dirname(__DIR__) . '/host-agent/lib/Sessions.php';
 use HostAgent\Services\Config;
 use HostAgent\Stores\GlobalStateStore;
 
-const REAL_PUSH_SQLITE_FILE_AQ = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
+$realPushSqliteFile = Config::push_sqlite_path();
 
 $pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-agy-quota-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
 
-if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_AQ) {
+if (Config::push_sqlite_path() === $realPushSqliteFile) {
     fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE resolves to the real host state file.\n");
     exit(1);
 }

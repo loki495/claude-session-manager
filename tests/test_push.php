@@ -25,7 +25,7 @@ use HostAgent\Stores\PushSessionStateStore;
 use HostAgent\Stores\PushSubscriptionStore;
 
 const REAL_PUSH_TIMER_UNIT_NAME = 'sessioneer-push-check.timer';
-const REAL_PUSH_SQLITE_FILE = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
+$realPushSqliteFile = \HostAgent\Services\Config::push_sqlite_path();
 
 $fixtureDir = sys_get_temp_dir() . '/sessioneer-test-push-' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0700, true);
@@ -71,7 +71,7 @@ class FakeFailingCodexBridgeClient extends CodexBridgeClient
 
 if (
     PushTimerService::push_timer_unit_name() === REAL_PUSH_TIMER_UNIT_NAME
-    || \HostAgent\Services\Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE
+    || \HostAgent\Services\Config::push_sqlite_path() === $realPushSqliteFile
 ) {
     fwrite(STDERR, "REFUSING TO RUN: push sqlite path or timer unit name still resolve to the real ones.\n");
     exit(1);

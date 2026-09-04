@@ -22,7 +22,7 @@ use HostAgent\Services\TmuxService;
 use HostAgent\Stores\SidecarStore;
 
 const REAL_TMUX_SOCKET_OP = '/tmp/tmux-1000/default';
-const REAL_PUSH_SQLITE_FILE_OP = '/home/user/www/sessioneer/host-agent/state/push.sqlite';
+$realPushSqliteFile = Config::push_sqlite_path();
 
 if (Config::tmux_socket() === REAL_TMUX_SOCKET_OP) {
     fwrite(STDERR, "REFUSING TO RUN: TMUX_SOCKET resolves to the real host socket. Check tests/.env.testing.\n");
@@ -37,7 +37,7 @@ if (Config::opencode_bin() === '' || !is_file(Config::opencode_bin())) {
 $pushSqliteFixture = sys_get_temp_dir() . '/sessioneer-test-opencode-spawn-' . bin2hex(random_bytes(4)) . '/push.sqlite';
 putenv("PUSH_SQLITE_FILE={$pushSqliteFixture}");
 
-if (Config::push_sqlite_path() === REAL_PUSH_SQLITE_FILE_OP) {
+if (Config::push_sqlite_path() === $realPushSqliteFile) {
     fwrite(STDERR, "REFUSING TO RUN: PUSH_SQLITE_FILE resolves to the real host state file.\n");
     exit(1);
 }

@@ -17,7 +17,7 @@ use HostAgent\Services\OpenCodeTranscriptService;
 use HostAgent\Services\TranscriptRouter;
 use HostAgent\Services\TranscriptService;
 
-const REAL_OPENCODE_DB_PATH = '/home/user/.local/share/opencode/opencode.db';
+$realOpencodeDbPath = Config::opencode_db_path();
 
 // Build a canned opencode.db SQLite fixture in tmp, pointed at via
 // OPENCODE_DB_PATH — same env-override pattern as tests/.env.testing
@@ -27,7 +27,7 @@ $fixtureDir = sys_get_temp_dir() . '/sessioneer-test-opencode-transcript-' . bin
 $fixtureDbPath = $fixtureDir . '/opencode.db';
 putenv("OPENCODE_DB_PATH={$fixtureDbPath}");
 
-if (Config::opencode_db_path() === REAL_OPENCODE_DB_PATH) {
+if (Config::opencode_db_path() === $realOpencodeDbPath) {
     fwrite(STDERR, "REFUSING TO RUN: OPENCODE_DB_PATH resolves to the real host DB.\n");
     exit(1);
 }

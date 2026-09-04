@@ -23,7 +23,7 @@ use HostAgent\Stores\PendingToolStore;
 use HostAgent\Stores\SessionStatusStore;
 use HostAgent\Stores\SidecarStore;
 
-const REAL_HOME_ROOT_AG = '/home/user';
+$realHomeRoot = Config::home_root();
 
 $fixtureHome = sys_get_temp_dir() . '/sessioneer-test-agy-hook-home-' . bin2hex(random_bytes(4));
 $fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-agy-hook-sidecars-' . bin2hex(random_bytes(4));
@@ -31,7 +31,7 @@ $fixtureSidecarDir = sys_get_temp_dir() . '/sessioneer-test-agy-hook-sidecars-' 
 putenv("HOME_ROOT={$fixtureHome}");
 putenv("SIDECAR_DIR={$fixtureSidecarDir}");
 
-if (Config::home_root() === REAL_HOME_ROOT_AG) {
+if (Config::home_root() === $realHomeRoot) {
     fwrite(STDERR, "REFUSING TO RUN: HOME_ROOT still resolves to the real home directory.\n");
     exit(1);
 }
