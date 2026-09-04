@@ -381,22 +381,13 @@ class TranscriptView extends View
      * posts the chosen model + provider to set_model. OpenCode has no mode
      * toggle (no Shift+Tab permission modes), so this is the only footer
      * extra for an opencode session - the compose bar renders no mode select.
-     */
-    /**
-     * OpenCode (headless) session model toggle - a session-only switch driven
-     * entirely client-side: the select is rendered empty with the session's
-     * current model/provider carried as data attributes, then session.js
-     * fetches the serve's available models (GET /session_list_models.php ->
-     * list_models -> cached /config/providers) and fills the dropdown, and
-     * posts the chosen model + provider to set_model. OpenCode has no mode
-     * toggle (no Shift+Tab permission modes), so this is the only footer
-     * extra for an opencode session - the compose bar renders no mode select.
      *
      * @param array<string, mixed> $detail
      */
     public static function render_opencode_model_toggle_html(array $detail): string
     {
-        return self::render('transcript/opencode-model-toggle', [            'model' => is_string($detail['current_model'] ?? null) ? $detail['current_model'] : null,
+        return self::render('transcript/opencode-model-toggle', [
+            'model' => is_string($detail['current_model'] ?? null) ? $detail['current_model'] : null,
             'provider' => is_string($detail['current_provider'] ?? null) ? $detail['current_provider'] : null,
         ]);
     }
