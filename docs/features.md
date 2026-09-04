@@ -1,286 +1,242 @@
 # Feature reference
 
-This is the canonical, exhaustive list of what Sessioneer can do.
-It is the source of truth for the tool's *capabilities* (the atlas's
-`.claude/feature-atlas/REPORT.md` is the source of truth for *finding/quality*
-per subsystem — read these together when planning work).
+This is Sessioneer's current four-agent capability and implementation
+reference. The README is the installation guide; this document answers which
+agent supports a feature, what mechanism provides it, and where parity is
+intentionally incomplete.
 
-The tool manages interactive coding-agent sessions (Claude Code, Antigravity,
-OpenCode, Codex) on this machine, from a single-user LAN web UI - tmux-driven
-for Claude Code/Antigravity, headless (each agent's own local server) for
-Codex, either for OpenCode. The table below shows everything it can do. The
-end sections break the same list down **per agent** and flag the known
-**gaps / partial parity** (see also "To research later" at the bottom -
-Codex isn't reflected in those per-agent breakdowns yet).
+Legend: **✓** supported · **◐** supported with a caveat · **✗** unavailable ·
+**—** not applicable.
 
-> Generated from the feature atlas (`.claude/feature-atlas/`, 2026-08-26).
-> Anything marked **verify** needs a live check before you rely on it as "the
-> tool does X for agent Y"; the atlas audits flagged those as drift/gaps.
+## Runtime and integration map
 
----
+| Agent | Session prefix | Runtime | Conversation source | Activity / blocked source | Write path |
+|---|---:|---|---|---|---|
+| Claude Code | `cc-*` | tmux | Claude JSONL | Five Claude hooks; narrow pane fallbacks | tmux key input |
+| Antigravity | `ag-*` | tmux | `transcript_full.jsonl` | Four Antigravity hooks plus the pane for approval visibility | tmux key input |
+| OpenCode | `ses_*` headless / `oc-*` tmux | `opencode serve` by default, tmux fallback | `opencode.db` | Serve API, SQLite, permissions plugin, and TUI pane where necessary | serve API or tmux key input |
+| Codex | native thread UUID | headless only | Codex rollout JSONL and app-server | Private bridge for Sessioneer-owned turns; Codex hooks for Remote-owned activity | Persistent queue after materialization; private bridge for a new thread's first turn and owned prompt replies |
 
-## Full capability list
+All host-only work goes through `host-agent/`; the web container never controls
+tmux, agent daemons, process tables, or user configuration directly.
 
-### Session management
-- List every running session, with name/title, working directory, last-active
-  time, attached/detached, live context-usage %, and its flow state
-  (`idle` / `working` / `blocked`).
-- Create a new session for any agent in a chosen working directory, via an
-  in-UI browsable folder picker.
-- Open a session's detail view.
-- Resume a previously-run session (per-session lock; sidecar re-linked when the
-  coding agent rotates its transcript id).
-- Kill / terminate a session (server-side re-validated against a fresh listing).
-- Discover untracked **"bare"** sessions (an agent started by hand outside the
-  tool) — list, kill, or **take over** them into the tool's tracked view.
-- Take over a specific bare session by id, including a mid-sequence take-over.
-- Clean up left-over/dead sessions.
-- Per-session **title cascade** (derive a human-readable name).
-- **Session-id self-heal** — keep following the correct transcript file across
-  the agent's `/clear`, `/compact`, `/resume`, or fork operations.
+## Capability matrix
 
-### Blocked-prompt handling
-- Detect and surface a **blocked permission prompt**, showing the **exact,
-  untruncated** `tool_name`/`tool_input` of the pending tool call (captured from
-  hooks, not scraped from a rendered pane).
-- View the user message that triggered the block.
-- **Approve** the permission, by option number (re-validated server-side).
-- **Deny** it.
-- Answer a prompt with **free text**.
-- Answer a **multi-question** `AskUserQuestion` in one shot (computes and sends
-  the whole tab-bar key sequence; no manual Prev/Next tab navigation).
-- Answer a **single-question** `AskUserQuestion` from its content.
-- Handle the **initial folder-trust dialog**.
-- OpenCode-specific: answer **modal** permission prompts, **serve-API** questions,
-  and the **plugin permission bridge**.
-- **Escape / interrupt** a running session.
-- **Send a message** from the compose bar.
+| Capability | Claude Code | Antigravity | OpenCode | Codex |
+|---|---:|---:|---:|---:|
+| List / open / kill | ✓ | ✓ | ✓ | ✓ (kill archives the thread) |
+| Create in selected workdir | ✓ | ✓ | ✓ | ✓ |
+| Resume archived session | ✓ | ✓ | ✓ | ✓ |
+| tmux attach command | ✓ | ✓ | ◐ TUI runtime only | — |
+| Discover / take over a bare process | ✓ | ✗ | ✗ | ✗ |
+| Working / idle state | ✓ hooks | ✓ hooks | ✓ serve/DB | ✓ bridge + hooks |
+| Detect a pending permission | ✓ | ✓ pane | ✓ | ◐ owned prompts are answerable; Remote prompts are observe-only |
+| Display exact tool details | ✓ hook | ◐ hook metadata + pane | ◐ depends on plugin/API shape | ◐ hook context for Remote; full bridge payload when owned |
+| Approve / deny in Sessioneer | ✓ | ✓ | ✓ | ◐ Sessioneer-owned prompts only |
+| Answer free-text / structured question | ✓ | ◐ agent UI dependent | ✓ | ◐ Sessioneer-owned prompts only |
+| Multi-question form | ✓ | — | ◐ OpenCode question shape | ◐ Sessioneer-owned `request_user_input` only |
+| Send a normal message | ✓ | ✓ | ✓ | ✓ queued across owners after the thread is materialized |
+| Interrupt active turn | ✓ | ✓ | ✓ | ◐ private-bridge-owned turn only |
+| Select model when creating | ✓ | ✗ UI uses default | ✓ | ✓ |
+| Switch model in a live session | ✓ | ✓ account-wide setting | ✓ | ✓ |
+| Choose starting mode at creation | ✓ | ◐ `accept edits` / `plan` | ✗ | ✗ |
+| Switch interaction mode in a live session | ✓ | ✗ | ✗ | ✗ |
+| Switch reasoning effort in the UI | ✗ | ✗ | ✗ | ✓ |
+| Live transcript and forward polling | ✓ | ✓ | ✓ | ✓ |
+| Archived transcript / cwd / title | ✓ | ✓ | ✓ | ✓ |
+| Dashboard-wide content search | ✓ | ✗ | ✓ | ✗ |
+| Per-session content search | ✓ | ✗ | ✓ | ✗ |
+| Usage / quota display | ✓ | ✓ optional timer | ✓ | ✓ app-server rate limits |
+| File upload / attachment send | ✓ | ✓ | ✓ | ✓ |
+| Web Push on blocked / finished state | ✓ | ✓ | ✓ | ✓, including observe-only Remote blocks |
 
-### Mode / model switching
-- Switch a session's **mode** (`manual` / `accept edits` / `plan` / `auto`).
-- Switch the **model** (per-agent model picker).
-- Switch the **effort** level (Antigravity-specific).
-- Per-agent model/effort selectors in the UI.
+## Claude Code implementation
 
-### Transcript viewing
-- View a live session's transcript.
-- Render every block type: text, plan, tool_use, tool_result, task_notification,
-  attachments, images.
-- **Markdown** rendering (with a browser-side mirror kept in parity).
-- **Collapsible** blocks (and collapsible markdown blocks).
-- **Search** inside a session's transcript, then **jump to / highlight** the
-  matching line.
-- **Copy** any block to the clipboard.
-- **History / paging** back through older messages (live and archived), with
-  load-more.
-- Live **polling** updates of the session page.
-- Per-turn **thinking** indicator, **agent name** above replies, and **turn
-  error** display.
-- View **attachments** embedded in a message.
+`ClaudeCodeAdapter` supports only `RuntimeType::TMUX`. New sessions receive an
+explicit UUID through `claude --session-id`; the `SessionStart` hook repairs
+the sidecar if Claude rotates that ID after `/clear`, `/compact`, resume, or a
+fork.
 
-### Archives
-- List **archived / dormant** sessions (an agent still has a transcript for).
-- View an archived session's transcript **read-only**.
-- Search content **across live and archived** sessions.
-- Open an archived attachment / page through history (cwd-gated).
+Sessioneer installs these entries in `~/.claude/settings.json`:
 
-### Quota
-- Show usage **quota per agent** (per-session live context %, weekly usage, reset
-  countdowns), read from the agent's own status line / `/usage` API / SQLite —
-  no external scraper.
-- Per-agent quota display + a consolidated quota footer / table on the dashboard.
+- `SessionStart`: bind or repair transcript identity.
+- `UserPromptSubmit`: mark the session working and record mode.
+- `PreToolUse`: retain full tool name/input, including `AskUserQuestion`.
+- `PermissionRequest`: mark the session blocked with authoritative tool
+  context.
+- `Stop`: mark idle and retain last-response/error data.
 
-### Push notifications
-- Register a phone/browser for **web push**.
-- Get a notification when a session **blocks** or **finishes a task**, even with
-  the tab closed.
-- Get a notification on **quota events** (near / over / reset).
-- Configure the **push-check timer interval**.
-- Run **health check / diagnostics** from the dashboard health box (is the agent
-  reachable, are hooks installed, is the timer running).
+The hooks are scoped at runtime by `SESSIONEER_SESSION_NAME`; a manually
+started Claude process does not accidentally become a tracked session.
+Sessioneer answers through the tmux TUI. Initial folder trust and the visible
+tab of `AskUserQuestion` are read from the pane because Claude's hook payload
+cannot represent those states completely. Multi-question calls retain the
+full hook payload and are answered as a single validated key sequence.
 
-### Files & project info
-- **Upload** a file into a session's project dir (`.claude/uploads/`) from the
-  compose bar; list / view / delete one or all uploaded files.
-- Read-only glance at a session's **plan / handoff** markdown files and its
-  **`todo`** file.
-- See **todo markers** rendered within the transcript / sidebar.
+Claude is the only integration with process-table discovery and **Take over**
+for sessions started outside Sessioneer. Model and permission-mode changes
+drive Claude's own pickers. Quota comes from the status-line JSON marker and
+will be unavailable until Claude renders that status line at least once.
 
-### Platform / access
-- Single-user, **LAN-only** web UI (access control is the network bind, not a
-  login), usable from a phone or any browser on the LAN.
-- Mobile-Safari compatible (plain-ES5 frontend, no transpiler).
-- Service-worker install for push.
+Implementation entry points:
 
----
+- `host-agent/lib/Agents/ClaudeCodeAdapter.php`
+- `host-agent/lib/Services/HookService.php`
+- `host-agent/hooks/*.php`
+- `host-agent/lib/Services/PromptInteractionService.php`
+- `host-agent/lib/Services/TranscriptService.php`
 
-## Per-agent coverage
+## Antigravity implementation
 
-Legend: **✓** supported · **◐** partial / works with caveats · **✗** not
-available · **—** not applicable to that agent. The `verify` items are ones the
-atlas flagged as drift/gap — confirm against a live session before treating them
-as settled.
+`AntigravityAdapter` is tmux-only. A new `agy` process cannot be assigned a
+conversation ID up front, so `PreInvocation` learns `conversationId` from the
+first model turn and binds it to the `ag-*` sidecar.
 
-| Capability | Claude Code | Antigravity | OpenCode |
-|---|---|---|---|
-| List / open / kill session | ✓ | ✓ | ✓ |
-| Create session (workdir browse) | ✓ | ✓ | ✓ |
-| Resume session | ✓ | ◐ (reactive id bind; `--conversation` resume — **verify**) | ✓ |
-| Take over / kill bare session | ✓ | ✓ | ✓ |
-| Session-id self-heal | ✓ (hook) | ✓ (reactive `pre_invocation` binder) | ◐ (reactive from `opencode.db`; no session-id hook) |
-| Idle / working / blocked status | ✓ (5 hooks) | ✓ (4 hooks + pane) | ◐ (serve-API + plugin + pane) |
-| Blocked-permission detection | ✓ | ✓ | ✓ |
-| Exact tool call shown for block | ✓ (PreToolUse hook) | ✓ (PreToolUse) | ◐ (plugin `PermissionStore`) |
-| Approve / deny by option | ✓ | ✓ | ✓ |
-| Free-text answer to a prompt | ✓ | ✓ | ◐ |
-| Multi-question `AskUserQuestion` | ✓ (tab-bar sequence) | ✗ (no equivalent) | ✗ (uses its own serve-API questions) |
-| Single-question `AskUserQuestion` | ✓ | ✗ | ✗ |
-| Folder-trust dialog | ✓ | ◐ | ◐ |
-| OpenCode permission/plugin bridge | — | — | ✓ |
-| Escape / interrupt | ✓ | ✓ | ✓ |
-| Send message | ✓ | ✓ | ✓ |
-| Switch mode | ✓ | ✓ | ✗ (only `--auto`; no mode vocabulary) |
-| Switch model | ✓ | ✓ | ✓ |
-| Switch effort level | ✗ | ✓ | ✗ |
-| View transcript | ✓ (JSONL) | ✓ (JSONL) | ✓ (SQLite) |
-| Markdown / collapsible / copy block | ✓ | ✓ | ✓ |
-| Search + jump-to-line (in-session) | ✓ | ◐ | ◐ |
-| History / paging / attachments | ✓ | ✓ | ✓ |
-| Live polling | ✓ | ✓ | ◐ (forward-poll line cursor bug in the atlas) |
-| Turn error display | ◐ | ✓ | ◐ |
-| List archived sessions | ✓ | ◐ (uses Claude-only resolver — **verify**) | ◐ (same resolver — **verify**) |
-| Archived read-only view | ✓ | ◐ | ◐ |
-| Search across live + archived | ✓ | ✗ (search is Claude-only) | ✗ (search is Claude-only) |
-| Usage quota | ✓ (status line) | ✓ (`/usage` poll) | ✓ (SQLite) |
-| Push on block / task-finished | ✓ | ✓ | ✓ |
-| Push on quota events | ✓ | ✓ | ✓ |
-| Health check / diagnostics | ✓ | ✓ | ✓ |
-| File uploads | ✓ | ✓ | ✓ |
-| Plan / handoff / todo glance | ✓ | ✓ | ✓ |
+Four hooks are stored under the `sessioneer` group in
+`~/.gemini/config/hooks.json`:
 
-### Implementation status by agent (detail)
+- `PreInvocation`: bind identity and mark working.
+- `PreToolUse`: save tool metadata while returning Antigravity's neutral/safe
+  `ask` decision.
+- `PostToolUse`: clear completed pending-tool metadata.
+- `Stop`: mark idle and preserve the last response or pane-only turn error.
 
-The matrix above is the at-a-glance view. This section states the actual
-**implementation status** per agent per feature — status, concrete mechanism,
-and the caveat. It's the more useful lens when you're deciding what a
-"same feature for every agent" change has to touch.
+Antigravity's tested hook API does not reliably signal that its interactive
+approval dialog is currently on screen. `AntigravityPromptParser` therefore
+recognizes the live pane structurally and the normal tmux answer path drives
+the actual dialog. This is a deliberate exception to hook-based lifecycle
+tracking, not a general text-based working/idle heuristic.
 
-Status legend: **Complete** · **Partial** (works with caveats / not fully wired) ·
-**Missing** (not implemented) · **Broken** (implemented but produces a wrong
-result) · **N/A** (not applicable to that agent).
+The hooks are global to every `agy` process, but their scripts only persist
+state when `SESSIONEER_SESSION_NAME` exists. Install them explicitly as shown
+in the README. The separate quota timer periodically invokes `agy -p "/usage"`
+and is opt-in. Live model switching changes Antigravity's account-wide default
+because the CLI exposes no session-local equivalent.
 
-| Feature | Agent | Status | Mechanism | Caveat |
-|---|---|---|---|---|
-| Blocked-permission detection | Claude Code | Complete | `PromptParser` pane-scrape + `PermissionRequest`/`PreToolUse` hooks | Multi-question tab-bar path is the only pane-only carve-out |
-| | Antigravity | Complete | `AntigravityPromptParser` (substring match; no dedicated hook) | Content comes from the pane, not a hook payload |
-| | OpenCode | Partial | `OpenCodePromptParser` (structural modal) + serve-API + `sessioneer-permissions` plugin | Permission bridge is authoritative; `permission.ask` hook dormant in opencode 1.18.21 |
-| Session-id self-heal | Claude Code | Complete | `session_start` hook rebinds sidecar on `/clear`/`/compact`/`/resume`/`--fork` | Needs a real transcript + not-already-live guard |
-| | Antigravity | Complete | `pre_invocation` hook reactively binds real `conversationId` on first firing | No up-front id; identity learned post-spawn |
-| | OpenCode | Partial | Reactive binding from `opencode.db` (`ses_*`); **no session-id hook** | `sessioneer-status` plugin not shipped — `check_hooks`/`install_hooks` are stubs |
-| Multi-question `AskUserQuestion` | Claude Code | Complete | `build_multi_question_key_sequence` sends the whole tab-bar sequence in one shot | 2+ questions only; single-question uses the pane path |
-| | Antigravity | N/A | — | No equivalent mechanism |
-| | OpenCode | N/A | — | Answers via its own serve-API questions instead |
-| Archived detail/browse | Claude Code | Complete | `SessionDetailService` detail path | — |
-| | Antigravity | Broken | Resolved via Claude-only `TranscriptService::find_transcript_path` | Opens "Session not found" (atlas `archived-sessions` #1) |
-| | OpenCode | Broken | Same Claude-only resolver | Same bug |
-| Content search (live + archived) | Claude Code | Complete | `search_transcript_file` / `list_all_transcripts` | — |
-| | Antigravity | Missing | Search is Claude-only | Content invisible to dashboard + in-page search (atlas #2) |
-| | OpenCode | Missing | Same | Same |
-| Model switch | Claude Code | Complete | Drives `/model` picker; `SelectableModel::PICKER_OPTIONS` | Rejected while blocked |
-| | Antigravity | Complete | `set_antigravity_model`; re-captures picker after each keypress (drop-safe) | Globally overwrites account-wide default (no session-only key) |
-| | OpenCode | Partial | Adapter supports `--model`, but **not reachable** from the New Session UI | `create_agent_session()` only forwards `enable_task_tools`/`starting_mode` (atlas `agent-abstraction`) |
-| Switch mode | Claude Code | Complete | `set_mode` (BTab relative steps) | — |
-| | Antigravity | Complete | `--mode` flight; `SETTING_MODE_FLAGS` | `manual`/`auto` have no flag (omitting = manual default) |
-| | OpenCode | Missing | No mode vocabulary; only boolean `--auto` | By design, not a bug |
-| Transcript view | Claude Code | Complete | Jsonl reader (`TranscriptService`) | — |
-| | Antigravity | Complete | Jsonl reader (`AntigravityTranscriptService`) | — |
-| | OpenCode | Complete | SQLite reader (`OpenCodeTranscriptService`) | Live forward-poll line-cursor bug (atlas `session-view` #1) |
-| Usage quota | Claude Code | Complete | Statusline marker captures status line JSON | Shows "Quota unavailable" until a session renders its status line once |
-| | Antigravity | Complete | `/usage` poll (`antigravity_quota_poll.php`) | A SUCCESS w/ unparseable bucket wipes prior state (atlas `quota` #1) |
-| | OpenCode | Complete | Direct read-only SQLite (`opencode_quota_state`) | Query block can throw past its connect-only try/catch (atlas `quota` #3) |
+Implementation entry points:
 
----
+- `host-agent/lib/Agents/AntigravityAdapter.php`
+- `host-agent/lib/Services/AntigravityHookService.php`
+- `host-agent/hooks/antigravity/*.php`
+- `host-agent/lib/Services/AntigravityPromptParser.php`
+- `host-agent/lib/Services/AntigravityTranscriptService.php`
 
-## Known gaps & partial parity (from the atlas audits)
+## OpenCode implementation
 
-These are the concrete spots where parity is missing or only partial. Treat this
-list as the "same features for each agent" work queue.
+`OpenCodeAdapter` offers `RuntimeType::HEADLESS` first and tmux second. The
+installer enables `opencode-serve.service`; the headless runtime uses
+OpenCode's HTTP API for lifecycle, messages, questions, and prompt replies.
+The TUI fallback is driven through tmux.
 
-1. **Content search is Claude-Code-only** — `search_transcripts` and the
-   per-session search use `TranscriptService` (Claude JSONL) exclusively, so
-   Antigravity and OpenCode content is invisible to the dashboard search box and
-   in-page search. (atlas: `archived-sessions` finding 2)
-2. **Archived detail/browse uses the Claude-only resolver** — the archived
-   *detail* path resolves transcripts through `TranscriptService::
-   find_transcript_path` (Claude) while the paging/attachment path already uses
-   the agent-agnostic `TranscriptRouter`. Antigravity/OpenCode archived rows open
-   "Session not found". (atlas: `archived-sessions` finding 1)
-3. **OpenCode forward-poll line cursor** — the live detail page can silently stop
-   updating once any non-renderable row precedes the newest renderable message.
-   (atlas: `session-view` finding 1)
-4. **OpenCode hooks are not production-wired** — the adapter's
-   `check_hooks`/`install_hooks` are honest stubs (a `sessioneer-permissions` plugin is
-   installed; a full `sessioneer-status` hook/plugin is planned but not shipped). So
-   OpenCode lacks the hook-fed status and session-id self-heal the others have.
-   (atlas: `agent-abstraction`)
-5. **Antigravity/OpenCode model & create-option reachability** —
-   `create_agent_session()` only forwards `enable_task_tools`/`starting_mode` to the
-   adapter, so Antigravity's `--model`/`--effort` and OpenCode's
-   positional-workdir/`--model`/`--agent` options are not reachable through the
-   New Session UI even though the adapters support them.
-6. **Mode switching** is absent for OpenCode (no mode vocabulary; only the
-   boolean `--auto`), and **effort switching** is Antigravity-only — by design,
-   not a bug, but a real parity gap if you want the same set of controls for
-   every agent.
+OpenCode assigns its `ses_*` identifier only after the first prompt creates a
+database row. Sessioneer finds that row by workdir and spawn time and repairs
+the sidecar reactively. Transcripts, token/cost data, and archive metadata come
+from OpenCode's local SQLite database.
 
-For the authoritative per-finding detail (file:line, impact, recommended fix) for
-items 1–5, see `.claude/feature-atlas/REPORT.md`.
+The global `sessioneer-permissions.js` plugin subscribes to
+`permission.asked` and records pending permission details because the tested
+OpenCode API does not persist a reliable equivalent. For TUI sessions, the
+pane is the final authority that the permission dialog is still visible; this
+prevents a stale plugin record from showing answer controls after the dialog
+has gone away. Questions prefer the serve API, then the database/pane
+fallbacks.
 
----
+The health box verifies both `opencode-serve.service` and the installed plugin
+file. Restart the service and existing TUIs after updating the plugin. OpenCode
+supports model selection but has no equivalent to Sessioneer's Claude-style
+mode enum. Dashboard-wide and per-session search use the OpenCode-specific
+SQLite search implementation.
 
-## To research later — this document is stale relative to recent commits
+Implementation entry points:
 
-This file was generated from the feature atlas on 2026-08-26. Commit history
-since then (checked 2026-09-02 while revising the README) turned up real gaps
-between what's documented here and what's actually shipped. None of these are
-fixed in this pass — they need a proper `/feature-atlas` re-run (or targeted
-scout/audit) to verify and correct. Flagging them here so they aren't lost:
+- `host-agent/lib/Agents/OpenCodeAdapter.php`
+- `host-agent/lib/Runtimes/HeadlessRuntime.php`
+- `host-agent/lib/Runtimes/OpenCodeServeClient.php`
+- `host-agent/opencode-plugins/sessioneer-permissions.js`
+- `host-agent/lib/Services/OpenCodeTranscriptService.php`
+- `host-agent/lib/Services/OpenCodeQuestionService.php`
 
-1. **Codex is entirely absent from this document.** The `CodexAdapter`/
-   `CodexHeadlessRuntime` landed 2026-08-28 (commit `cf0f462` onward), two days
-   after this atlas snapshot. The "Full capability list" intro, the per-agent
-   coverage table, and the implementation-status detail table all only cover
-   Claude Code / Antigravity / OpenCode — Codex needs a full column added to
-   each, not just an entry appended.
-2. **Bare-process/"take over" discovery is Claude Code only in the actual
-   code** (`ProcessInspector::find_claude_processes()`, `BareProcessService`),
-   but this doc's "Session management" list describes it generically ("an
-   agent started by hand outside the tool") without that caveat. Verify
-   whether this was ever generalized, or fix the wording to scope it
-   correctly.
-3. **Worker-session tagging/lineage** (commit `5aa8749`, the dashboard/sidebar
-   "Show worker sessions" toggle and parent/child lineage) isn't mentioned
-   anywhere in this document.
-4. **Mobile pull-to-refresh** (commit `e429518`) isn't mentioned under
-   "Platform / access" or anywhere else.
-5. **Todo file rendered as markdown** in the sidebar modal (commit `d6e85c0`)
-   — the "Files & project info" section only says "read-only glance," doesn't
-   mention markdown rendering.
-6. **Per-agent health-check sections** (commit `3229252`, "split health
-   checkup into per-agent sections") — the "Health check / diagnostics" row
-   just shows a blanket ✓ for every agent; doesn't reflect the actual
-   per-agent UI structure this shipped.
-7. **New-session model selector** (commit `baca67c`, "dashboard model
-   selector for new-session form") may have fully or partially closed **Known
-   gap #5** below ("Antigravity/OpenCode model & create-option reachability")
-   — re-verify against the current New Session UI before trusting that gap
-   entry as still accurate.
-8. **A batch of parity/bugfix commits not individually re-verified against
-   this doc's matrix**: `12b2e46` (sidebar prompt-answer submission),
-   `23b3c05` (session-page/sidebar UI parity, quota-table footer, three
-   status-desync fixes), `b0d8337` (OpenCode forward-poll cursor fix — may
-   have closed **Known gap #3** below), `9edb052`/`fdb2e21` (OpenCode quota
-   display/provider label), `29adf02`/`1f2e903` (archived-session
-   cwd/title/resume routing fixes for OpenCode/Codex/Antigravity — may have
-   closed or narrowed **Known gap #2** below). Each should be checked against
-   its corresponding row/gap entry above rather than assumed still-accurate.
+## Codex implementation
+
+`CodexAdapter` supports only `RuntimeType::HEADLESS`; there is no Codex tmux
+path. Two separate transports serve different purposes:
+
+1. `sessioneer-codex-bridge.service` owns a long-lived private
+   `codex app-server --stdio` connection. It creates threads, handles the first
+   turn before a rollout exists, reads/archives threads, updates model/effort,
+   and owns the request IDs for prompts raised by its turns.
+2. `codex queue --thread <id> --message <text>` appends normal user messages
+   through Codex's persistent thread queue once a rollout exists. This path is
+   not tied to the private connection, so it works for a materialized thread
+   started or currently loaded by Codex Remote. Queued turns are FIFO and wait
+   behind an active turn.
+
+This is bidirectional at the normal-message level, not at the pending-prompt
+protocol level. Approval and `request_user_input` response IDs are scoped to
+the app-server connection that created them. A prompt raised while Sessioneer's
+private bridge owns the turn is answerable in Sessioneer. A prompt raised by
+Codex Remote or the shared queue/managed transport is recorded by hooks as an
+external block and shown without fake answer controls; the user must open Codex
+Remote to answer it. Queueing another message neither answers that prompt nor
+transfers ownership.
+
+Sessioneer installs one neutral observer command for eight Codex hook events:
+`SessionStart`, `UserPromptSubmit`, `PreToolUse` matched to
+`request_user_input`, `PermissionRequest`, wildcard `PostToolUse`, `Stop`,
+`Interrupt`, and `SessionEnd`. The observer only updates the local status
+store. In particular, `PostToolUse` clears an external block after an approved
+tool finishes. It always returns `{}` and never approves, denies, answers, or
+blocks Codex itself.
+
+Codex requires non-managed hooks to be trusted through `/hooks`. New sessions
+load the trusted configuration; sessions already open when it changes should
+be reopened or resumed. The managed daemon used by Codex Remote is bootstrapped
+separately with `codex app-server daemon bootstrap --remote-control`. Its
+restart preserves persisted threads but may interrupt an active turn. The
+private Sessioneer bridge has its own systemd lifecycle and clears prompts
+whose connection-scoped response IDs became stale after a restart.
+
+Implementation entry points:
+
+- `host-agent/lib/Agents/CodexAdapter.php`
+- `host-agent/lib/Runtimes/CodexHeadlessRuntime.php`
+- `host-agent/codex_bridge.php`
+- `host-agent/lib/Services/CodexHookService.php`
+- `host-agent/hooks/codex/status.php`
+- `host-agent/lib/Services/CodexTranscriptService.php`
+
+## Shared UI and platform features
+
+- Dashboard and session-detail polling pause while the browser tab is hidden;
+  manual and mobile pull-to-refresh remain available.
+- Transcript blocks support Markdown, collapsing, copying, attachments,
+  tool-call grouping, subagent/worker lineage, thinking state, and turn errors
+  where the source agent records them.
+- Worker sessions are tagged with parent lineage and hidden by default behind
+  **Show worker sessions**.
+- Archived sessions are read-only until resumed. Transcript routing, cwd/title
+  resolution, paging, and resume routing cover all four agents.
+- Plan/handoff/todo files are read-only views; todo Markdown is rendered in the
+  sidebar.
+- Web Push can notify on blocked and sufficiently long working-to-idle
+  transitions. For Codex Remote this includes an observe-only blocked notice
+  that directs the user back to the owning app.
+- The health panel is split into Global, Claude Code, OpenCode, and Codex
+  checks. Antigravity hook installation and its optional quota timer currently
+  use the manual commands in the README.
+
+## Known parity gaps
+
+1. Bare-process discovery and takeover are Claude Code only.
+2. Transcript content search covers Claude Code and OpenCode, not Antigravity
+   or Codex.
+3. Antigravity must use its pane to confirm/answer approval UI because its hook
+   signal is insufficient; model changes are account-wide.
+4. OpenCode has no full status-hook plugin or Claude-style mode vocabulary.
+5. Codex Remote-owned approvals and `request_user_input` prompts are visible
+   but cannot be answered from Sessioneer because the response IDs are owned by
+   Remote's app-server connection. Normal messages remain cross-owner through
+   the persistent queue.
+6. The dashboard **Install hooks** action covers Claude Code and Codex.
+   Antigravity hooks remain an explicit manual install, and OpenCode's plugin is
+   installed by `host-agent/install.sh`.
