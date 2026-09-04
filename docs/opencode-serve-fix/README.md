@@ -9,9 +9,9 @@ session's directory differs from the serve process's working directory.
 (a `ScopedCache` keyed by directory). In serve mode:
 
 - `GET /config/providers` resolves to `process.cwd()` (the serve's cwd,
-  e.g. `/home/user`)
+  e.g. `~`)
 - `POST /session/{id}/prompt_async` resolves to the session's stored directory
-  (e.g. `/home/user/www/sessioneer`)
+  (e.g. `~/www/sessioneer`)
 
 Different directories → different cache keys → different provider init runs →
 models visible in `/config/providers` but "not found" during prompt execution.
@@ -74,9 +74,16 @@ A systemd path unit watches the patched files and re-applies the fix
 automatically:
 
 ```bash
-# Install the observer:
-cp docs/opencode-serve-fix/opencode-patch-watcher.path ~/.config/systemd/user/
-cp docs/opencode-serve-fix/opencode-patch-watcher.service ~/.config/systemd/user/
+# Install the observer (run from the Sessioneer repo root). The unit files
+# are checked in as templates (@REPO_ROOT@/@OPENCODE_SRC@ placeholders,
+# same convention as host-agent/install.sh's render_unit()) - substitute
+# your own paths rather than a plain `cp`:
+REPO_ROOT="$(pwd)"
+OPENCODE_SRC="${OPENCODE_SRC:-$HOME/path/to/opencode}"
+sed -e "s|@REPO_ROOT@|$REPO_ROOT|g" -e "s|@OPENCODE_SRC@|$OPENCODE_SRC|g" \
+    docs/opencode-serve-fix/opencode-patch-watcher.service > ~/.config/systemd/user/opencode-patch-watcher.service
+sed "s|@OPENCODE_SRC@|$OPENCODE_SRC|g" \
+    docs/opencode-serve-fix/opencode-patch-watcher.path > ~/.config/systemd/user/opencode-patch-watcher.path
 systemctl --user daemon-reload
 systemctl --user enable --now opencode-patch-watcher.path
 ```

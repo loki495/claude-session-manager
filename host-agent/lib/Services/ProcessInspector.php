@@ -117,7 +117,7 @@ class ProcessInspector
         // basename, not the full configured path - found live 2026-08-08:
         // typing bare `claude` in a terminal (PATH-resolved by the shell)
         // gives that process argv[0] "claude" verbatim, which never equals
-        // Config::claude_bin()'s full path (e.g. /home/user/.local/bin/
+        // Config::claude_bin()'s full path (e.g. ~/.local/bin/
         // claude) even though it's the exact same launcher - a real running
         // session was invisible to this scan (not in bare[], not excluded
         // from the archived list) purely because of how it happened to be
@@ -136,7 +136,7 @@ class ProcessInspector
 
             // Match argv[0] specifically, not "appears anywhere in argv": the
             // tmux server process that auto-starts to run `new-session ...
-            // /home/user/.local/bin/claude` retains that whole command line
+            // ~/.local/bin/claude` retains that whole command line
             // as its own argv, which would otherwise false-positive-match the
             // tmux server itself as a bare claude process. Comparing by
             // basename only widens this to also match "claude" (bare,

@@ -230,7 +230,7 @@ class PromptParser
 
         // A multi-question tab's current question renders with a leading
         // "│ " quote-marker (found live 2026-08-29, session blocked on
-        // homie.example.com's admin-tool-exposure prompt: "│ How do you want
+        // an admin-tool-exposure prompt: "│ How do you want
         // to handle adminer, redis-ui, and git..." vs the hook's raw
         // "How do you want to..." with no marker) - a single leading
         // box-drawing glyph is never real content, only ever decoration

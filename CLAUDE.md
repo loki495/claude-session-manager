@@ -266,7 +266,7 @@ that only `create_agent_session()`-spawned sessions have).
 
 ## Feature atlas
 
-`.claude/feature-atlas/` is the source of truth for this project's
+`.ai/feature-atlas/` is the source of truth for this project's
 feature/subsystem inventory: one `DETAILS.md` + `AUDIT.md` per subsystem,
 plus `SUMMARY.md` (registry + digest) and `REPORT.md` (ranked, cross-subsystem
 findings). Read it before re-deriving feature boundaries from scratch, and

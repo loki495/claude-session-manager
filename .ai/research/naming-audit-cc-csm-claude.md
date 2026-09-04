@@ -51,7 +51,7 @@ parallel to `cx`/`oc`/`ag` — **do not rename this as part of the project renam
 - `StatuslineMarkerService.php` — 6 marker-comment constants written into the user's
   real statusline script on disk.
 - systemd unit `Description=` lines (5 files)
-- ~15 hits of the literal repo path `/home/user/www/claude-session-manager` in
+- ~15 hits of the literal repo path `~/www/claude-session-manager` in
   `.env.testing`/test constants — will follow a directory rename automatically.
 
 ## Legacy function names (code-only, zero external migration cost)

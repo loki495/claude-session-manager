@@ -178,7 +178,7 @@ add — do not modify the existing malformed test.
 **Current complexity / invalid state:** `csm_repo_root()` (`Config.php:258-261`)
 defaults to `dirname(__DIR__, 3)` — correct and environment-derived, but it
 is textually spliced into a shell string with **no quoting**. The current
-deployment path `/home/user/www/claude-session-manager` has no space, so
+deployment path `~/www/claude-session-manager` has no space, so
 it works today; any future clone/packaging path with a space turns
 `php /some path/host-agent/hooks/x.php` into a split command that silently
 fails. Because the fallback statusline script and the hook install are

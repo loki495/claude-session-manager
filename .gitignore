@@ -1,5 +1,8 @@
 .env
 .playwright-mcp/
+/todo
+/.ai/plans/
+/.ai/archive/
 /vendor/
 /host-agent/state/
 /docker-compose.override.yml

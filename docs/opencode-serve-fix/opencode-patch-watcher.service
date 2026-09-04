@@ -4,5 +4,5 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /home/user/www/claude-session-manager/docs/opencode-serve-fix/apply-opencode-patch.py
-Environment=OPENCODE_SRC=/home/user/opencode-1.18.21
+ExecStart=/usr/bin/python3 @REPO_ROOT@/docs/opencode-serve-fix/apply-opencode-patch.py
+Environment=OPENCODE_SRC=@OPENCODE_SRC@
