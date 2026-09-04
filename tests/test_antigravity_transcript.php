@@ -140,7 +140,7 @@ try {
     // --- TranscriptRouter: dispatch by path shape ---
 
     assert_equal(true, TranscriptRouter::is_antigravity_path($transcriptPath), 'TranscriptRouter::is_antigravity_path: true for a real antigravity-cli/brain/ path');
-    assert_equal(false, TranscriptRouter::is_antigravity_path('/home/user/.claude/projects/-home-andres-dev/some-uuid.jsonl'), 'TranscriptRouter::is_antigravity_path: false for a Claude Code path');
+    assert_equal(false, TranscriptRouter::is_antigravity_path('/home/user/.claude/projects/-home-user-dev/some-uuid.jsonl'), 'TranscriptRouter::is_antigravity_path: false for a Claude Code path');
 
     assert_equal($transcriptPath, TranscriptRouter::find_transcript_path($conversationId), 'TranscriptRouter::find_transcript_path: resolves an Antigravity id when Claude Code\'s own resolution finds nothing');
 
