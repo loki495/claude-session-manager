@@ -390,7 +390,14 @@ Push-related variables covered below):
 | `SESSION_LIST_CACHE_TTL_SECONDS` | `0.9`                                     | How long a session-list scan is reused across near-simultaneous callers |
 | `HEADLESS_SYNC_SECONDS`      | `15`                                          | Minimum interval between headless-agent syncs |
 | `CLEANUP_THRESHOLD_SECONDS`  | `43200` (12h)                                 | Inactivity threshold for "Kill inactive"    |
-| `QUOTA_LIVE_STATE_FILE`      | `host-agent/state/quota-live-state.json`      | Where the statusline marker writes quota    |
+| `TMUX_PANE_WIDTH` / `_HEIGHT` | `200` / `150`                                | Fixed pane size tmux sessions are created at |
+| `SESSIONEER_REPO_ROOT`       | this repo's own checkout path                 | Root the agent resolves its own paths from  |
+| `SESSIONS_SQLITE_FILE`       | `<SIDECAR_DIR>/sessions.sqlite`               | Per-session status/state (see below)        |
+| `PUSH_SQLITE_FILE`           | `host-agent/state/push.sqlite`                | Web Push subscriptions/state (see below)    |
+| `OPENCODE_SERVE_URL`         | `http://localhost:4096`                       | OpenCode server this agent talks to         |
+| `OPENCODE_DB_PATH`           | `~/.local/share/opencode/opencode.db`         | OpenCode's own session database             |
+| `OPENCODE_AUTH_PATH`         | `~/.local/share/opencode/auth.json`           | OpenCode's own auth file                    |
+| `OPENCODE_PERMISSION_DIR`    | `<SIDECAR_DIR>/opencode-permissions`          | Where OpenCode permission-request state is written |
 
 ## Network binding (read this)
 

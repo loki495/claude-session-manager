@@ -63,14 +63,15 @@ The sticky footer shows session/weekly usage percentages sourced from
 `QuotaService::quota_from_statusline_state()` - a small block this app
 appends to your Claude Code statusLine script (`StatuslineMarkerService`'s
 `QUOTA_CAPTURE` block) writes account-wide `rate_limits.*` straight from
-Claude Code's own statusLine JSON to `QUOTA_LIVE_STATE_FILE` on every
-status-line render, event-driven, no scraping of any kind. `GET
-/quota.php` just reads that file back; `resets_at` is a real Unix epoch
-straight from Claude Code's own JSON, so the frontend can render a live
-countdown with no parsing needed. If the file doesn't exist yet (no
-session has rendered its status line with the marker installed), the
-footer just shows "Quota unavailable" - a nice-to-have, never a hard
-dependency for the rest of the app.
+Claude Code's own statusLine JSON to the `quota_live_state` key
+(`Config::quota_live_state_key()`, a `GlobalStateStore` row, not a file -
+see `host-agent/quota_live_state_write.php`) on every status-line render,
+event-driven, no scraping of any kind. `GET /quota.php` just reads that
+row back; `resets_at` is a real Unix epoch straight from Claude Code's own
+JSON, so the frontend can render a live countdown with no parsing needed.
+If the row doesn't exist yet (no session has rendered its status line with
+the marker installed), the footer just shows "Quota unavailable" - a
+nice-to-have, never a hard dependency for the rest of the app.
 
 An earlier design also had a live tmux-pane-scraping fallback, and beyond
 that an external `claude-quota`-shaped binary (a slow, 10-40s scrape of
@@ -540,8 +541,9 @@ entirely server/host-triggered - the `sessioneer-push-check` timer runs
 `host-agent/push_trigger.php` on an interval (default 10s), which compares
 each live session's current blocked/working/idle state
 (`NotificationContentBuilder::push_session_state()`) against what it was on
-the previous tick (`host-agent/state/push-session-state.json` by default,
-which also tracks *how long* a session has been in its current state) and
+the previous tick (`PushSessionStateStore`'s table in `push.sqlite` - see
+"Per-session/global state storage" below - which also tracks *how long* a
+session has been in its current state) and
 sends one of two notification types, only on the relevant transition
 (never every tick):
 
@@ -605,11 +607,9 @@ Stores already had before 2026-08-24:
   `pending_tools`).
 - `Config::push_sqlite_path()` (defaults to `host-agent/state/push.sqlite`,
   persisted, gitignored) - `PushSubscriptionStore`/`PushSessionStateStore`/
-  `PushQuotaStateStore`'s three tables. `quota-live-state.json` (written by
-  the shell statusLine script via `jq`, a different process entirely) is
-  deliberately NOT part of this DB - see `Config::push_sqlite_path()`'s own
-  docblock for why folding it in would trade one race for a worse
-  dependency/performance tradeoff.
+  `PushQuotaStateStore`'s three tables, plus `GlobalStateStore`'s single
+  `global_state` table (small single-blob concerns keyed by name, e.g.
+  `quota_live_state` - see "Usage quota footer" above).
 
 **Why**: `SessionStatusStore::update_status()`'s old read-json-merge-
 write-json had a real, confirmed-live (2026-08-23) lost-update race

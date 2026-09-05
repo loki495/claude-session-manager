@@ -150,8 +150,9 @@ in both places.
 - **PermissionRequest** (`host-agent/hooks/permission_request.php`),
   **UserPromptSubmit** (`host-agent/hooks/user_prompt_submit.php`), and
   **Stop** (`host-agent/hooks/stop.php`) — feed `SessionStatusStore`
-  (`HostAgent\Stores`, one `<session>.status.json` file per tracked session
-  under `Config::sidecar_dir()`) with mode/working-status/blocked-prompt
+  (`HostAgent\Stores`, the `session_status` table in
+  `Config::sessions_sqlite_path()`, one row per tracked session) with
+  mode/working-status/blocked-prompt
   state, inferred from hook SEQUENCE (`UserPromptSubmit` → working,
   `PermissionRequest` → blocked, `Stop` → idle, `PreToolUse` → also clears
   blocked). **Mandatory, not a
