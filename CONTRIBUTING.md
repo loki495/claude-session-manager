@@ -6,6 +6,11 @@ scope. Issues and PRs are welcome; this doc is the architecture/workflow
 reference for working on the code itself. For "how do I install and run
 this," see the README instead.
 
+For the current four-agent runtime map, write paths, hook/plugin sources, and
+ownership caveats, use [`docs/features.md`](docs/features.md). Several deep
+dives below intentionally describe the original Claude Code backend; they are
+not claims that every agent uses the same transport or signal source.
+
 ## Architecture: container + host-native agent
 
 The web UI runs in a Docker container, but **it never touches tmux or the
