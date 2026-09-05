@@ -285,12 +285,14 @@ that only `create_agent_session()`-spawned sessions have).
 
 ## Feature atlas
 
-`.ai/feature-atlas/` is the source of truth for this project's
-feature/subsystem inventory: one `DETAILS.md` + `AUDIT.md` per subsystem,
-plus `SUMMARY.md` (registry + digest) and `REPORT.md` (ranked, cross-subsystem
-findings). Read it before re-deriving feature boundaries from scratch, and
-run `/feature-atlas` after adding/removing or substantially changing a
-feature, or at minimum before a refactor spanning multiple subsystems.
+`.ai/feature-atlas/` (gitignored, maintainer-local — not published; run
+`/feature-atlas` to regenerate it if you need one) is the source of truth
+for this project's feature/subsystem inventory when present: one
+`DETAILS.md` + `AUDIT.md` per subsystem, plus `SUMMARY.md` (registry +
+digest) and `REPORT.md` (ranked, cross-subsystem findings). Read it before
+re-deriving feature boundaries from scratch, and run `/feature-atlas`
+after adding/removing or substantially changing a feature, or at minimum
+before a refactor spanning multiple subsystems.
 `/feature-atlas-subsystem <id>` refreshes one subsystem; `/feature-atlas-report`
 re-ranks existing audits without rescanning. Note that the atlas only reports
 feature attribution across files (a file can be listed under several
