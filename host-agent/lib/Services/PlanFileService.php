@@ -172,7 +172,16 @@ class PlanFileService
             return ['ok' => false, 'message' => 'Working directory no longer exists'];
         }
 
-        $path = $realDir . '/todo';
+        // realpath() before is_file(), so a `todo` symlink pointing outside the
+        // workdir is rejected rather than followed. is_file() alone resolves the
+        // link, so `todo -> /etc/passwd` read and returned the target's contents
+        // to the browser. Same discipline as resolve_plan_file_path() above,
+        // which this method's docblock always claimed to follow.
+        $path = realpath($realDir . '/todo');
+
+        if ($path === false || !str_starts_with($path, $realDir . '/')) {
+            return ['ok' => false, 'message' => 'No todo file in this session\'s working directory'];
+        }
 
         if (!is_file($path)) {
             return ['ok' => false, 'message' => 'No todo file in this session\'s working directory'];

@@ -520,9 +520,16 @@ class SessionService
         // hook's work within moments. all_tmux_panes() already enumerates
         // every session/pane regardless of name, so reuse the one call below
         // rather than issuing a second tmux query.
-        $allPanes = TmuxService::all_tmux_panes();
+        $allPanes = TmuxService::all_tmux_panes($tmuxListingOk);
         $liveSessionNames = array_values(array_unique(array_column($allPanes, 'session')));
-        SidecarStore::prune_orphaned_sidecars($liveSessionNames);
+
+        // Skip the prune entirely when the tmux query itself failed - an empty
+        // listing then means "could not ask", not "nothing is running", and
+        // pruning on it deletes every tracked session's row. A genuinely empty
+        // box still prunes, which is the case that needs to keep working.
+        if ($tmuxListingOk) {
+            SidecarStore::prune_orphaned_sidecars($liveSessionNames);
+        }
 
         $trackedPids = [];
         $sessions = [];

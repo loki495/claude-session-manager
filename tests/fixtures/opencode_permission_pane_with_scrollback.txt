@@ -1,25 +1,25 @@
   ┃                                                                               103 +         // The tab-bar options are the remaining words, but multi-
-  ┃                                                                                     word labels                                                             Feasibility of opencode separate
+  ┃                                                                                     word labels                                                             Example session title spanning
   ┃                                                                               104 +         // ("Allow once", "Allow always") are left-aligned and          commit
   ┃                                                                                     single-length -
   ┃                                                                               105 +         // they are separated by DASHES of spaces, not the single       Context
-  ┃                                                                                     spaces inside                                                           335,567 tokens
-  ┃                                                                               106 +         // a label. tokenize by runs of 2+ spaces.                      34% used
-  ┃                                                                               107 +         $optionTokens = preg_split('/\s{2,}/u', $tabWords);             $0.60 spent
+  ┃                                                                                     spaces inside                                                           120,000 tokens
+  ┃                                                                               106 +         // a label. tokenize by runs of 2+ spaces.                      12% used
+  ┃                                                                               107 +         $optionTokens = preg_split('/\s{2,}/u', $tabWords);             $0.12 spent
   ┃                                                                               108 +         $options = [];
   ┃                                                                               109 +         $number = 1;                                                    LSP
   ┃                                                                               110 +         foreach ($optionTokens as $token) {                             LSPs are disabled
   ┃                                                                               111 +             $token = trim($token);
   ┃                                                                               112 +             if ($token === '') {                                        ▼ Todo
-  ┃                                                                               113 +                 continue;                                               [✓] Research opencode.ai/docs/server
-  ┃                                                                               114 +             }                                                               for simplification opportunities
-  ┃                                                                               115 +             $options[] = ['number' => $number, 'label' => $token];      [•] Sidebar link per-session that
-  ┃                                                                               116 +             $number++;                                                      opens the cwd's todo file in
-  ┃                                                                               117 +         }                                                                   fullscreen modal
-  ┃                                                                               118 +                                                                         [ ] Implement model + mode in the
-  ┃                                                                               119 +         if ($options === []) {                                              footer
-  ┃                                                                               120 +             return null;                                                [✓] Append 'effort' dropdown backlog
-  ┃                                                                               121 +         }                                                                   note to todo file
+  ┃                                                                               113 +                 continue;                                               [✓] First example task
+  ┃                                                                               114 +             }                                                               with a wrapped second line
+  ┃                                                                               115 +             $options[] = ['number' => $number, 'label' => $token];      [•] Second example task, in
+  ┃                                                                               116 +             $number++;                                                      progress, also wrapping onto
+  ┃                                                                               117 +         }                                                                   another line
+  ┃                                                                               118 +                                                                         [ ] Third example task, not yet
+  ┃                                                                               119 +         if ($options === []) {                                              started
+  ┃                                                                               120 +             return null;                                                [✓] Fourth example task, done
+  ┃                                                                               121 +         }                                                                   earlier in the session
   ┃                                                                               122 +
   ┃                                                                               123 +         // Question: an "← Access ..." line if present (the thing
   ┃                                                                                     being
@@ -55,7 +55,7 @@
   ┃     84               if (!$inContent) {                                       150               if (!$inContent) {
   ┃     85                   continue;                                            151                   continue;
   ┃     86               }                                                        152               }
-  ┃     87 -             // Stop at the tab bar / footer.                         153 +             // Stop at the tab bar line (already captured $options
+  ┃     87 -             // Stop at the tab bar / started.                         153 +             // Stop at the tab bar line (already captured $options
   ┃                                                                                     above).
   ┃     88 -             if (strpos($line, 'Allow once') !== false && strpos(     154 +             if ($line === $tabLine) {
   ┃          $line, 'Reject') !== false) {
@@ -69,7 +69,7 @@
   ┃          renders the                                                                renders the
   ┃     95 -             // session cwd at the bottom-right, above the tab bar -  158 +             // session cwd at the bottom-right - chrome, not
   ┃          chrome, not                                                                content), and the
-  ┃     96 -             // part of what's being permitted).                      159 +             // OpenCode-version footer, and the bare "Patterns"/
+  ┃     96 -             // part of what's being permitted).                      159 +             // OpenCode-version started, and the bare "Patterns"/
   ┃                                                                                     dash list we
   ┃     97 -             if ($line === '~/.config/opencode') {                    160 +             // already surfaced via context below.
   ┃                                                                               161 +             if ($line === '~/.config/opencode' || strpos($line,
@@ -99,10 +99,10 @@
      + Thought: 2.1s
 
      This project's todo has no "admin center" audit item. Let me check if there's another project (OpenCart) with that audit, since the todo here is for
-     claude-session-manager.
+     legacy-shop.
 
   ┃
-  ┃  $ cd /home/user/www/claude-session-manager
+  ┃  $ cd /home/user/projects/legacy-shop
   ┃  echo "=== any admin-center/audit file in this repo ==="; grep -rliE "admin-center|admin center|admin_center" . --include="*.md" --include="*.txt" 2>/
   ┃  dev/null | grep -v node_modules | grep -v vendor | head
   ┃  echo ""; echo "=== current git root / project ==="; git remote -v 2>/dev/null | head -1
@@ -111,23 +111,23 @@
   ┃  === any admin-center/audit file in this repo ===
   ┃
   ┃  === current git root / project ===
-  ┃  origin  git@github.com:loki495/claude-session-manager.git (fetch)
+  ┃  origin  git@github.com:example/legacy-shop.git (fetch)
   ┃
   ┃  === sibling repos with opencart ===
-  ┃  adminer
-  ┃  backups
-  ┃  claude-session-manager
-  ┃  docus
+  ┃  legacy-shop
+  ┃  project-two
+  ┃  project-three
+  ┃  scratch
   ┃  …
   ┃
   ┃  Click to expand
   ┃
 
-     The "admin center" audit is from the OpenCart project, not this repo. Let me find it — likely retrogamingstores.com (the OpenCart project referenced
+     The "admin center" audit is from the OpenCart project, not this repo. Let me find it — likely shop-alpha.test (the OpenCart project referenced
      in my global context) or another OpenCart repo.
 
-     $ cd /home/user/www
-       for d in retrogamingstores.com pandoraplatinum.com retroplayers.club retrogamers.club; do
+     $ cd /home/user/projects
+       for d in shop-alpha.test shop-beta.test store-gamma.test store-delta.test; do
          if [ -d "$d" ]; then
            echo "=== $d ==="
            grep -rliE "admin.center|admin_center|admin center" "$d" --include="*.md" --include="*.php" 2>/dev/null | grep -v vendor | grep -v node_modules
@@ -144,7 +144,7 @@
   ┃
   ┃  - /home/user/www/*
   ┃
-  ┃                                                                                                                                                             ~/www/claude-session-manager:master
+  ┃                                                                                                                                                             ~/www/legacy-shop:master
   ┃   Confirm   Cancel                                                                                                            ⇆ select  enter confirm
   ┃                                                                                                                                                             • OpenCode 1.18.21
 

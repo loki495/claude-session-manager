@@ -181,9 +181,17 @@ class TmuxService
      *
      * @return array<int, array{session:string, title:?string}> keyed by pane_pid
      */
-    public static function all_tmux_panes(): array
+    public static function all_tmux_panes(?bool &$ok = null): array
     {
         $result = self::tmux_run(['list-panes', '-a', '-F', '#{session_name}|#{pane_pid}|#{pane_title}']);
+
+        // A failed query and a box with no sessions both used to come back as
+        // an empty array, which callers cannot tell apart. prune_orphaned_
+        // sidecars() treats "no live sessions" as authority to delete every
+        // tracked row, so one transient tmux failure during a dashboard poll
+        // wiped the whole tracking layer. $ok reports which case this was;
+        // callers that destroy state on an empty result must check it.
+        $ok = $result['exit'] === 0;
 
         if ($result['exit'] !== 0) {
             return [];
